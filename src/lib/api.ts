@@ -39,12 +39,23 @@ export async function safeFetch<T = any>(
 
     if (!isJson) {
       const text = await res.text().catch(() => '');
-      return {
-        ok: false,
-        status: res.status,
-        isJson: false,
-        error: `Server returned non-JSON response (${res.status}).`
-      };
+      try {
+        const parsed = JSON.parse(text);
+        return {
+          ok: res.ok,
+          status: res.status,
+          data: parsed,
+          isJson: true,
+          error: !res.ok ? (parsed?.error || `HTTP ${res.status}`) : undefined
+        };
+      } catch {
+        return {
+          ok: false,
+          status: res.status,
+          isJson: false,
+          error: `Server returned non-JSON response (${res.status}).`
+        };
+      }
     }
 
     const data = await res.json();
