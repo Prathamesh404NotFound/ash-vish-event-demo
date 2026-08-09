@@ -1,0 +1,6 @@
+{
+  "name": "Ash-vish Events",
+  "description": "Ash-vish Events - Premium event ticket booking platform for live concerts, comedy shows, sports, and festivals.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

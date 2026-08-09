@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+Allow: /events/
+Allow: /categories/
+Sitemap: https://ashvishevents.com/sitemap.xml

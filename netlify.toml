@@ -1,0 +1,16 @@
+[build]
+  publish = "dist"
+  command = "npm run build"
+
+# Proxy /api/* to Cloud Run / always-on Bun Express backend server
+[[redirects]]
+  from = "/api/*"
+  to = "https://ais-dev-ic33ibe3lcgrjqy6qdkija-130685679103.asia-southeast1.run.app/api/:splat"
+  status = 200
+  force = true
+
+# SPA fallback for client-side routing
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

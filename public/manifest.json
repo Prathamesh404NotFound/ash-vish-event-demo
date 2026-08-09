@@ -1,0 +1,21 @@
+{
+  "name": "Ash-vish Events",
+  "short_name": "AshEvents",
+  "description": "Premium Concert & Event Ticket Booking with Live QR Scanning and Seat Maps",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#070707",
+  "theme_color": "#D4AF37",
+  "icons": [
+    {
+      "src": "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&q=80&w=192&h=192",
+      "sizes": "192x192",
+      "type": "image/jpeg"
+    },
+    {
+      "src": "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&q=80&w=512&h=512",
+      "sizes": "512x512",
+      "type": "image/jpeg"
+    }
+  ]
+}

@@ -1,0 +1,142 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-heading: 'Cormorant Garamond', serif;
+    --font-sans: 'Inter', sans-serif;
+    --bg-main: #070707;
+    --surface: #121212;
+    --surface-secondary: #1A1A1A;
+    --accent: #D4AF37;
+    --accent-hover: #F3E5AB;
+    --gold-primary: #D4AF37;
+    --gold-secondary: #C5A059;
+    --gold-light: #F3E5AB;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background-color: var(--bg-main);
+    color: #F3F4F6;
+    overflow-x: hidden;
+  }
+
+  h1, h2, h3, h4, h5, h6, .font-heading {
+    font-family: var(--font-heading);
+  }
+}
+
+/* Custom Utilities */
+@utility font-heading {
+  font-family: 'Space Grotesk', sans-serif;
+}
+
+@utility bg-surface {
+  background-color: #121212;
+}
+
+@utility bg-surface-secondary {
+  background-color: #1A1A1A;
+}
+
+@utility text-gold {
+  color: #D4AF37;
+}
+
+@utility text-gold-light {
+  color: #F3E5AB;
+}
+
+@utility bg-gold {
+  background-color: #D4AF37;
+}
+
+@utility bg-gold-gradient {
+  background: linear-gradient(135deg, #F3E5AB 0%, #D4AF37 50%, #AA771C 100%);
+}
+
+@utility text-gold-gradient {
+  background: linear-gradient(135deg, #FFF6D6 0%, #D4AF37 50%, #996515 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+@utility border-gold {
+  border-color: rgba(212, 175, 55, 0.35);
+}
+
+/* Custom Card Shadows & Layer Depth with Luxury Gold Feel */
+.card-depth {
+  background: #121212;
+  border: 1px solid rgba(212, 175, 55, 0.15);
+  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.9), 0 0 1px 1px rgba(212, 175, 55, 0.08) inset;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.card-depth:hover {
+  transform: translateY(-4px);
+  border-color: rgba(212, 175, 55, 0.45);
+  box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.95), 0 0 25px -5px rgba(212, 175, 55, 0.25);
+}
+
+.card-gold-luxury {
+  background: linear-gradient(145deg, #141414 0%, #0D0D0D 100%);
+  border: 1px solid rgba(212, 175, 55, 0.3);
+  box-shadow: 0 15px 35px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(243, 229, 171, 0.2);
+}
+
+.glass-nav {
+  background: rgba(10, 10, 10, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid rgba(212, 175, 55, 0.2);
+}
+
+/* Hide scrollbar for chrome, safari and opera */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+/* Hide scrollbar for IE, Edge and Firefox */
+.no-scrollbar {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+/* Ticket Perforation styling */
+.ticket-edge-left {
+  position: relative;
+}
+.ticket-edge-left::before {
+  content: '';
+  position: absolute;
+  left: -12px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 24px;
+  background-color: #070707;
+  border-radius: 50%;
+  z-index: 10;
+}
+
+.ticket-edge-right {
+  position: relative;
+}
+.ticket-edge-right::after {
+  content: '';
+  position: absolute;
+  right: -12px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 24px;
+  background-color: #070707;
+  border-radius: 50%;
+  z-index: 10;
+}
+
+/* Pulse Glow */
+.glow-gold {
+  box-shadow: 0 0 30px rgba(212, 175, 55, 0.35);
+}
+

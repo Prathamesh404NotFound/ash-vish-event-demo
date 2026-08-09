@@ -1,0 +1,75 @@
+{
+  "rules": {
+    "users": {
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || root.child('staff').child(auth.uid).child('role').val() === 'admin')",
+        ".write": "auth != null && (auth.uid === $uid || root.child('staff').child(auth.uid).child('role').val() === 'admin')"
+      }
+    },
+    "staff": {
+      ".read": "auth != null && root.child('staff').child(auth.uid).exists()",
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || root.child('staff').child(auth.uid).exists())",
+        ".write": "auth != null && (root.child('staff').child(auth.uid).child('role').val() === 'admin' || auth.uid === $uid)"
+      }
+    },
+    "events": {
+      ".read": true,
+      "$eventId": {
+        ".write": "auth != null"
+      }
+    },
+    "coupons": {
+      ".read": "auth != null",
+      "$code": {
+        ".write": "auth != null"
+      }
+    },
+    "bookings": {
+      ".read": "auth != null && root.child('staff').child(auth.uid).exists()",
+      "$bookingId": {
+        ".read": "auth != null && (data.child('userId').val() === auth.uid || root.child('staff').child(auth.uid).exists())",
+        ".write": "auth != null && (newData.child('userId').val() === auth.uid || root.child('staff').child(auth.uid).exists() || data.child('userId').val() === auth.uid)"
+      }
+    },
+    "tickets": {
+      ".read": "auth != null && root.child('staff').child(auth.uid).exists()",
+      "$ticketId": {
+        ".read": "auth != null && (root.child('staff').child(auth.uid).exists() || data.child('ownerId').val() === auth.uid)",
+        ".write": "auth != null && (newData.child('ownerId').val() === auth.uid || root.child('staff').child(auth.uid).exists() || data.child('ownerId').val() === auth.uid)"
+      }
+    },
+    "seats": {
+      "$eventId": {
+        ".read": true,
+        "$seatId": {
+          ".write": "auth != null && (root.child('staff').child(auth.uid).exists() || (newData.child('status').val() === 'held' && newData.child('heldBy').val() === auth.uid) || (newData.child('status').val() === 'booked' && (newData.child('bookedBy').val() === auth.uid || data.child('heldBy').val() === auth.uid)) || (newData.child('status').val() === 'available') || (newData.val() === null && data.child('heldBy').val() === auth.uid))"
+        }
+      }
+    },
+    "pending_orders": {
+      "$orderId": {
+        ".read": "auth != null && (data.child('userId').val() === auth.uid || root.child('staff').child(auth.uid).exists())",
+        ".write": "auth != null"
+      }
+    },
+    "processed_orders": {
+      "$orderId": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    },
+    "organizers": {
+      ".read": true,
+      "$organizerId": {
+        ".write": "auth != null"
+      }
+    },
+    "reviews": {
+      ".read": true,
+      "$reviewId": {
+        ".write": "auth != null"
+      }
+    }
+  }
+}
