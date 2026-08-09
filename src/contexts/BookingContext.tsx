@@ -729,11 +729,14 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, [user?.role, user?.id]);
 
   const validateCouponServer = async (code: string, eventId: string, amount: number) => {
+    const codeUpper = code.trim().toUpperCase();
+
+    // 1. Try server API
     try {
       const res = await safeFetch('/api/coupons/validate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ couponCode: code, eventId, totalAmount: amount })
+        body: JSON.stringify({ couponCode: codeUpper, eventId, totalAmount: amount })
       });
       if (res.ok && res.data?.valid) {
         return {
@@ -742,22 +745,84 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
           finalAmount: res.data.finalAmount,
           coupon: res.data.coupon
         };
-      } else {
+      } else if (res.isJson && res.data && res.data.error) {
         return {
           valid: false,
           discountAmount: 0,
           finalAmount: amount,
-          error: res.error || 'Invalid or inapplicable coupon code'
+          error: res.data.error
         };
       }
     } catch (err: any) {
+      console.warn('Server coupon validation API skipped/failed:', err);
+    }
+
+    // 2. Client-side + RTDB fallback validation
+    let coupon: Coupon | undefined = coupons.find(c => c.code === codeUpper);
+
+    if (!coupon) {
+      try {
+        const snap = await rtdbGet(`coupons/${codeUpper}`);
+        if (snap.data) {
+          coupon = snap.data as Coupon;
+        }
+      } catch (e) {
+        console.warn('RTDB coupon fetch warning:', e);
+      }
+    }
+
+    if (!coupon || !coupon.isActive) {
       return {
         valid: false,
         discountAmount: 0,
         finalAmount: amount,
-        error: err.message || 'Server coupon validation failed'
+        error: 'Invalid or inactive coupon code.'
       };
     }
+
+    if (coupon.validUntil && new Date(coupon.validUntil) < new Date()) {
+      return {
+        valid: false,
+        discountAmount: 0,
+        finalAmount: amount,
+        error: `Coupon expired on ${coupon.validUntil}.`
+      };
+    }
+
+    if (coupon.usageLimit && coupon.usedCount !== undefined && coupon.usedCount >= coupon.usageLimit) {
+      return {
+        valid: false,
+        discountAmount: 0,
+        finalAmount: amount,
+        error: 'Coupon usage limit reached!'
+      };
+    }
+
+    if (coupon.eventId && eventId && coupon.eventId !== eventId) {
+      return {
+        valid: false,
+        discountAmount: 0,
+        finalAmount: amount,
+        error: 'This coupon is restricted to a specific event.'
+      };
+    }
+
+    const rawAmount = Number(amount) || 0;
+    let discountAmount = 0;
+    if (coupon.type === 'percentage') {
+      discountAmount = Math.round((rawAmount * coupon.value) / 100);
+    } else if (coupon.type === 'fixed') {
+      discountAmount = Math.min(rawAmount, coupon.value);
+    }
+
+    const finalAmount = Math.max(0, rawAmount - discountAmount);
+
+    return {
+      valid: true,
+      discountAmount,
+      finalAmount,
+      coupon
+    };
   };
 
   const getAuthHeaders = async (): Promise<HeadersInit> => {
