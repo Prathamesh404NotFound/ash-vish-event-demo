@@ -2321,7 +2321,7 @@ export async function createApp() {
       }
 
       const event = req.body;
-      if (event && event.event === "order.paid") {
+      if (event && (event.event === "order.paid" || event.event === "payment.authorized" || event.event === "payment.captured")) {
         const paymentEntity = event.payload?.payment?.entity;
         const orderId = paymentEntity?.order_id;
         if (orderId) {

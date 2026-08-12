@@ -197,14 +197,71 @@ export const useRazorpay = (enabled: boolean = true) => {
             },
           };
 
+          let bootstrapFailed = false;
+          const errorHandler = (msg: string) => {
+            if (bootstrapFailed) return;
+            bootstrapFailed = true;
+            setIsLoading(false);
+            setError(msg);
+            if (options.onFailure) options.onFailure(msg);
+          };
           const rzp = new window.Razorpay(rzpOptions);
           rzp.on('payment.failed', function (resp: any) {
-            setIsLoading(false);
-            const failMsg = resp.error?.description || 'Payment Failed or Cancelled';
-            setError(failMsg);
-            if (options.onFailure) options.onFailure(failMsg);
+            errorHandler(resp.error?.description || 'Payment failed or was cancelled.');
           });
-          rzp.open();
+          // Razorpay's modal bootstrap fetches /preferences asynchronously and
+          // can fail (e.g. 400 from the preferences endpoint when the session
+          // token expires). If it throws synchronously or the modal errors out,
+          // the promise from open() rejects — catch it so the buyer is never
+          // stuck on "Processing Payment...". On first failure, retry ONCE with
+          // a freshly created order, because the session token is bound to the
+          // order and a stale token cannot be refreshed on the same order.
+          let didRetry = false;
+          const openModal = async (): Promise<boolean> => {
+            try {
+              const opened = rzp.open();
+              if (opened && typeof (opened as any).catch === 'function') {
+                try {
+                  await opened;
+                  return true;
+                } catch {
+                  return false;
+                }
+              }
+              return true;
+            } catch {
+              return false;
+            }
+          };
+          const ok = await openModal();
+          if (!ok && !didRetry && backendAvailable) {
+            didRetry = true;
+            const retryRes = await safeFetch('/api/razorpay/create-order', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'X-Session-Id': (typeof getSessionId === 'function' ? getSessionId() : '') },
+              body: JSON.stringify({
+                eventId: options.eventId,
+                tierId: options.tierId,
+                seatIds: options.seatIds || [],
+                quantity: options.quantity || 1,
+                couponCode: options.couponCode,
+                customerName: options.customerDetails.name,
+                customerEmail: options.customerDetails.email,
+                customerPhone: options.customerDetails.phone,
+                userId: options.userId,
+                ...(options.reservationId ? { reservationId: options.reservationId } : {}),
+              }),
+            });
+            if (retryRes.ok && retryRes.data?.success) {
+              rzpOptions.order_id = retryRes.data.orderId;
+              rzpOptions.amount = retryRes.data.amountInPaise;
+              await openModal();
+            } else {
+              errorHandler('Payment window could not be opened. Please try again.');
+            }
+          } else if (!ok) {
+            errorHandler('Payment window could not be opened. Please try again.');
+          }
         } else {
           // No Razorpay SDK or no key — simulate sandbox payment directly
           console.log('Running Sandbox Razorpay Flow (no SDK / no key).');
