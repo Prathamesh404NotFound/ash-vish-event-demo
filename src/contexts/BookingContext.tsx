@@ -713,14 +713,12 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const fetchCoupons = async () => {
     try {
-      const res = await safeFetch('/api/coupons', {
-        headers: await getAuthHeaders(),
-      });
-      if (res.ok && res.data?.coupons) {
-        setCoupons(res.data.coupons);
+      const snap = await rtdbGet('coupons');
+      if (snap.data && typeof snap.data === 'object') {
+        setCoupons(Object.values(snap.data) as Coupon[]);
       }
     } catch (err) {
-      console.warn('Failed to fetch coupons from server:', err);
+      console.warn('Failed to fetch coupons from RTDB:', err);
     }
   };
 
@@ -986,14 +984,59 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const fetchAllReviewsForAdmin = async () => {
     try {
-      const res = await safeFetch('/api/admin/reviews', {
-        headers: await getAuthHeaders(),
-      });
-      if (res.ok && res.data?.reviews) {
-        setReviews(res.data.reviews);
+      const snap = await rtdbGet('reviews');
+      if (snap.data && typeof snap.data === 'object') {
+        const reviewsList = Object.values(snap.data) as EventReview[];
+        if (reviewsList.length > 0) {
+          setReviews(reviewsList);
+          return;
+        }
       }
+      // Seed default reviews into RTDB if empty, so updates persist across refreshes
+      const defaultReviews: EventReview[] = [
+        {
+          id: "rev_101",
+          eventId: "evt_001",
+          userId: "usr_mock_1",
+          userName: "Ananya Sharma",
+          userAvatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&q=80&w=200",
+          rating: 5,
+          comment: "An incredible concert! Sound clarity and stage visual lighting were world-class.",
+          createdAt: "2026-07-20T14:32:00Z",
+          status: "published",
+          isVerifiedBuyer: true,
+        },
+        {
+          id: "rev_102",
+          eventId: "evt_001",
+          userId: "usr_mock_2",
+          userName: "Rahul Verma",
+          userAvatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=200",
+          rating: 5,
+          comment: "Best live performance in Mumbai this year! Gate scanning took less than 10 seconds.",
+          createdAt: "2026-07-21T09:15:00Z",
+          status: "published",
+          isVerifiedBuyer: true,
+        },
+        {
+          id: "rev_103",
+          eventId: "evt_002",
+          userId: "usr_mock_3",
+          userName: "Priya Nair",
+          userAvatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=200",
+          rating: 4,
+          comment: "Hilarious comedy special! Non-stop laughs from start to finish.",
+          createdAt: "2026-07-28T18:40:00Z",
+          status: "published",
+          isVerifiedBuyer: true,
+        }
+      ];
+      for (const rev of defaultReviews) {
+        await rtdbSet(`reviews/${rev.id}`, rev);
+      }
+      setReviews(defaultReviews);
     } catch (err) {
-      console.warn('Failed to fetch admin reviews:', err);
+      console.warn('RTDB reviews fetch notice:', err);
     }
   };
 
@@ -1014,75 +1057,57 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   ) => {
     try {
       const isVerified = myTickets.some(t => t.eventId === eventId);
-      const res = await safeFetch(`/api/events/${eventId}/reviews`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          rating,
-          comment,
-          userName: userName || 'Music Fan',
-          userAvatar,
-          isVerifiedBuyer: isVerified
-        })
-      });
-      if (res.ok) {
-        await fetchAllReviewsForAdmin();
-        showToast('Review submitted successfully!', 'success');
-        return true;
-      }
-      showToast(res.error || `Failed to submit review. Status: ${res.status}`, 'error');
-      return false;
+      const newReview: EventReview = {
+        id: `rev_${Date.now()}`,
+        eventId,
+        userId: auth.currentUser?.uid || `usr_${Date.now()}`,
+        userName: userName || 'Music Fan',
+        userAvatar,
+        rating,
+        comment,
+        createdAt: new Date().toISOString(),
+        status: 'published',
+        isVerifiedBuyer: isVerified,
+      };
+      await rtdbSet(`reviews/${newReview.id}`, newReview);
+      setReviews(prev => [newReview, ...prev]);
+      showToast('Review submitted successfully!', 'success');
+      return true;
     } catch (err: any) {
-      showToast(`Network error submitting review: ${err.message}`, 'error');
+      showToast(`Failed to submit review: ${err.message}`, 'error');
       return false;
     }
   };
 
   const toggleReviewVisibility = async (reviewId: string) => {
-    setReviews(prev => prev.map(r => r.id === reviewId ? { ...r, status: r.status === 'published' ? 'hidden' : 'published' } : r));
     const target = reviews.find(r => r.id === reviewId);
     const newStatus = target && target.status === 'published' ? 'hidden' : 'published';
-
-    try {
-      const res = await safeFetch('/api/admin/reviews/toggle-visibility', {
-        method: 'POST',
-        headers: await getAuthHeaders(),
-        body: JSON.stringify({ reviewId })
-      });
-      if (res.ok) return;
-    } catch (err) {
-      console.warn('Toggle review visibility API warning:', err);
-    }
-
+    // Optimistic update
+    setReviews(prev => prev.map(r => r.id === reviewId ? { ...r, status: newStatus as 'published' | 'hidden' } : r));
     try {
       if (target) {
         await rtdbSet(`reviews/${reviewId}`, { ...target, status: newStatus });
+        showToast(`Review ${newStatus === 'hidden' ? 'hidden' : 'published'}.`, 'success');
       }
     } catch (e) {
-      console.warn('RTDB review status update warning:', e);
+      console.warn('RTDB review visibility update warning:', e);
+      // Revert on failure
+      setReviews(prev => prev.map(r => r.id === reviewId ? { ...r, status: target?.status || 'published' } : r));
     }
   };
 
   const deleteReview = async (reviewId: string) => {
+    const snapshot = reviews.find(r => r.id === reviewId);
+    // Optimistic remove from UI
     setReviews(prev => prev.filter(r => r.id !== reviewId));
-    try {
-      const res = await safeFetch(`/api/admin/reviews/${reviewId}`, {
-        method: 'DELETE',
-        headers: await getAuthHeaders(),
-      });
-      if (res.ok) {
-        showToast('Review removed.', 'info');
-        return;
-      }
-    } catch (err) {
-      console.warn('Delete review API warning:', err);
-    }
-
     try {
       await rtdbDelete(`reviews/${reviewId}`);
       showToast('Review removed.', 'info');
-    } catch (e) {
+    } catch (e: any) {
       console.warn('RTDB delete review warning:', e);
+      // Restore if delete failed
+      if (snapshot) setReviews(prev => [snapshot, ...prev]);
+      showToast('Failed to delete review. Please try again.', 'error');
     }
   };
 
@@ -1090,14 +1115,20 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const fetchOrganizers = async () => {
     try {
-      const res = await safeFetch('/api/organizers', {
-        headers: await getAuthHeaders(),
-      });
-      if (res.ok && res.data?.organizers) {
-        setOrganizers(res.data.organizers);
+      const snap = await rtdbGet('organizers');
+      if (snap.data && typeof snap.data === 'object') {
+        const list = Object.values(snap.data) as OrganizerAccount[];
+        if (list.length > 0) {
+          setOrganizers(list);
+          return;
+        }
+      }
+      // Seed DEMO_ORGANIZERS into RTDB if empty, so changes persist across refreshes
+      for (const org of DEMO_ORGANIZERS) {
+        await rtdbSet(`organizers/${org.id}`, org);
       }
     } catch (err) {
-      console.warn('Failed to fetch organizers:', err);
+      console.warn('RTDB organizers fetch notice (using defaults):', err);
     }
   };
 
@@ -1129,21 +1160,6 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setOrganizers(prev => [newOrg, ...prev]);
 
     try {
-      const res = await safeFetch('/api/organizers/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(orgData),
-      });
-      if (res.ok) {
-        await fetchOrganizers();
-        showToast('Organizer registration submitted successfully!', 'success');
-        return true;
-      }
-    } catch (err: any) {
-      console.warn('Register organizer API warning:', err);
-    }
-
-    try {
       await rtdbSet(`organizers/${orgId}`, newOrg);
       showToast('Organizer registration submitted successfully!', 'success');
       return true;
@@ -1155,31 +1171,29 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const updateOrganizerStatus = async (organizerId: string, status: 'approved' | 'rejected') => {
     const updatedApprovedAt = status === 'approved' ? new Date().toISOString() : undefined;
+    // Optimistic update
     setOrganizers(prev => prev.map(o => o.id === organizerId ? { ...o, status, approvedAt: updatedApprovedAt || o.approvedAt } : o));
 
-    try {
-      const res = await safeFetch('/api/organizers/status', {
-        method: 'POST',
-        headers: await getAuthHeaders(),
-        body: JSON.stringify({ organizerId, status }),
-      });
-      if (res.ok || (res.data && res.data.success)) {
-        showToast(`Organizer ${status} successfully.`, 'success');
-        return;
-      }
-    } catch (err: any) {
-      console.warn('Update organizer status API warning:', err);
+    const targetOrg = organizers.find(o => o.id === organizerId || o.userId === organizerId);
+    if (!targetOrg) {
+      showToast(`Organizer ${status} (local only).`, 'info');
+      return;
     }
 
+    const updatedOrg: OrganizerAccount = {
+      ...targetOrg,
+      status,
+      ...(status === 'approved' ? { approvedAt: updatedApprovedAt } : {}),
+    };
+
     try {
-      const targetOrg = organizers.find(o => o.id === organizerId || o.userId === organizerId);
-      if (targetOrg) {
-        const updatedOrg = { ...targetOrg, status, ...(status === 'approved' ? { approvedAt: updatedApprovedAt } : {}) };
-        await rtdbSet(`organizers/${organizerId}`, updatedOrg);
-      }
+      await rtdbSet(`organizers/${organizerId}`, updatedOrg);
       showToast(`Organizer ${status} successfully.`, 'success');
-    } catch (e) {
-      showToast(`Organizer ${status} successfully.`, 'success');
+    } catch (e: any) {
+      console.warn('RTDB organizer status update warning:', e);
+      // Revert optimistic update on failure
+      setOrganizers(prev => prev.map(o => o.id === organizerId ? targetOrg : o));
+      showToast(`Failed to update organizer status. Please try again.`, 'error');
     }
   };
 
