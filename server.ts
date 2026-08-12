@@ -4,9 +4,9 @@ import crypto from "crypto";
 import dotenv from "dotenv";
 dotenv.config();
 
-import { verifyFirebaseIdToken, TokenVerificationError } from "./src/lib/verify-token";
-import { rtdbGet, rtdbSet, rtdbUpdate, rtdbDelete, rtdbTransaction } from "./src/lib/rtdb";
-import { getFirebaseAdminIdToken } from "./src/lib/identity-admin";
+import { verifyFirebaseIdToken, TokenVerificationError } from "./src/lib/verify-token.js";
+import { rtdbGet, rtdbSet, rtdbUpdate, rtdbDelete, rtdbTransaction } from "./src/lib/rtdb.js";
+import { getFirebaseAdminIdToken } from "./src/lib/identity-admin.js";
 
 const SERVER_HMAC_SECRET = process.env.SERVER_HMAC_SECRET || "ASH_VISH_SECURE_HMAC_KEY_2026";
 
