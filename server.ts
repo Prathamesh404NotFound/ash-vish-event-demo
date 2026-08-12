@@ -6,20 +6,18 @@ dotenv.config();
 
 import { verifyFirebaseIdToken, TokenVerificationError } from "./src/lib/verify-token";
 import { rtdbGet, rtdbSet, rtdbUpdate, rtdbDelete, rtdbTransaction } from "./src/lib/rtdb";
-import { getGoogleOAuthAccessToken, getFirebaseAdminIdToken, setUserCustomClaims } from "./src/lib/identity-admin";
+import { getFirebaseAdminIdToken } from "./src/lib/identity-admin";
 
 const SERVER_HMAC_SECRET = process.env.SERVER_HMAC_SECRET || "ASH_VISH_SECURE_HMAC_KEY_2026";
 
+// Server-side admin auth is a plain REST flow (service-account signed custom
+// token exchanged via signInWithCustomToken). No Firebase Admin SDK is used.
 async function getAdminAuthToken(): Promise<string | undefined> {
   try {
     return await getFirebaseAdminIdToken();
   } catch (err: any) {
-    try {
-      return await getGoogleOAuthAccessToken();
-    } catch (gErr: any) {
-      console.warn("[ADMIN AUTH] Unable to get Firebase Admin auth token:", err.message, gErr.message);
-      return undefined;
-    }
+    console.warn("[ADMIN AUTH] Unable to get Firebase Admin auth token:", err.message);
+    return undefined;
   }
 }
 
