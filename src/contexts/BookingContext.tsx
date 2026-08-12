@@ -630,10 +630,15 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setCurrentCheckout({ event, tier, quantity, selectedSeats });
     // A fresh checkout must always start at the Tickets step, never inherit a
     // saved step from a previous flow (bookingStep persists to localStorage).
-    setBookingStep(1);
-    setReviewConfirmed(false);
-    setQuote(null);
-    setReservation(null);
+    // But an in-flight update (e.g. picking seats on the seat map) must NEVER
+    // reset the step or tear down the reservation — that is what threw users
+    // out of the seat-selection phase back to step 1 on every seat click.
+    if (!currentCheckout || currentCheckout.event.id !== event.id) {
+      setBookingStep(1);
+      setReviewConfirmed(false);
+      setQuote(null);
+      setReservation(null);
+    }
   };
 
   const clearCheckout = () => {

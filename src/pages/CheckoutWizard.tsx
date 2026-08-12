@@ -35,10 +35,6 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
   } = ctx;
   const { user } = useAuth();
 
-  const {
-    processRazorpayPayment, isLoading: isRazorpayLoading, error: razorpayError,
-  } = useRazorpay();
-
   const [isProcessing, setIsProcessing] = useState(false);
   const [submitError, setSubmitError] = useState<string>('');
 
@@ -89,6 +85,10 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
   const attendeeStep = seatSelectionStep + 1;
   const reviewStep = attendeeStep + 1;
   const paymentStep = reviewStep + 1;
+
+  const {
+    processRazorpayPayment, isLoading: isRazorpayLoading, error: razorpayError,
+  } = useRazorpay(bookingStep === paymentStep);
 
   const originalTotalPrice = tier.price * quantity;
   // If the server returned a quote, it is the payment authority (includes coupon).

@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { safeFetch } from '../lib/api';
 
 declare global {
@@ -33,14 +33,19 @@ export interface RazorpayOptions {
   onCancel?: () => void;
 }
 
-export const useRazorpay = () => {
+export const useRazorpay = (enabled: boolean = true) => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isScriptLoaded, setIsScriptLoaded] = useState(false);
 
-  // Load Razorpay Checkout SDK Script
+  // Load the Razorpay Checkout SDK only when the payment step is actually
+  // reached. Eager loading caused Razorpay's own preload hints to fire for
+  // chunks that its CDN no longer serves (403 Forbidden warnings on
+  // checkout-static-next.razorpay.com) on pages where payment never happens.
+  const enabledRef = React.useRef(enabled);
+  enabledRef.current = enabled;
   useEffect(() => {
-    if (window.Razorpay) {
+    if (!enabledRef.current || window.Razorpay) {
       setIsScriptLoaded(true);
       return;
     }
@@ -50,7 +55,7 @@ export const useRazorpay = () => {
     script.onload = () => setIsScriptLoaded(true);
     script.onerror = () => setError('Failed to load Razorpay payment gateway SDK.');
     document.body.appendChild(script);
-  }, []);
+  }, [enabled]);
 
   const processRazorpayPayment = useCallback(
     async (options: RazorpayOptions) => {
