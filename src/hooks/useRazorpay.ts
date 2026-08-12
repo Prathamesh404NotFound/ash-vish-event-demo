@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { safeFetch } from '../lib/api';
+import { getSessionId } from '../contexts/BookingContext';
 
 declare global {
   interface Window {
@@ -97,7 +98,7 @@ export const useRazorpay = (enabled: boolean = true) => {
         // binding it to the atomic seat reservation if one exists.
         const orderRes = await safeFetch('/api/razorpay/create-order', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'X-Session-Id': (typeof getSessionId === 'function' ? getSessionId() : '') },
           body: JSON.stringify({
             eventId: options.eventId,
             tierId: options.tierId,
@@ -145,7 +146,7 @@ export const useRazorpay = (enabled: boolean = true) => {
                   // 3. Server-side HMAC Signature Verification + seat finalization
                   const verifyRes = await safeFetch('/api/razorpay/verify-payment', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'X-Session-Id': (typeof getSessionId === 'function' ? getSessionId() : '') },
                     body: JSON.stringify({
                       razorpay_order_id: response.razorpay_order_id,
                       razorpay_payment_id: response.razorpay_payment_id,
@@ -213,7 +214,7 @@ export const useRazorpay = (enabled: boolean = true) => {
           if (backendAvailable) {
             const verifyRes = await safeFetch('/api/razorpay/verify-payment', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: { 'Content-Type': 'application/json', 'X-Session-Id': (typeof getSessionId === 'function' ? getSessionId() : '') },
               body: JSON.stringify({
                 razorpay_order_id: orderId,
                 razorpay_payment_id: mockPaymentId,

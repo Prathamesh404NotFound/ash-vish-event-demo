@@ -1279,11 +1279,17 @@ export async function createApp() {
         return { ownerId: verified.uid, authenticated: true, uid: verified.uid, role };
       }
     }
-    // Guest session identity: derived from a header + IP + UA, stable per session, never user-supplied as identity.
+    // Guest session identity: based on the stable X-Session-Id header. The old
+    // composite scheme (IP|UA|sessionId) was flaky behind Vercel's edge proxy
+    // because req.ip varies between requests — it is kept as a legacy candidate
+    // so reservations created under the old scheme still resolve during use.
     const headerSession = (req.headers["x-session-id"] as string)?.slice(0, 64) || "";
+    const sessionIdGuest = headerSession
+      ? "guest_" + crypto.createHash("sha256").update(headerSession).digest("hex").slice(0, 16)
+      : "";
     const raw = `${req.ip || req.socket?.remoteAddress || "unknown"}|${req.headers["user-agent"] || "unknown"}|${headerSession}`;
-    const guestId = "guest_" + crypto.createHash("sha256").update(raw).digest("hex").slice(0, 16);
-    return { ownerId: guestId, authenticated: false };
+    const legacyCompositeGuest = "guest_" + crypto.createHash("sha256").update(raw).digest("hex").slice(0, 16);
+    return { ownerId: sessionIdGuest || legacyCompositeGuest, authenticated: false };
   }
 
   app.post("/api/reservations", async (req, res) => {
@@ -2119,9 +2125,12 @@ export async function createApp() {
           return res.status(409).json({ success: false, error: "Seat reservation not found. Please re-select your seats." });
         }
         const headerSession = (req.headers["x-session-id"] as string)?.slice(0, 64) || "";
+        const sessionIdGuest = headerSession
+          ? "guest_" + crypto.createHash("sha256").update(headerSession).digest("hex").slice(0, 16)
+          : "";
         const raw = `${req.ip || req.socket?.remoteAddress || "unknown"}|${req.headers["user-agent"] || "unknown"}|${headerSession}`;
-        const expectedGuest = "guest_" + crypto.createHash("sha256").update(raw).digest("hex").slice(0, 16);
-        const isOwner = rec.ownerId === (userId || "anon_user") || rec.ownerId === expectedGuest;
+        const legacyCompositeGuest = "guest_" + crypto.createHash("sha256").update(raw).digest("hex").slice(0, 16);
+        const isOwner = rec.ownerId === (userId || "anon_user") || rec.ownerId === sessionIdGuest || rec.ownerId === legacyCompositeGuest;
         if (rec.status !== "active" || !isOwner) {
           return res.status(409).json({ success: false, error: "Seat reservation is no longer active. Please re-select your seats." });
         }
