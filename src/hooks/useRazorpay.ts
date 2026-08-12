@@ -55,6 +55,36 @@ export const useRazorpay = (enabled: boolean = true) => {
     script.onload = () => setIsScriptLoaded(true);
     script.onerror = () => setError('Failed to load Razorpay payment gateway SDK.');
     document.body.appendChild(script);
+
+    // Permanently silence Razorpay's stale preload hints.
+    // checkout.js injects <link rel="modulepreload|preload"> tags pointing at
+    // checkout-static-next.razorpay.com chunks that its CDN no longer serves
+    // to non-allowlisted domains (403 Forbidden in the console on window.load).
+    // They are pure hints — the SDK loads everything it actually needs via the
+    // entry script — so removing them has zero functional impact. A
+    // MutationObserver strips them the instant they are injected, before the
+    // browser ever fetches them, which is the only reliable way to remove
+    // warnings that originate inside Razorpay's own SDK code.
+    const stripRazorpayPreloads = () => {
+      document.querySelectorAll('link[rel="modulepreload"][href*="checkout-static-next.razorpay.com"], link[rel="preload"][href*="checkout-static-next.razorpay.com"]').forEach((el) => el.remove());
+    };
+    stripRazorpayPreloads();
+    const observer = new MutationObserver((mutations) => {
+      for (const m of mutations) {
+        for (const node of m.addedNodes) {
+          const el = node as Element;
+          if (
+            el.tagName === 'LINK' &&
+            ((el.getAttribute('rel') || '').includes('preload') || (el.getAttribute('rel') || '').includes('modulepreload')) &&
+            String(el.getAttribute('href') || '').includes('checkout-static-next.razorpay.com')
+          ) {
+            el.remove();
+          }
+        }
+      }
+    });
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+    return () => observer.disconnect();
   }, [enabled]);
 
   const processRazorpayPayment = useCallback(
