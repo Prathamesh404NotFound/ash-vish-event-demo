@@ -1,7 +1,6 @@
 import express from "express";
 import path from "path";
 import crypto from "crypto";
-import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
 dotenv.config();
 
@@ -2307,6 +2306,10 @@ export async function createApp() {
   });
 
   if (process.env.NODE_ENV !== "production") {
+    // Lazy import: the `vite` package must NOT be resolved in the Vercel
+    // serverless module graph (it fails under @vercel/node and crashes the
+    // function with FUNCTION_INVOCATION_FAILED on every route).
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
