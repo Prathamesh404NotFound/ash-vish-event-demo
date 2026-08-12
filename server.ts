@@ -2181,7 +2181,7 @@ export async function createApp() {
           // sandbox order so checkout is never dead-ended.
           cfData = null;
         }
-        if (cfResponse.ok && cfData && cfData.payment_session_id) {
+        if (cfResponse.ok && cfData && cfData.payment_session_id && !cfData.code) {
           await rtdbSet(`pending_orders/${cfOrderId}`, {
             eventId,
             tierId,
@@ -2211,15 +2211,25 @@ export async function createApp() {
             orderToken: cfData.order_token || "",
           });
         }
-        // Cashfree rejected the order creation (auth/env issue, etc.) — fall
-        // through to the local sandbox order so checkout is never dead-ended,
-        // but log the failure for debugging.
+        // Cashfree rejected the order creation (auth/env issue, etc.) — return
+        // an explicit error so the buyer can retry with a real gateway order
+        // instead of silently degrading to a no-payment checkout.
         console.warn("[cashfree] Order creation failed:", cfResponse.status, JSON.stringify(cfData)?.slice(0, 300));
+        return res.status(502).json({
+          success: false,
+          error:
+            "Cashfree could not open a payment session right now. Please try again — you will be redirected to the secure Cashfree payment page.",
+          retryable: true,
+        });
       }
 
-            // Local sandbox order (gateway unreachable or no API keys configured) —
-      // demo flow only. Preserve the reservation binding and a locally
-      // generated payment session id so the verify step can still finalize.
+      // Cashfree API keys are not configured on the server at all — the only
+      // situation where silent degradation remains, because no real gateway
+      // order is possible until the env vars are set.
+      if (!appId || !secretKey) {
+        // Local sandbox order (demo flow only). Preserve the reservation
+        // binding and a locally generated payment session id so the verify
+        // step can still finalize.
       const sandboxSessionId = `sandbox_${cfOrderId}`;
       await rtdbSet(`pending_orders/${cfOrderId}`, {
         eventId,
@@ -2247,6 +2257,7 @@ export async function createApp() {
         paymentSessionId: sandboxSessionId,
         orderToken: "",
       });
+      }
     } catch (err: any) {
       console.error("Cashfree Order Creation Error:", err);
       return res.status(500).json({ success: false, error: err.message || "Failed to create payment order" });

@@ -68,24 +68,40 @@ export const useCashfree = (enabled: boolean = true) => {
         // 1. Server calculates the exact amount and creates the Cashfree order,
         // binding it to the atomic seat reservation if one exists. The server
         // returns a payment_session_id that opens the Cashfree checkout.
-        const orderRes = await safeFetch('/api/cashfree/create-order', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Session-Id': (typeof getSessionId === 'function' ? getSessionId() : '') },
-          body: JSON.stringify({
-            eventId: options.eventId,
-            tierId: options.tierId,
-            seatIds: options.seatIds || [],
-            quantity: options.quantity || 1,
-            couponCode: options.couponCode,
-            customerName: options.customerDetails.name,
-            customerEmail: options.customerDetails.email,
-            customerPhone: options.customerDetails.phone,
-            userId: options.userId,
-            ...(options.reservationId ? { reservationId: options.reservationId } : {}),
-          }),
-        });
+        // Transient gateway hiccups are retried up to 2 times before giving up,
+        // because the Cashfree sandbox API occasionally geo-blocks requests
+        // and a retry almost always succeeds — we never want to silently
+        // complete a booking without the buyer actually paying.
+        let orderRes: any = null;
+        let lastOrderError: string | null = null;
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            orderRes = await safeFetch('/api/cashfree/create-order', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'X-Session-Id': (typeof getSessionId === 'function' ? getSessionId() : '') },
+              body: JSON.stringify({
+                eventId: options.eventId,
+                tierId: options.tierId,
+                seatIds: options.seatIds || [],
+                quantity: options.quantity || 1,
+                couponCode: options.couponCode,
+                customerName: options.customerDetails.name,
+                customerEmail: options.customerDetails.email,
+                customerPhone: options.customerDetails.phone,
+                userId: options.userId,
+                ...(options.reservationId ? { reservationId: options.reservationId } : {}),
+              }),
+            });
+            if (orderRes.ok && (orderRes.data?.success || orderRes.data?.paymentSessionId)) break;
+            lastOrderError = orderRes.data?.error || `Gateway error (HTTP ${orderRes.status})`;
+          } catch (e: any) {
+            lastOrderError = e?.message || 'Network error contacting the payment server';
+            orderRes = null;
+          }
+          if (attempt === 0) await new Promise(r => setTimeout(r, 1500));
+        }
 
-        const backendAvailable = orderRes.ok && orderRes.data?.success;
+        const backendAvailable = !!orderRes && orderRes.ok && orderRes.data?.success;
         const orderId = backendAvailable ? orderRes.data.orderId : `cf_demo_${Date.now()}`;
         const paymentSessionId = backendAvailable ? orderRes.data.paymentSessionId : '';
         const serverCalculatedAmount = backendAvailable ? orderRes.data.serverCalculatedAmount : options.amount;
@@ -97,7 +113,16 @@ export const useCashfree = (enabled: boolean = true) => {
         const isSandboxSession = !paymentSessionId || String(paymentSessionId).startsWith('sandbox_');
 
         if (!backendAvailable) {
-          console.warn('Cashfree backend unavailable — running client-side sandbox flow.');
+          // The payment server could not open a real Cashfree session (gateway
+          // down, keys missing, etc.) — surface a clear error instead of
+          // silently completing the booking without any payment.
+          setIsLoading(false);
+          const msg = lastOrderError
+            ? `Could not reach the payment gateway: ${lastOrderError} Please try again.`
+            : 'Cashfree is temporarily unavailable. Please try again in a moment.';
+          setError(msg);
+          if (options.onFailure) options.onFailure(msg);
+          return;
         }
 
         // 2. Open the Cashfree embedded checkout, or simulate a sandbox payment.
@@ -138,6 +163,17 @@ export const useCashfree = (enabled: boolean = true) => {
             paymentSessionId: paymentSessionId,
             redirectTarget: '_self' as const,
           };
+          // If the Cashfree SDK method is missing for any reason (rare), the
+          // buyer still reaches the hosted payment page via a plain URL
+          // redirect rather than a dead-end checkout.
+          if (typeof cfInstance?.checkout !== 'function') {
+            const isProdGateway = mode === 'production';
+            const hostedUrl = isProdGateway
+              ? `https://payments.cashfree.com/order/${paymentSessionId}`
+              : `https://payments-test.cashfree.com/order/${paymentSessionId}`;
+            window.location.href = hostedUrl;
+            return;
+          }
           // Cashfree's `checkout()` can still fail with a 400
           // `payment_session_id_invalid` (expired/stale session token) AFTER
           // redirecting the browser. Capture it via a one-time error listener.
