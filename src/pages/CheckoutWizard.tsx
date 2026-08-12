@@ -7,7 +7,7 @@ import { formatINR } from '../utils/formatters';
 import { ref, get } from 'firebase/database';
 import { rtdb } from '../lib/firebase';
 import { SeatMap } from '../components/SeatMap';
-import { useRazorpay } from '../hooks/useRazorpay';
+import { useCashfree } from '../hooks/useCashfree';
 import { safeFetch, getApiUrl } from '../lib/api';
 
 interface CheckoutWizardProps {
@@ -87,8 +87,9 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
   const paymentStep = reviewStep + 1;
 
   const {
-    processRazorpayPayment, isLoading: isRazorpayLoading, error: razorpayError,
-  } = useRazorpay(bookingStep === paymentStep);
+    processCashfreePayment, resumeAfterRedirect,
+    isLoading: isPaymentLoading, error: paymentError,
+  } = useCashfree(bookingStep === paymentStep);
 
   const originalTotalPrice = tier.price * quantity;
   // If the server returned a quote, it is the payment authority (includes coupon).
@@ -99,6 +100,57 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
   const serverTotal = serverTotalMinor !== undefined ? Math.round(serverTotalMinor / 100) : Math.max(0, originalTotalPrice - discountAmount);
   const serverDiscount = serverDiscountMinor !== undefined ? Math.round(serverDiscountMinor / 100) : discountAmount;
   const serverSubtotal = serverSubtotalMinor !== undefined ? Math.round(serverSubtotalMinor / 100) : originalTotalPrice;
+
+  // ------------------------------------------------------------------
+  // Cashfree hosted-checkout return handling
+  // ------------------------------------------------------------------
+  // Cashfree's hosted page redirects the browser back to us with
+  // ?order_id=... appended. Re-hydrate the pending payment and complete
+  // server verification before the user interacts with anything else.
+  const returnHandledRef = useRef(false);
+  useEffect(() => {
+    if (bookingStep !== paymentStep || returnHandledRef.current) return;
+    const params = new URLSearchParams(window.location.search);
+    const returnedOrderId = params.get('order_id');
+    if (!returnedOrderId) return;
+    returnHandledRef.current = true;
+    // Remove the query param from the URL so a refresh doesn't re-trigger.
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('order_id');
+      url.searchParams.delete('order_status');
+      window.history.replaceState({}, document.title, url.toString());
+    } catch { /* noop */ }
+    resumeAfterRedirect(returnedOrderId, {
+      onSuccess: async (result) => {
+        try {
+          setIsProcessing(true);
+          let confirmedTicket;
+          if (result.ticket && result.booking) {
+            confirmedTicket = confirmServerPurchasedTicket(result.ticket, result.booking);
+          } else {
+            confirmedTicket = await confirmPurchase(
+              { name: attendeeName, email: attendeeEmail, phone: attendeePhone },
+              'cashfree',
+              user?.id
+            );
+          }
+          await sendConfirmationEmail(confirmedTicket);
+          setIsProcessing(false);
+          resetBookingFlow();
+          onSuccess();
+        } catch (confirmErr) {
+          console.error('Error confirming purchase after payment return:', confirmErr);
+          setSubmitError('Payment returned, but ticket registration failed. Please contact support.');
+          setIsProcessing(false);
+        }
+      },
+      onFailure: (errMsg) => handlePaymentFailure(errMsg),
+    }).catch(() => {
+      /* errors surfaced via paymentError */
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bookingStep]);
 
   // ------------------------------------------------------------------
   // Reservation lifecycle effects
@@ -438,7 +490,7 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
     }
 
     try {
-      await processRazorpayPayment({
+      await processCashfreePayment({
         amount: serverTotal,
         eventId: event.id,
         tierId: tier.id,
@@ -451,7 +503,7 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
         onSuccess: async (result) => {
           try {
             setIsProcessing(true);
-            // The server verified the Razorpay signature and finalized the seat
+            // The server verified the Cashfree signature and finalized the seat
             // claim atomically in the verify-payment handler.
             let confirmedTicket;
             if (result.ticket && result.booking) {
@@ -459,7 +511,7 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
             } else {
               confirmedTicket = await confirmPurchase(
                 { name: attendeeName, email: attendeeEmail, phone: attendeePhone },
-                'razorpay',
+                'cashfree',
                 user?.id
               );
             }
@@ -477,7 +529,7 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
         onFailure: (errMsg) => handlePaymentFailure(errMsg),
       });
     } catch (err: any) {
-      console.error('Razorpay process error:', err);
+      console.error('Cashfree process error:', err);
       handlePaymentFailure(err?.message || 'Payment execution failed.');
     }
   };
@@ -485,7 +537,7 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
   // ------------------------------------------------------------------
   // Derived UI helpers
   // ------------------------------------------------------------------
-  const isBusy = isProcessing || isRazorpayLoading;
+  const isBusy = isProcessing || isPaymentLoading;
   const stepsMeta = useMemo(
     () => [
       { n: FIRST_STEP, label: 'Tickets' },
@@ -883,9 +935,9 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
             <h3 className="font-heading font-bold text-lg text-white">Select Payment Gateway</h3>
             <div className="p-4 rounded-2xl border border-[#D4AF37] bg-[#1C1C1C] flex flex-col gap-2">
               <span className="text-xs font-bold text-white flex items-center gap-2">
-                <CreditCard className="w-4 h-4 text-emerald-400" /> Razorpay
+                <CreditCard className="w-4 h-4 text-emerald-400" /> Cashfree
               </span>
-              <p className="text-[11px] text-gray-400">Razorpay — UPI, Cards, Netbanking &amp; Wallets</p>
+              <p className="text-[11px] text-gray-400">Cashfree — UPI, Cards, Netbanking &amp; Wallets</p>
             </div>
           </div>
 
@@ -916,11 +968,11 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
         </div>
       )}
 
-      {/* Razorpay Gateway Test Mode Notice */}
-      {razorpayError && (
+      {/* Cashfree Gateway Error Notice */}
+      {paymentError && (
         <div className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-start gap-2">
           <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-          <span>{razorpayError}</span>
+          <span>{paymentError}</span>
         </div>
       )}
     </div>
