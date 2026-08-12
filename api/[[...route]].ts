@@ -1,16 +1,42 @@
 // Vercel serverless entry: mount the full Express application under /api.
-// @vercel/node v3 supports default-exporting an Express app; it handles the
-// request/response bridging automatically.
-import { createApp } from "../server";
+// Lazy-loaded on first request so module-load crashes are catchable and
+// returned as JSON diagnostics instead of FUNCTION_INVOCATION_FAILED.
+import type { IncomingMessage, ServerResponse } from "http";
 
-const appPromise = createApp();
+type AppLike = { handle: (req: any, res: any, next?: any) => void };
 
-// Register an explicit /api 404 catch-all so unmatched API paths return JSON
-// instead of falling through to the static index.html handler.
-appPromise.then((app) => {
-  app.all("/api/*", (_req, res) => {
-    res.status(404).json({ success: false, error: "API endpoint not found" });
-  });
-});
+let appPromise: Promise<AppLike> | null = null;
+let loadError: Error | null = null;
 
-export default appPromise;
+function loadApp(): Promise<AppLike> {
+  if (appPromise) return appPromise;
+  if (loadError) return Promise.reject(loadError);
+  appPromise = import("../server")
+    .then((mod) => (mod as any).createApp())
+    .catch((err) => {
+      loadError = err;
+      return Promise.reject(err);
+    });
+  return appPromise;
+}
+
+export default async function handler(
+  req: IncomingMessage,
+  res: ServerResponse
+) {
+  try {
+    const app = await loadApp();
+    return app.handle(req, res);
+  } catch (err: any) {
+    res.statusCode = 500;
+    res.setHeader("Content-Type", "application/json");
+    res.end(
+      JSON.stringify({
+        success: false,
+        error: "Server initialization failed",
+        detail: err?.message || String(err),
+        stack: err?.stack || null,
+      })
+    );
+  }
+}
