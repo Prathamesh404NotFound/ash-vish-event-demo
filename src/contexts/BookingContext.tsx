@@ -94,6 +94,7 @@ interface BookingContextType {
   toggleFavorite: (eventId: string) => void;
   selectTicketsForCheckout: (event: EventItem, tier: TicketTier, quantity: number, selectedSeats?: string[]) => void;
   clearCheckout: () => void;
+  resetBookingFlow: () => void;
   releaseHeldSeats: (eventId: string, seatIds: string[]) => Promise<void>;
   confirmPurchase: (attendeeDetails: { name: string; email: string; phone: string }, paymentMethod: string, ownerId?: string) => Promise<Ticket>;
   confirmServerPurchasedTicket: (ticket: any, booking: any) => Ticket;
@@ -197,8 +198,34 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // NEW PRODUCTION BOOKING FLOW STATE
   // ============================================================
   const [bookingStep, setBookingStep] = useState<number>(() => {
+    // Never blindly trust the saved step: a stale value from a previous
+    // (completed/abandoned) flow must not fling the user to the last phase on
+    // refresh. A restored step is only honored when the checkout session AND a
+    // matching reservation also survived the reload.
     const saved = localStorage.getItem('ash_vish_booking_step');
-    return saved ? parseInt(saved, 10) : 1;
+    let restored = saved ? parseInt(saved, 10) : 1;
+    if (!Number.isFinite(restored) || restored < 1 || restored > 5) restored = 1;
+    try {
+      const session = localStorage.getItem('ash_vish_current_checkout');
+      const resv = localStorage.getItem('ash_vish_reservation');
+      const hasCheckout = Boolean(session);
+      const hasActiveReservation = (() => {
+        if (!resv) return false;
+        const p = JSON.parse(resv);
+        if (['cancelled', 'expired', 'released', 'confirmed'].includes(p?.status || '')) return false;
+        if (p?.expiresAt && Date.now() > p.expiresAt) return false;
+        if (session && p?.eventId) {
+          const s = JSON.parse(session);
+          return s?.event?.id === p.eventId;
+        }
+        return false;
+      })();
+      if (!hasCheckout) return 1;
+      if (!hasActiveReservation && restored > 2) restored = 2;
+    } catch {
+      restored = 1;
+    }
+    return restored;
   });
   const [seatProjection, setSeatProjection] = useState<Record<string, { status: string; heldBy?: string; expiresAt?: number; bookedAt?: number }>>({});
   const [seatsConnected, setSeatsConnected] = useState<boolean>(true);
@@ -643,6 +670,21 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const clearCheckout = () => {
     setCurrentCheckout(null);
+    resetBookingFlow();
+  };
+
+  /** Wipe the in-flight wizard state and its localStorage trail.
+   *  Used after a successful purchase so a refresh cannot resurrect a stale
+   *  flow and fling the user back to the last (payment) phase. */
+  const resetBookingFlow = () => {
+    setBookingStep(1);
+    setReservation(null);
+    setQuote(null);
+    setReviewConfirmed(false);
+    try {
+      localStorage.removeItem('ash_vish_booking_step');
+      localStorage.removeItem('ash_vish_reservation');
+    } catch { /* storage unavailable */ }
   };
 
   const releaseHeldSeats = async (eventId: string, seatIds: string[]) => {
@@ -1631,6 +1673,7 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         toggleFavorite,
         selectTicketsForCheckout,
         clearCheckout,
+        resetBookingFlow,
         releaseHeldSeats,
         confirmPurchase,
         confirmServerPurchasedTicket,

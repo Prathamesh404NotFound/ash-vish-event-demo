@@ -31,7 +31,7 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
     seatProjection, seatsConnected, reservation, quote, setQuote,
     reviewConfirmed, setReviewConfirmed, pendingSeatCount, reservationError,
     createReservation, refreshReservation, cancelReservation, setAttendeeDetails,
-    confirmPurchase, confirmServerPurchasedTicket, selectTicketsForCheckout, releaseHeldSeats, validateCouponServer,
+    confirmPurchase, confirmServerPurchasedTicket, selectTicketsForCheckout, releaseHeldSeats, validateCouponServer, resetBookingFlow,
   } = ctx;
   const { user } = useAuth();
 
@@ -466,6 +466,7 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
 
             await sendConfirmationEmail(confirmedTicket);
             setIsProcessing(false);
+            resetBookingFlow();
             onSuccess();
           } catch (confirmErr) {
             console.error('Error confirming purchase after payment:', confirmErr);
