@@ -82,11 +82,17 @@ export const SeatMap: React.FC<SeatMapProps> = ({
       heldBy === currentUserId ||
       (typeof reservationOwnerId === 'string' && heldBy === reservationOwnerId) ||
       (typeof sessionId === 'string' && heldBy === sessionId);
+    // Seats this buyer has selected locally are always theirs — even before the
+    // server identity (reservationOwnerId) has synced into this component, the
+    // server's heldBy can carry a guest hash that matches nothing client-side.
+    // Only seats held by the server AND NOT locally owned by this buyer are
+    // considered 'taken by another'.
     const projectionHeld = new Set(
       (Object.entries(seatProjection) as [string, { status: string; heldBy?: string; expiresAt?: number; bookedAt?: number }][])
         .filter(
-          ([, s]) =>
+          ([seatId, s]) =>
             s.status === 'held' && s.heldBy && !isMyHold(s.heldBy) &&
+            !localHeldSeats.includes(seatId) &&
             (!s.expiresAt || s.expiresAt > now)
         )
         .map(([seatId]) => seatId)
@@ -115,10 +121,13 @@ export const SeatMap: React.FC<SeatMapProps> = ({
       if (proj.status === 'booked' || proj.status === 'sold') return { status: 'booked', isMine: false };
       if (proj.status === 'held' && !expired) {
         const sessionId = (window as any).__SESSION_ID as string | undefined;
+        // Locally selected seats are always ours — the server identity may lag
+        // a render behind, and the heldBy guest hash would match nothing.
         const isMine =
+          localHeldSeats.includes(seatId) ||
           (proj.heldBy || '') === currentUserId ||
           (typeof reservationOwnerId === 'string' && (proj.heldBy || '') === reservationOwnerId) ||
-          localHeldSeats.includes(seatId);
+          (typeof sessionId === 'string' && (proj.heldBy || '') === sessionId);
         return { status: 'held', isMine };
       }
       if (localHeldSeats.includes(seatId)) return { status: 'held', isMine: true };
@@ -136,9 +145,10 @@ export const SeatMap: React.FC<SeatMapProps> = ({
       }
       const sessionId = (window as any).__SESSION_ID as string | undefined;
       const isMine =
+        localHeldSeats.includes(seatId) ||
         node.heldBy === currentUserId ||
         (typeof reservationOwnerId === 'string' && node.heldBy === reservationOwnerId) ||
-        localHeldSeats.includes(seatId);
+        (typeof sessionId === 'string' && node.heldBy === sessionId);
       return { status: 'held', isMine };
     }
     return { status: node.status, isMine: false };
