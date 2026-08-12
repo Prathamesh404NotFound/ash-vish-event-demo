@@ -7,7 +7,7 @@ import { formatINR } from '../utils/formatters';
 import { ref, get } from 'firebase/database';
 import { rtdb } from '../lib/firebase';
 import { SeatMap } from '../components/SeatMap';
-import { useCashfree } from '../hooks/useCashfree';
+import { useRazorpay } from '../hooks/useRazorpay';
 import { safeFetch, getApiUrl } from '../lib/api';
 
 interface CheckoutWizardProps {
@@ -36,9 +36,8 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
   const { user } = useAuth();
 
   const {
-    payWithCashfree, isLoading: isCashfreeLoading, error: cashfreeError,
-    pendingOrder, confirmPendingOrder, cancelPendingOrder,
-  } = useCashfree();
+    processRazorpayPayment, isLoading: isRazorpayLoading, error: razorpayError,
+  } = useRazorpay();
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [submitError, setSubmitError] = useState<string>('');
@@ -439,10 +438,8 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
     }
 
     try {
-      await payWithCashfree({
+      await processRazorpayPayment({
         amount: serverTotal,
-        orderId: `cf_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-        customerDetails: { name: attendeeName, email: attendeeEmail, phone: attendeePhone },
         eventId: event.id,
         tierId: tier.id,
         seatIds: reservation.seatIds,
@@ -450,18 +447,19 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
         reservationId: reservation.reservationId,
         userId: user?.id || 'anon_user',
         couponCode: quoteAppliedCoupon?.code || undefined,
+        customerDetails: { name: attendeeName, email: attendeeEmail, phone: attendeePhone },
         onSuccess: async (result) => {
           try {
             setIsProcessing(true);
-            const verifyRes = await safeFetch(`/api/cashfree/verify-order/${result.orderId}`);
-
+            // The server verified the Razorpay signature and finalized the seat
+            // claim atomically in the verify-payment handler.
             let confirmedTicket;
-            if (verifyRes.ok && verifyRes.data?.success && verifyRes.data?.ticket && verifyRes.data?.booking) {
-              confirmedTicket = confirmServerPurchasedTicket(verifyRes.data.ticket, verifyRes.data.booking);
+            if (result.ticket && result.booking) {
+              confirmedTicket = confirmServerPurchasedTicket(result.ticket, result.booking);
             } else {
               confirmedTicket = await confirmPurchase(
                 { name: attendeeName, email: attendeeEmail, phone: attendeePhone },
-                'cashfree',
+                'razorpay',
                 user?.id
               );
             }
@@ -478,7 +476,7 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
         onFailure: (errMsg) => handlePaymentFailure(errMsg),
       });
     } catch (err: any) {
-      console.error('Cashfree process error:', err);
+      console.error('Razorpay process error:', err);
       handlePaymentFailure(err?.message || 'Payment execution failed.');
     }
   };
@@ -486,7 +484,7 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
   // ------------------------------------------------------------------
   // Derived UI helpers
   // ------------------------------------------------------------------
-  const isBusy = isProcessing || isCashfreeLoading;
+  const isBusy = isProcessing || isRazorpayLoading;
   const stepsMeta = useMemo(
     () => [
       { n: FIRST_STEP, label: 'Tickets' },
@@ -884,9 +882,9 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
             <h3 className="font-heading font-bold text-lg text-white">Select Payment Gateway</h3>
             <div className="p-4 rounded-2xl border border-[#D4AF37] bg-[#1C1C1C] flex flex-col gap-2">
               <span className="text-xs font-bold text-white flex items-center gap-2">
-                <CreditCard className="w-4 h-4 text-emerald-400" /> Cashfree PG
+                <CreditCard className="w-4 h-4 text-emerald-400" /> Razorpay
               </span>
-              <p className="text-[11px] text-gray-400">Cashfree PG, Instant UPI &amp; Wallets</p>
+              <p className="text-[11px] text-gray-400">Razorpay — UPI, Cards, Netbanking &amp; Wallets</p>
             </div>
           </div>
 
@@ -904,10 +902,10 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
               </>
             )}
           </button>
-          {(submitError || cashfreeError) && (
+          {submitError && (
             <div className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-start gap-2">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-              <span>{submitError || cashfreeError}</span>
+              <span>{submitError}</span>
             </div>
           )}
           <div className="flex items-center justify-center gap-2 text-[11px] text-gray-400 text-center">
@@ -917,52 +915,11 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
         </div>
       )}
 
-      {/* Cashfree Gateway Sandbox Verification Modal */}
-      {pendingOrder && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
-          <div className="bg-[#181818] border border-[#D4AF37]/40 rounded-3xl p-6 sm:p-8 max-w-md w-full space-y-6 shadow-2xl relative">
-            <div className="flex items-center justify-between border-b border-white/10 pb-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#10B981] to-[#059669] flex items-center justify-center text-white font-black text-sm shadow-md">CF</div>
-                <div>
-                  <h3 className="text-base font-bold text-white">Cashfree PG Gateway</h3>
-                  <p className="text-xs text-emerald-400 font-mono">Sandbox Verification Mode</p>
-                </div>
-              </div>
-              <span className="px-2.5 py-1 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] font-bold rounded-lg">Active Session</span>
-            </div>
-            <div className="space-y-3 bg-[#121212] p-4 rounded-2xl border border-white/5 text-xs text-gray-300">
-              <div className="flex justify-between">
-                <span className="text-gray-400">Cashfree Order ID:</span>
-                <span className="font-mono text-white font-semibold truncate max-w-[180px]">{pendingOrder.orderId}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-400">Customer:</span>
-                <span className="text-white font-semibold">{pendingOrder.customerDetails.name}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-400">Phone:</span>
-                <span className="text-white font-semibold">{pendingOrder.customerDetails.phone}</span>
-              </div>
-              <div className="flex justify-between pt-2 border-t border-white/10">
-                <span className="text-gray-400 font-bold">Total Amount:</span>
-                <span className="text-[#D4AF37] font-extrabold text-sm">{formatINR(pendingOrder.amount)}</span>
-              </div>
-            </div>
-            <p className="text-[11px] text-gray-400 leading-relaxed text-center">
-              Your Cashfree session ID <code className="text-[#D4AF37] font-mono">{pendingOrder.paymentSessionId.slice(0, 16)}...</code> was generated. Click below to confirm test payment and receive your instant digital pass.
-            </p>
-            <div className="space-y-3">
-              <button type="button" onClick={confirmPendingOrder}
-                className="w-full py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:brightness-110 active:scale-[0.99] text-white font-bold text-sm flex items-center justify-center gap-2 shadow-lg cursor-pointer">
-                <ShieldCheck className="w-5 h-5" /> Simulate Cashfree Success
-              </button>
-              <button type="button" onClick={cancelPendingOrder}
-                className="w-full py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white text-xs font-semibold cursor-pointer">
-                Cancel Payment
-              </button>
-            </div>
-          </div>
+      {/* Razorpay Gateway Test Mode Notice */}
+      {razorpayError && (
+        <div className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-start gap-2">
+          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+          <span>{razorpayError}</span>
         </div>
       )}
     </div>

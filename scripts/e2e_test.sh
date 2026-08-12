@@ -76,15 +76,16 @@ AD=$(curl -s -X POST "$BASE/api/reservations/$R1_ID/attendee" -H 'Content-Type: 
   -d '{"name":"E2E Tester","email":"e2e@example.com","phone":"9000011122"}')
 check "attendee saved" "e2e@example.com" "$AD"
 
-echo "=== 9. Payment create-order (cashfree) binds reservation ==="
-PO=$(curl -s -X POST "$BASE/api/cashfree/create-order" -H 'Content-Type: application/json' -H "X-Session-Id: $S1" \
-  -d "{\"eventId\":\"$EV\",\"tierId\":\"tier_vip\",\"quantity\":1,\"seatIds\":[\"$SEAT3\"],\"customerName\":\"E2E Tester\",\"customerEmail\":\"e2e@example.com\",\"customerPhone\":\"9000011122\",\"reservationId\":\"$R1_ID\",\"orderId\":\"e2e_cf_$RAND1\"}")
-check "cashfree order created" '"success":true' "$PO"
-PO_ID=$(echo "$PO" | python3 -c "import sys,json;print(json.load(sys.stdin)['order_id'])")
+echo "=== 9. Razorpay create-order binds reservation ==="
+PO=$(curl -s -X POST "$BASE/api/razorpay/create-order" -H 'Content-Type: application/json' -H "X-Session-Id: $S1" \
+  -d "{\"eventId\":\"$EV\",\"tierId\":\"tier_vip\",\"quantity\":1,\"seatIds\":[\"$SEAT3\"],\"customerName\":\"E2E Tester\",\"customerEmail\":\"e2e@example.com\",\"customerPhone\":\"9000011122\",\"reservationId\":\"$R1_ID\",\"orderId\":\"e2e_rzp_$RAND1\"}")
+check "razorpay order created" '"success":true' "$PO"
+PO_ID=$(echo "$PO" | python3 -c "import sys,json;print(json.load(sys.stdin)['orderId'])")
 echo "  orderId=$PO_ID"
 
-echo "=== 10. Payment verify-order finalizes (sandbox e2e bypass) ==="
-VERIFY=$(curl -s -H "X-Cashfree-E2E: 1" "$BASE/api/cashfree/verify-order/$PO_ID")
+echo "=== 10. Razorpay verify-payment finalizes (sandbox mode: isSandbox:true skips HMAC) ==="
+VERIFY=$(curl -s -X POST "$BASE/api/razorpay/verify-payment" -H 'Content-Type: application/json' \
+  -d "{\"razorpay_order_id\":\"$PO_ID\",\"razorpay_payment_id\":\"pay_e2e_$RAND1\",\"razorpay_signature\":\"sig_e2e\",\"isSandbox\":true,\"eventId\":\"$EV\",\"seatIds\":[\"$SEAT3\"]}")
 check "payment verified+finalized" '"success":true' "$VERIFY"
 check "payment verified flag present" '"verified":true' "$VERIFY"
 TICKET_ID=$(echo "$VERIFY" | python3 -c "import sys,json;print(json.load(sys.stdin).get('ticket',{}).get('id',''))" 2>/dev/null || echo "?")
@@ -95,7 +96,8 @@ SEAT=$(npx tsx scripts/get_seat_status.ts "$EV" "R2-C1" 2>/dev/null || echo "?")
 check "SEAT3 booked" "booked" "$SEAT"
 
 echo "=== 12. Re-verify same payment idempotent ==="
-V2=$(curl -s -H "X-Cashfree-E2E: 1" "$BASE/api/cashfree/verify-order/$PO_ID")
+V2=$(curl -s -X POST "$BASE/api/razorpay/verify-payment" -H 'Content-Type: application/json' \
+  -d "{\"razorpay_order_id\":\"$PO_ID\",\"razorpay_payment_id\":\"pay_e2e_$RAND1\",\"razorpay_signature\":\"sig_e2e\",\"isSandbox\":true,\"eventId\":\"$EV\",\"seatIds\":[\"$SEAT3\"]}")
 check "re-verify idempotent" '"verified":true' "$V2"
 
 echo "=== 13. Session C tries now-booked SEAT3 -> conflict ==="
