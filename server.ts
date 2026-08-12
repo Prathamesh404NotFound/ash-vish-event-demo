@@ -323,10 +323,26 @@ async function claimSeatsAtomically(
 ): Promise<{ committed: boolean; error?: string }> {
   for (const seatId of seatIds) {
     const path = `seats/${eventId}/${seatId}`;
+    let lastStatus: string | undefined;
     const res = await rtdbTransaction(path, (seat: any) => {
+      lastStatus = seat?.status;
       const now = Date.now();
       const expiresAt = seat?.holdExpiresAt || (seat?.heldAt ? seat.heldAt + RESERVATION_HOLD_TTL_MS : 0);
       const isExpired = expiresAt > 0 && now > expiresAt;
+      // Same buyer holding this seat in ANOTHER active reservation (e.g. a stale
+      // attempt) gets auto-migrated to the current reservation instead of failing.
+      if (seat?.status === "held" && seat.heldBy === ownerId && !isExpired && seat.reservationId !== reservationId) {
+        return {
+          ...seat,
+          status: "held",
+          heldBy: ownerId,
+          reservationId,
+          heldAt: seat.heldAt || now,
+          holdExpiresAt: Math.max(now + RESERVATION_HOLD_TTL_MS, seat.holdExpiresAt || now),
+          statusChangedAt: now,
+          statusChangedBy: "reservation",
+        };
+      }
       const elgible =
         !seat ||
         seat.status === "available" ||
@@ -368,7 +384,15 @@ async function claimSeatsAtomically(
           return seat;
         }, authToken).catch(() => {});
       }
-      return { committed: false, error: `Seat ${seatIdLabel(seatId)} is held by another buyer or is no longer available.` };
+      // Give the user a precise reason instead of the generic catch-all.
+      const label = seatIdLabel(seatId);
+      let error = `Seat ${label} is no longer available.`;
+      if (lastStatus === "booked" || lastStatus === "sold") {
+        error = `Seat ${label} has already been purchased. Please choose a different seat.`;
+      } else if (lastStatus === "held") {
+        error = `Seat ${label} is currently held by another buyer. Please choose a different seat.`;
+      }
+      return { committed: false, error };
     }
   }
   return { committed: true };

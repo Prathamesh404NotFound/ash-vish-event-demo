@@ -23,5 +23,5 @@ curl -s "$RTDB/seats/$EID/$SEAT.json"
 echo
 
 echo "-- 3. release"
-curl -s -X POST "$BASE/api/reservations/$RID/release" -H "Content-Type: application/json" -H "X-Session-Id: $SESSION"
+curl -s -X POST "$BASE/api/reservations/$RID" -H "Content-Type: application/json" -H "X-Session-Id: $SESSION"
 echo
