@@ -2149,36 +2149,52 @@ export async function createApp() {
 
       if (appId && secretKey) {
         // Real Cashfree order: header-based auth (x-client-id / x-client-secret / x-api-version).
-        const cfResponse = await fetch(`${cfBaseUrl}/pg/orders`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-api-version": "2025-01-01",
-            "x-client-id": appId,
-            "x-client-secret": secretKey,
+        // The sandbox API intermittently burst-blocks requests (rate limits,
+        // CDN geo-filters), so retry the creation with short backoff before
+        // giving up — the frontend also retries, so a transient blip almost
+        // never reaches the buyer.
+        const cfOrderBody = JSON.stringify({
+          order_amount: Math.round(amountInPaise) / 100,
+          order_currency: "INR",
+          order_id: cfOrderId,
+          customer_details: {
+            customer_id: userId || "anon_user",
+            customer_name: customerName || "Guest User",
+            customer_email: customerEmail || "guest@example.com",
+            customer_phone: customerPhone || "9820012345",
           },
-          body: JSON.stringify({
-            order_amount: Math.round(amountInPaise) / 100,
-            order_currency: "INR",
-            order_id: cfOrderId,
-            customer_details: {
-              customer_id: userId || "anon_user",
-              customer_name: customerName || "Guest User",
-              customer_email: customerEmail || "guest@example.com",
-              customer_phone: customerPhone || "9820012345",
+          order_meta: {
+            return_url: "https://ash-vish-event.vercel.app/checkout?order_id={order_id}",
+          },
+        });
+        const cfFetch = async () =>
+          fetch(`${cfBaseUrl}/pg/orders`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-api-version": "2025-01-01",
+              "x-client-id": appId,
+              "x-client-secret": secretKey,
             },
-            order_meta: {
-              return_url: "https://ash-vish-event.vercel.app/checkout?order_id={order_id}",
-            },
-          }),
-                });
+            body: cfOrderBody,
+          });
+        let cfResponse: Response = await cfFetch();
+        let cfAttempt = 0;
+        while (!cfResponse.ok && cfAttempt < 2) {
+          cfAttempt += 1;
+          await new Promise((r) => setTimeout(r, 2000 * cfAttempt));
+          try {
+            cfResponse = await cfFetch();
+          } catch {
+            break;
+          }
+        }
         let cfData: any = null;
         try {
           cfData = await cfResponse.json();
         } catch {
           // Non-JSON response (e.g. a CDN/country block returning HTML) —
-          // treat as gateway unavailable and fall through to the local
-          // sandbox order so checkout is never dead-ended.
+          // treat as gateway unavailable.
           cfData = null;
         }
         if (cfResponse.ok && cfData && cfData.payment_session_id && !cfData.code) {
@@ -2225,7 +2241,7 @@ export async function createApp() {
         return res.status(502).json({
           success: false,
           error:
-            "Cashfree could not open a payment session right now. Please try again — you will be redirected to the secure Cashfree payment page.",
+            "Cashfree is temporarily busy and could not open a payment session. Your seats stay held — please try again in a moment; you will be taken to the secure Cashfree payment page.",
           retryable: true,
         });
       }
