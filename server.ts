@@ -2298,7 +2298,16 @@ export async function createApp() {
           ) {
             isValidSignature = true;
           } else {
-          // Sandbox/test: verify the order actually reached SUCCESS/PAID via
+          // Sandbox/test: server-issued sandbox orders (created by our own
+          // local fallback when the gateway was unreachable) are already
+          // validated server-side at order creation — accept them directly.
+          // Only real gateway orders must be confirmed via Cashfree's API.
+          const pendingCheck = await rtdbGet(`pending_orders/${orderId}`, userToken);
+          const pendingOrder = pendingCheck?.data as Record<string, any> | undefined;
+          if (pendingOrder && pendingOrder.isSandboxOrder) {
+            isValidSignature = true;
+          } else {
+          // Real gateway order: verify it actually reached SUCCESS/PAID via
           // Cashfree's API before finalizing. A stub payment_id is acceptable
           // only when the gateway itself confirms the order status.
           const base = process.env.CASHFREE_ENV === "production"
@@ -2337,6 +2346,7 @@ export async function createApp() {
               verified: false,
               error: "Payment gateway unreachable. Please try again later."
             });
+          }
           }
           }
         }
