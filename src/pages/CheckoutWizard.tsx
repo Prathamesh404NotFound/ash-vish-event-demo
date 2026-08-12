@@ -640,7 +640,7 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
               selectedSeatIds={selectedSeats || []}
               onSeatsSelected={(seats) => selectTicketsForCheckout(event, tier, quantity, seats)}
               currentUserId={user?.id || 'anon_user'}
-              ticketTiers={event.ticketTiers}
+              ticketTiers={tier ? [tier] : event.ticketTiers}
               eventDate={event.date}
               eventTime={event.time}
               seatProjection={seatProjection}

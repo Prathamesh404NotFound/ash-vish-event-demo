@@ -15,13 +15,11 @@ import {
   Users,
   Building2,
   HelpCircle,
-  Armchair,
 } from 'lucide-react';
 import { EventItem, TicketTier } from '../types';
 import { useBooking } from '../contexts/BookingContext';
 import { useAuth } from '../contexts/AuthContext';
 import { EventCard } from '../components/EventCard';
-import { SeatMap } from '../components/SeatMap';
 import { EventReviewsSection } from '../components/EventReviewsSection';
 import { formatINR } from '../utils/formatters';
 import { useSEO } from '../hooks/useSEO';
@@ -40,7 +38,6 @@ export const EventDetail: React.FC<EventDetailProps> = ({
   onSelectEvent,
 }) => {
   const { events, favorites, toggleFavorite } = useBooking();
-  const { user } = useAuth();
   const isFav = favorites.includes(event.id);
 
   useSEO({
@@ -51,32 +48,22 @@ export const EventDetail: React.FC<EventDetailProps> = ({
     type: 'article',
   });
 
-  // Selected Ticket Tier & Quantity
-  const [selectedTier, setSelectedTier] = useState<TicketTier>(
-    event.ticketTiers.find((t) => t.popular) || event.ticketTiers[0]
-  );
+  // Flat single-price ticket: same price for every seat.
+  const [flatPrice] = useState<number>(() => {
+    // Use the most popular tier's price as the single flat price, falling back
+    // to the first tier when no tier is marked popular.
+    const flat = event.ticketTiers.find((t) => t.popular) || event.ticketTiers[0];
+    return typeof flat?.price === 'number' && flat.price > 0 ? flat.price : 0;
+  });
   const [quantity, setQuantity] = useState(1);
-  const [selectedSeats, setSelectedSeats] = useState<string[]>([]);
   const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(0);
-
-  const activeSeatMap = event.seatMap || {
-    rows: 6,
-    cols: 8,
-    aisleAfterCols: [4],
-    tierByRow: {
-      '1-2': 'VIP Skybox Lounge',
-      '3-6': 'General Admission'
-    }
-  };
 
   const similarEvents = events.filter((e) => e.category === event.category && e.id !== event.id);
 
   const handleBookNow = () => {
-    if (selectedSeats.length < quantity) {
-      alert(`Please select ${quantity} seat(s) on the interactive map before proceeding.`);
-      return;
-    }
-    onProceedToCheckout(event, selectedTier, quantity, selectedSeats);
+    // Seat selection happens exclusively in the checkout wizard (Seats step).
+    // Pass an empty seat list so the wizard drives the map there.
+    onProceedToCheckout(event, event.ticketTiers[0], quantity, []);
   };
 
   return (
@@ -234,110 +221,27 @@ export const EventDetail: React.FC<EventDetailProps> = ({
             </div>
           )}
 
-          {/* Interactive Seat Selection Map for All Events */}
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="font-heading font-bold text-xl text-white flex items-center gap-2">
-                  <Armchair className="w-5 h-5 text-emerald-400" />
-                  <span>Select Your Seats in Hall</span>
-                </h3>
-                <p className="text-xs text-gray-400">Click on available green seats to choose your exact spots</p>
+          {/* Simple Flat-Price Ticket Info */}
+          <div className="p-5 rounded-2xl bg-[#141414] border border-[#D4AF37]/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="p-2.5 rounded-xl bg-[#D4AF37]/10 text-[#D4AF37] border border-[#D4AF37]/20 shrink-0">
+                <Ticket className="w-5 h-5" />
               </div>
-              <span className="px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 text-xs font-bold border border-emerald-500/20">
-                Interactive Hall Map
-              </span>
+              <div>
+                <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wider block">
+                  One Simple Price
+                </span>
+                <span className="font-heading font-bold text-lg text-white block mt-0.5">
+                  {formatINR(flatPrice)} per ticket — all seats
+                </span>
+                <p className="text-xs text-gray-400 mt-0.5">Choose your exact seat on the map during checkout.</p>
+              </div>
             </div>
-            <SeatMap
-              eventId={event.id}
-              seatMapConfig={activeSeatMap}
-              requiredQuantity={quantity}
-              selectedSeatIds={selectedSeats}
-              onSeatsSelected={(seats) => {
-                setSelectedSeats(seats);
-                if (seats.length > 0) {
-                  setQuantity(seats.length);
-                }
-              }}
-              currentUserId={user?.id || 'guest_buyer'}
-              ticketTiers={event.ticketTiers}
-              eventDate={event.date}
-              eventTime={event.time}
-              onProceedToCheckout={handleBookNow}
-            />
-          </div>
-
-          {/* Ticket Tier Cards List */}
-          <div className="space-y-4">
-            <h3 className="font-heading font-bold text-xl text-white">
-              Seat Tiers & Pricing Overview
-            </h3>
-
-            <div className="grid grid-cols-1 gap-4">
-              {event.ticketTiers.map((tier) => {
-                const isSelected = selectedTier.id === tier.id;
-                const inventoryPercent = Math.round(
-                  ((tier.totalInventory - tier.remainingInventory) / tier.totalInventory) * 100
-                );
-
-                return (
-                  <div
-                    key={tier.id}
-                    onClick={() => setSelectedTier(tier)}
-                    className={`p-5 rounded-2xl border cursor-pointer transition-all duration-200 relative ${
-                      isSelected
-                        ? 'bg-[#1C1C1C] border-[#D4AF37] shadow-lg shadow-[#D4AF37]/10'
-                        : 'bg-[#141414] border-white/10 hover:border-white/30'
-                    }`}
-                  >
-                    {tier.popular && (
-                      <span className="absolute -top-3 right-4 px-3 py-0.5 rounded-full text-[10px] font-bold bg-[#D4AF37] text-black uppercase tracking-wider shadow">
-                        MOST POPULAR
-                      </span>
-                    )}
-
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                      <div>
-                        <h4 className="font-heading font-bold text-lg text-white">
-                          {tier.name}
-                        </h4>
-                        <p className="text-xs text-gray-400 mt-0.5">{tier.description}</p>
-                      </div>
-
-                      <div className="text-left sm:text-right">
-                        <span className="font-heading font-extrabold text-2xl text-white">
-                          {formatINR(tier.price)}
-                        </span>
-                        <span className="text-[10px] text-gray-400 block font-medium">per ticket</span>
-                      </div>
-                    </div>
-
-                    <div className="mt-4 pt-4 border-t border-white/10 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-gray-300">
-                      {tier.perks.map((perk, i) => (
-                        <div key={i} className="flex items-center gap-2">
-                          <CheckCircle2 className="w-3.5 h-3.5 text-[#D4AF37] shrink-0" />
-                          <span>{perk}</span>
-                        </div>
-                      ))}
-                    </div>
-
-                    <div className="mt-4 space-y-1">
-                      <div className="flex justify-between text-[11px]">
-                        <span className="text-gray-400 font-medium">Ticket Availability</span>
-                        <span className="text-[#D4AF37] font-bold">
-                          {tier.remainingInventory} tickets left
-                        </span>
-                      </div>
-                      <div className="w-full h-1.5 bg-black/60 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] rounded-full transition-all duration-500"
-                          style={{ width: `${Math.min(100, inventoryPercent)}%` }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+            <div className="text-left sm:text-right">
+              <span className="text-xs text-gray-400 font-medium block">Total Availability</span>
+              <span className="font-heading font-extrabold text-xl text-[#D4AF37]">
+                {event.ticketTiers.reduce((sum, t) => sum + (t.remainingInventory || 0), 0)} tickets left
+              </span>
             </div>
           </div>
 
@@ -439,17 +343,17 @@ export const EventDetail: React.FC<EventDetailProps> = ({
             
             <div className="border-b border-white/10 pb-4">
               <span className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold block">
-                Selected Ticket Tier
+                One Simple Price
               </span>
               <div className="flex items-center justify-between mt-1">
                 <span className="font-heading font-bold text-lg text-white">
-                  {selectedTier.name}
+                  Standard Ticket — All Seats
                 </span>
                 <span className="font-heading font-extrabold text-2xl text-[#D4AF37]">
-                  {formatINR(selectedTier.price)}
+                  {formatINR(flatPrice)}
                 </span>
               </div>
-              <p className="text-xs text-gray-400 mt-1">{selectedTier.description}</p>
+              <p className="text-xs text-gray-400 mt-1">Same price for every seat — pick yours on the map during checkout.</p>
             </div>
 
             {/* Quantity Stepper */}
@@ -460,11 +364,7 @@ export const EventDetail: React.FC<EventDetailProps> = ({
               <div className="flex items-center justify-between bg-[#1C1C1C] border border-white/10 rounded-xl p-2">
                 <button
                   onClick={() => {
-                    const nextQ = Math.max(1, quantity - 1);
-                    setQuantity(nextQ);
-                    if (selectedSeats.length > nextQ) {
-                      setSelectedSeats(selectedSeats.slice(0, nextQ));
-                    }
+                    setQuantity(Math.max(1, quantity - 1));
                   }}
                   className="w-9 h-9 rounded-lg bg-[#141414] hover:bg-black text-white font-bold text-base flex items-center justify-center border border-white/10 transition-colors"
                 >
@@ -485,8 +385,8 @@ export const EventDetail: React.FC<EventDetailProps> = ({
             {/* Price Breakdown */}
             <div className="space-y-2 text-xs text-gray-300 pt-2 border-t border-white/10">
               <div className="flex justify-between">
-                <span>{selectedTier.name} ({formatINR(selectedTier.price)} × {quantity})</span>
-                <span className="font-semibold text-white">{formatINR(selectedTier.price * quantity)}</span>
+                <span>Standard Ticket ({formatINR(flatPrice)} × {quantity})</span>
+                <span className="font-semibold text-white">{formatINR(flatPrice * quantity)}</span>
               </div>
               <div className="flex justify-between">
                 <span>GST & Service Charge</span>
@@ -495,7 +395,7 @@ export const EventDetail: React.FC<EventDetailProps> = ({
               <div className="pt-2 border-t border-white/10 flex justify-between items-center">
                 <span className="font-heading font-bold text-sm text-white">Total Amount</span>
                 <span className="font-heading font-extrabold text-2xl text-[#D4AF37]">
-                  {formatINR(selectedTier.price * quantity)}
+                  {formatINR(flatPrice * quantity)}
                 </span>
               </div>
             </div>

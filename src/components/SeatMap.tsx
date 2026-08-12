@@ -54,20 +54,6 @@ export const SeatMap: React.FC<SeatMapProps> = ({
     }
   };
   const { rows = 6, cols = 8, aisleAfterCols = [], tierByRow = {} } = activeConfig;
-  // Resolve the tier id for a seat row by matching the tier name against the event's ticket tiers.
-  const resolvedTierId = React.useMemo(() => {
-    const byName = new Map(ticketTiers.map((t) => [String(t.name || '').trim().toLowerCase(), t.id]));
-    return (rowIdx: number) => {
-      for (const [range, name] of Object.entries(tierByRow)) {
-        const [lo, hi] = range.split('-').map(Number);
-        if (rowIdx >= lo && rowIdx <= hi) {
-          const id = byName.get(String(name).trim().toLowerCase());
-          if (id) return id;
-        }
-      }
-      return ticketTiers[0]?.id;
-    };
-  }, [tierByRow, ticketTiers]);
 
   const [dbSeats, setDbSeats] = useState<Record<string, SeatNode>>({});
   const [localHeldSeats, setLocalHeldSeats] = useState<string[]>(selectedSeatIds);
@@ -207,46 +193,19 @@ export const SeatMap: React.FC<SeatMapProps> = ({
     }
   };
 
-  const getRowTierInfo = (rowIndex: number): { name: string; price?: number } => {
-    let name = '';
+  // Flat pricing: every seat costs the first tier's price (all seats same price).
+  const flatPrice = ticketTiers[0]?.price;
+  const totalPrice = (localHeldSeats.length * (flatPrice || 0));
+
+  const getSeatCategory = (rowIndex: number): string => {
     for (const [rowRange, tierName] of Object.entries(tierByRow)) {
       const parts = rowRange.split('-').map((p) => parseInt(p, 10));
       if (parts.length === 2 && rowIndex >= parts[0] && rowIndex <= parts[1]) {
-        name = tierName as string;
-        break;
+        return String(tierName).toUpperCase();
       }
     }
-
-    if (!name) return { name: 'STANDARD' };
-
-    // Find price from ticketTiers matching name or id
-    const foundTier = ticketTiers.find(
-      (t) => t.name.toLowerCase().includes(name.toLowerCase()) || name.toLowerCase().includes(t.name.toLowerCase())
-    );
-
-    return {
-      name,
-      price: foundTier?.price,
-    };
+    return 'STANDARD';
   };
-
-  // Compute calculated price for selected seats
-  const calculateTotalPrice = (): number => {
-    if (localHeldSeats.length === 0) return 0;
-    let total = 0;
-    localHeldSeats.forEach((seatId) => {
-      const rowNum = parseInt(seatId.split('-')[0].replace('R', ''), 10) || 1;
-      const tierInfo = getRowTierInfo(rowNum);
-      if (tierInfo.price) {
-        total += tierInfo.price;
-      } else if (ticketTiers.length > 0) {
-        total += ticketTiers[0].price;
-      }
-    });
-    return total;
-  };
-
-  const totalPrice = calculateTotalPrice();
 
   // Showtimes pill choices
   const showtimes = [
@@ -324,7 +283,7 @@ export const SeatMap: React.FC<SeatMapProps> = ({
           const rNum = parseInt(hoveredSeatId.split('-')[0].replace('R', ''), 10);
           const cNum = parseInt(hoveredSeatId.split('-')[1].replace('C', ''), 10);
           const rLab = String.fromCharCode(64 + rNum);
-          const tier = getRowTierInfo(rNum);
+          const category = getSeatCategory(rNum);
           const { status, isMine } = getSeatStatus(hoveredSeatId);
           const statusText = status === 'booked' ? 'Sold / Booked' : status === 'held' ? (isMine ? 'Selected by You' : 'Held by Another') : 'Available';
           const statusColor = status === 'booked' ? 'text-red-400' : status === 'held' ? (isMine ? 'text-yellow-300' : 'text-orange-400') : 'text-emerald-400';
@@ -335,10 +294,10 @@ export const SeatMap: React.FC<SeatMapProps> = ({
                 <span className="w-2 h-2 rounded-full bg-[#D4AF37] animate-pulse"></span>
                 <span className="font-heading font-extrabold text-white text-xs sm:text-sm">Seat {rLab}-{cNum}</span>
                 <span className="text-gray-500">|</span>
-                <span className="text-[#F3E5AB] font-semibold">{tier.name}</span>
+                <span className="text-[#F3E5AB] font-semibold">{category}</span>
               </div>
               <div className="flex items-center gap-4">
-                <span className="font-mono font-extrabold text-[#D4AF37] text-sm">{tier.price ? formatINR(tier.price) : 'Standard'}</span>
+                <span className="font-mono font-extrabold text-[#D4AF37] text-sm">{flatPrice ? formatINR(flatPrice) : 'Standard'}</span>
                 <span className={`font-bold ${statusColor}`}>● {statusText}</span>
               </div>
             </div>
@@ -359,18 +318,13 @@ export const SeatMap: React.FC<SeatMapProps> = ({
             {Array.from({ length: rows }).map((_, rIdx) => {
               const rowNum = rIdx + 1;
               const rowLabel = String.fromCharCode(64 + rowNum); // A, B, C...
-              const tierInfo = getRowTierInfo(rowNum);
-
-              const isSectionStart =
-                rIdx === 0 || getRowTierInfo(rIdx).name !== tierInfo.name;
-
               return (
                 <div key={rowNum} className="w-full flex flex-col items-center">
-                  {/* Section Pricing Header (e.g. Rs.570 RECLINER / Rs.350 PRIME) */}
-                  {isSectionStart && (
+                  {/* Section Header (only once, at the very top) */}
+                  {rIdx === 0 && (
                     <div className="w-full pt-4 pb-2 mb-2 border-b border-[#D4AF37]/15 flex items-center justify-start gap-2">
                       <span className="font-heading font-extrabold text-xs sm:text-sm tracking-wider text-[#F3E5AB] uppercase">
-                        {tierInfo.price ? `Rs.${tierInfo.price}` : ''} {tierInfo.name}
+                        {flatPrice ? `Rs.${flatPrice}` : ''} ALL SEATS SAME PRICE
                       </span>
                     </div>
                   )}
@@ -419,7 +373,7 @@ export const SeatMap: React.FC<SeatMapProps> = ({
                               onMouseEnter={() => setHoveredSeatId(seatId)}
                               onMouseLeave={() => setHoveredSeatId(null)}
                               disabled={status === 'booked' || (status === 'held' && !isMine)}
-                              title={`Seat ${rowLabel}-${colNum} | ${tierInfo.name} | ${tierInfo.price ? formatINR(tierInfo.price) : 'Standard'} | ${status}`}
+                              title={`Seat ${rowLabel}-${colNum} | ${getSeatCategory(rowNum)} | ${flatPrice ? formatINR(flatPrice) : 'Standard'} | ${status}`}
                             >
                               <span>{colNum}</span>
                             </button>

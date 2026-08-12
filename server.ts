@@ -284,26 +284,23 @@ function computeReservationQuote(
   const tier = tiers.find((t: any) => t.id === tierId);
 
   if (seatIds.length > 0) {
-    if (!seatMap || !seatMap.tierByRow) {
+    // Flat pricing: every seat costs the selected ticket tier's price,
+    // regardless of row. No per-row tier price lookups.
+    if (!seatMap) {
       throw new Error("Event seat map is not configured; seat selection is unavailable for this event.");
     }
-    const seatMapVersion = seatMap.version ?? 1;
-    for (const seatId of seatIds) {
-      const rowNum = parseInt(seatId.split("-")[0].replace("R", ""), 10) || 1;
-      let seatPrice = tier?.price;
-      for (const [rowRange, tierName] of Object.entries(seatMap.tierByRow as Record<string, string>)) {
-        const parts = rowRange.split("-").map((p) => parseInt(p, 10));
-        if (parts.length === 2 && rowNum >= parts[0] && rowNum <= parts[1]) {
-          const rowTier = seatPriceForRow(tiers, tierName);
-          if (rowTier !== undefined) seatPrice = rowTier;
-          break;
-        }
-      }
-      if (!seatPrice) {
-        throw new Error(`Unable to determine price for seat ${seatIdLabel(seatId)}.`);
-      }
-      subtotalMinor += seatPrice * 100;
+    if (!tier) {
+      throw new Error("Requested ticket tier is not available for this event.");
     }
+    const seatPrice = tier.price;
+    if (!seatPrice || seatPrice <= 0) {
+      throw new Error("Ticket tier price is not configured for this event.");
+    }
+    if ((tier.remainingInventory ?? 0) < seatIds.length) {
+      throw new Error(`Not enough tickets remaining. Only ${tier.remainingInventory ?? 0} left.`);
+    }
+    const seatMapVersion = seatMap.version ?? 1;
+    subtotalMinor = seatPrice * seatIds.length * 100;
     return { quote: { currency: "INR", subtotalMinor, discountMinor: 0, feesMinor: 0, totalMinor: subtotalMinor }, seatMapVersion, tier };
   }
 
@@ -851,7 +848,9 @@ export async function createApp() {
     if (!process.env.CASHFREE_APP_ID) missing.push("CASHFREE_APP_ID");
     if (!process.env.CASHFREE_SECRET_KEY) missing.push("CASHFREE_SECRET_KEY");
     if (missing.length > 0) {
-      throw new Error(`CRITICAL STARTUP ERROR: Missing required production environment variables: ${missing.join(", ")}`);
+      // Non-fatal: reservation, event, and ticket APIs keep working. Only the
+      // Cashfree payment routes fail with a clear 503 until the vars are set.
+      console.warn(`[startup] Missing payment env vars: ${missing.join(", ")}. Cashfree payment endpoints will return 503 until configured.`);
     }
   }
 
@@ -2114,7 +2113,7 @@ export async function createApp() {
         }
       }
       if (!appId || !secretKey) {
-        throw new Error("Cashfree credentials (CASHFREE_APP_ID or CASHFREE_SECRET_KEY) are not configured.");
+        return res.status(503).json({ success: false, error: "Payment gateway is not configured yet. Please configure CASHFREE_APP_ID and CASHFREE_SECRET_KEY and try again." });
       }
 
       const url = env === "production"
@@ -2204,7 +2203,7 @@ export async function createApp() {
       const env = process.env.CASHFREE_ENV || "sandbox";
 
       if (!appId || !secretKey) {
-        throw new Error("Cashfree credentials (CASHFREE_APP_ID or CASHFREE_SECRET_KEY) are not configured.");
+        return res.status(503).json({ success: false, error: "Payment gateway is not configured yet. Please configure CASHFREE_APP_ID and CASHFREE_SECRET_KEY and try again." });
       }
 
       const url = env === "production"
