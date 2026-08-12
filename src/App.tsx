@@ -15,7 +15,7 @@ import { QRScanner } from './components/QRScanner';
 import { Home } from './pages/Home';
 import { SearchPage } from './pages/SearchPage';
 import { EventDetail } from './pages/EventDetail';
-import { CheckoutPage } from './pages/CheckoutPage';
+import { CheckoutWizard } from './pages/CheckoutWizard';
 import { ConfirmationPage } from './pages/ConfirmationPage';
 import { MyTicketsPage } from './pages/MyTicketsPage';
 import { AuthPage } from './pages/AuthPage';
@@ -93,8 +93,8 @@ function EventDetailRoute() {
     <EventDetail
       event={event}
       onBack={() => navigate('/')}
-      onProceedToCheckout={(evt, tier, quantity) => {
-        selectTicketsForCheckout(evt, tier, quantity);
+      onProceedToCheckout={(evt, tier, quantity, selectedSeats) => {
+        selectTicketsForCheckout(evt, tier, quantity, selectedSeats);
         navigate('/checkout');
       }}
       onSelectEvent={(evt) => navigate(`/events/${evt.id}`)}
@@ -121,7 +121,7 @@ function CheckoutRoute() {
   const navigate = useNavigate();
 
   return (
-    <CheckoutPage
+    <CheckoutWizard
       onBack={() => navigate(-1)}
       onSuccess={() => navigate('/confirmation')}
     />

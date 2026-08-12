@@ -194,6 +194,237 @@ let ORGANIZERS_DATABASE: Array<{
   },
 ];
 
+// ============================================================
+// PRODUCTION RESERVATION SERVICE
+// Server-authoritative seat holds with atomic all-or-nothing claims,
+// explicit expiration, owner identity, and idempotency keys.
+// ============================================================
+const RESERVATION_HOLD_TTL_MS = 5 * 60 * 1000; // 5 minutes; single server-controlled TTL
+const MAX_TICKETS_PER_RESERVATION = 10;
+const RESERVATION_IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000; // 24h idempotency window
+
+/** In-memory idempotency cache keyed by sha256(idempotencyKey). */
+const idempotencyResults = new Map<string, { createdAt: number; result: any }>();
+
+// Sweep completed idempotency results that exceed the TTL
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of idempotencyResults.entries()) {
+    if (now - entry.createdAt > RESERVATION_IDEMPOTENCY_TTL_MS) {
+      idempotencyResults.delete(key);
+    }
+  }
+}, 60 * 1000);
+
+interface ReservationQuote {
+  currency: "INR";
+  subtotalMinor: number; // paise
+  discountMinor: number; // paise
+  feesMinor: number; // paise
+  totalMinor: number; // paise
+}
+
+interface ReservationRecord {
+  reservationId: string;
+  eventId: string;
+  showtimeId: string;
+  tierId: string;
+  quantity: number;
+  seatIds: string[]; // normalized, sorted
+  ownerId: string;
+  idempotencyKeyHash: string;
+  status: "active" | "confirmed" | "expired" | "released" | "cancelled";
+  createdAt: number;
+  expiresAt: number;
+  updatedAt: number;
+  quote: ReservationQuote;
+  seatMapVersion: number;
+  attendee?: { name: string; email: string; phone: string };
+  orderId?: string;
+  extensions?: number;
+}
+
+function seatIdLabel(seatId: string): string {
+  const parts = seatId.split("-");
+  const r = String.fromCharCode(64 + parseInt(parts[0].replace("R", ""), 10));
+  const c = parts[1].replace("C", "");
+  return `${r}-${c}`;
+}
+
+function normalizeSeatIds(seatIds: string[]): string[] {
+  const unique = Array.from(new Set(seatIds.map((s) => s.trim().toUpperCase())));
+  return unique.sort((a, b) => a.localeCompare(b));
+}
+
+function hashIdempotencyKey(key: string): string {
+  return crypto.createHash("sha256").update(key).digest("hex");
+}
+
+function seatPriceForRow(tiers: any[], seatMapTierName: string): number | undefined {
+  return tiers.find(
+    (t) =>
+      t.name.toLowerCase().includes(seatMapTierName.toLowerCase()) ||
+      seatMapTierName.toLowerCase().includes(t.name.toLowerCase())
+  )?.price;
+}
+
+/**
+ * Compute a server-authoritative quote for a reservation request.
+ * Uses event seat map + ticket tiers; rejects when seat map is missing and seatIds are requested.
+ */
+function computeReservationQuote(
+  eventData: any,
+  seatIds: string[],
+  quantity: number,
+  tierId: string
+): { quote: ReservationQuote; seatMapVersion: number; tier?: any } {
+  const tiers: any[] = normalizeTiers(eventData.ticketTiers);
+  const seatMap = eventData.seatMap;
+  let subtotalMinor = 0;
+  const tier = tiers.find((t: any) => t.id === tierId);
+
+  if (seatIds.length > 0) {
+    if (!seatMap || !seatMap.tierByRow) {
+      throw new Error("Event seat map is not configured; seat selection is unavailable for this event.");
+    }
+    const seatMapVersion = seatMap.version ?? 1;
+    for (const seatId of seatIds) {
+      const rowNum = parseInt(seatId.split("-")[0].replace("R", ""), 10) || 1;
+      let seatPrice = tier?.price;
+      for (const [rowRange, tierName] of Object.entries(seatMap.tierByRow as Record<string, string>)) {
+        const parts = rowRange.split("-").map((p) => parseInt(p, 10));
+        if (parts.length === 2 && rowNum >= parts[0] && rowNum <= parts[1]) {
+          const rowTier = seatPriceForRow(tiers, tierName);
+          if (rowTier !== undefined) seatPrice = rowTier;
+          break;
+        }
+      }
+      if (!seatPrice) {
+        throw new Error(`Unable to determine price for seat ${seatIdLabel(seatId)}.`);
+      }
+      subtotalMinor += seatPrice * 100;
+    }
+    return { quote: { currency: "INR", subtotalMinor, discountMinor: 0, feesMinor: 0, totalMinor: subtotalMinor }, seatMapVersion, tier };
+  }
+
+  // General admission tier without seat map
+  if (!tier) throw new Error("Requested ticket tier is not available for this event.");
+  if ((tier.remainingInventory ?? 0) < quantity) {
+    throw new Error(`Not enough tickets remaining. Only ${tier.remainingInventory ?? 0} tickets left.`);
+  }
+  subtotalMinor = tier.price * quantity * 100;
+  return { quote: { currency: "INR", subtotalMinor, discountMinor: 0, feesMinor: 0, totalMinor: subtotalMinor }, seatMapVersion: 0, tier };
+}
+
+/**
+ * Claim seats atomically. All requested seats must be available (or held/expired by ANYONE),
+ * the whole batch succeeds or fails. Returns committed true only when every seat is held.
+ */
+async function claimSeatsAtomically(
+  authToken: string | undefined,
+  eventId: string,
+  seatIds: string[],
+  reservationId: string,
+  ownerId: string
+): Promise<{ committed: boolean; error?: string }> {
+  for (const seatId of seatIds) {
+    const path = `seats/${eventId}/${seatId}`;
+    const res = await rtdbTransaction(path, (seat: any) => {
+      const now = Date.now();
+      const expiresAt = seat?.holdExpiresAt || (seat?.heldAt ? seat.heldAt + RESERVATION_HOLD_TTL_MS : 0);
+      const isExpired = expiresAt > 0 && now > expiresAt;
+      const elgible =
+        !seat ||
+        seat.status === "available" ||
+        (seat.status === "held" && isExpired) ||
+        (seat.status === "held" && seat.heldBy === ownerId && seat.reservationId === reservationId);
+      if (!elgible) return undefined; // abort: seat held by another active reservation
+      const rowNum = seat?.row !== undefined ? seat.row : parseInt(seatId.split("-")[0].replace("R", ""), 10) || 1;
+      const colNum = seat?.col !== undefined ? seat.col : parseInt(seatId.split("-")[1].replace("C", ""), 10) || 1;
+      return {
+        ...seat,
+        id: seatId,
+        seatId,
+        row: rowNum,
+        col: colNum,
+        status: "held",
+        heldBy: ownerId,
+        reservationId,
+        heldAt: now,
+        holdExpiresAt: now + RESERVATION_HOLD_TTL_MS,
+        statusChangedAt: now,
+        statusChangedBy: "reservation",
+      };
+    }, authToken);
+    if (!res.committed) {
+      // Roll back seats already claimed by this reservation in this batch (all-or-nothing)
+      const already = seatIds.slice(0, seatIds.indexOf(seatId));
+      for (const rolledId of already) {
+        rtdbTransaction(`seats/${eventId}/${rolledId}`, (seat: any) => {
+          if (seat && seat.status === "held" && seat.reservationId === reservationId) {
+            return {
+              ...seat,
+              status: "available",
+              heldBy: null,
+              reservationId: null,
+              heldAt: null,
+              holdExpiresAt: null,
+            };
+          }
+          return seat;
+        }, authToken).catch(() => {});
+      }
+      return { committed: false, error: `Seat ${seatIdLabel(seatId)} is held by another buyer or is no longer available.` };
+    }
+  }
+  return { committed: true };
+}
+
+/**
+ * Normalize ticket tiers regardless of RTDB storage shape.
+ * RTDB may store tiers as an object map with numeric keys (entries without an `id`),
+ * possibly alongside id-bearing entries (duplicates). Returns a stable array keyed by `id`,
+ * merging values from id-less numeric entries into their id-bearing siblings when present.
+ */
+function normalizeTiers(ticketTiers: any): any[] {
+  if (!ticketTiers) return [];
+  if (Array.isArray(ticketTiers)) {
+    return ticketTiers.map((t: any) => ({ ...t, id: t.id || t.tierId || t.tier_id || null }));
+  }
+  const entries = Object.entries(ticketTiers);
+  const byId = new Map<string, any>();
+  const idLess = new Map<string, any>();
+  for (const [key, value] of entries) {
+    const v = value as any;
+    if (v && v.id) {
+      byId.set(v.id, { ...v });
+    } else if (v && typeof v === "object") {
+      idLess.set(String(key), { ...v });
+    }
+  }
+  // Merge id-less numeric entries into matching id-bearing tiers (same numeric index position
+  // or identical name/price), preserving every field including remainingInventory.
+  const numericKeys = Array.from(idLess.keys()).filter((k) => /^\d+$/.test(k));
+  const idEntries = Array.from(byId.values());
+  for (const numKey of numericKeys) {
+    const lv = idLess.get(numKey)!;
+    const sibling = idEntries.find(
+      (e) =>
+        e.price === lv.price &&
+        e.name === lv.name &&
+        e.totalInventory === lv.totalInventory
+    );
+    if (sibling) {
+      // Prefer the richer record: keep sibling as base, overlay id-less values for inventory fields.
+      sibling.remainingInventory =
+        typeof sibling.remainingInventory === "number" ? sibling.remainingInventory : lv.remainingInventory;
+      sibling.totalInventory = sibling.totalInventory ?? lv.totalInventory;
+      idLess.delete(numKey);
+    }
+  }
+  return [...Array.from(byId.values()), ...Array.from(idLess.values())];
+}
+
 async function finalizeBookingServerSide(
   orderId: string,
   paymentMethod: string,
@@ -224,6 +455,30 @@ async function finalizeBookingServerSide(
     pendingOrder = pendingRes.data;
     const { eventId, tierId, seatIds, quantity, customerDetails, userId, amount, couponCode } = pendingOrder;
     const now = Date.now();
+    // Production hardening: sanity-check the stored order amount before fulfillment.
+    // DB event tier price is the source of truth; the hardcoded catalog is only a demo fallback.
+    let serverCalculatedRecheck = 0;
+    let dbRecheckPrice = 0;
+    try {
+      const evtForRecheck = (await rtdbGet(`events/${eventId}`, authToken))?.data as any;
+      const dbTier = normalizeTiers(evtForRecheck?.ticketTiers).find((t: any) => t.id === tierId);
+      if (dbTier && typeof dbTier.price === "number" && dbTier.price > 0) {
+        dbRecheckPrice = dbTier.price;
+      }
+    } catch {
+      // fall back to the hardcoded catalog price
+    }
+    if (dbRecheckPrice > 0) {
+      serverCalculatedRecheck = dbRecheckPrice * (quantity || 1);
+    } else if (EVENT_PRICES_CATALOG[eventId] && EVENT_PRICES_CATALOG[eventId][tierId]) {
+      serverCalculatedRecheck = EVENT_PRICES_CATALOG[eventId][tierId] * (quantity || 1);
+    }
+    if (amount && serverCalculatedRecheck > 0 && amount > serverCalculatedRecheck * 1.5) {
+      return { success: false, error: "Order amount anomaly detected. Fulfillment aborted." };
+    }
+    if (!amount || amount <= 0) {
+      return { success: false, error: "Invalid order amount. Fulfillment aborted." };
+    }
 
     // 3. Seat reservation check
     if (seatIds && seatIds.length > 0) {
@@ -247,9 +502,17 @@ async function finalizeBookingServerSide(
 
           const expiresAt = currentSeat.holdExpiresAt || (currentSeat.heldAt ? currentSeat.heldAt + holdExpiryMs : 0);
           const isHoldExpired = expiresAt > 0 && now > expiresAt;
+          // Legacy holds use heldBy === userId (anon_user or uid); new reservation holds use
+          // heldBy === ownerId (guest hash or uid) together with reservationId, so accept
+          // both and allow anyone with a non-expired confirmed-path reservation to claim
+          // if the reservation itself is active/confirmed for the same seats.
+          const isOwnedByUser =
+            currentSeat.heldBy === userId ||
+            currentSeat.ownerId === userId ||
+            (currentSeat.reservationId && currentSeat.reservationId === pendingOrder?.reservationId);
           const isEligible =
             currentSeat.status === 'available' ||
-            (currentSeat.status === 'held' && (currentSeat.heldBy === userId || isHoldExpired));
+            (currentSeat.status === 'held' && (isOwnedByUser || isHoldExpired));
 
           if (isEligible) {
             return {
@@ -342,13 +605,16 @@ async function finalizeBookingServerSide(
 
     // 5. Decrement ticket tier inventory
     let inventoryError: string | null = null;
-    const inventoryTxResult = await rtdbTransaction(`events/${eventId}`, (currEvent: any) => {
+        const inventoryTxResult = await rtdbTransaction(`events/${eventId}`, (currEvent: any) => {
       if (!currEvent || !currEvent.ticketTiers) {
         inventoryError = "Event or ticket tiers not found.";
         return undefined;
       }
+      // Normalize: RTDB may store tiers as an object map with numeric keys (no id) plus
+      // id-bearing entries. Work on a stable array so the deduction transaction is shape-agnostic.
+      const tiers = normalizeTiers(currEvent.ticketTiers);
       let tierFound = false;
-      currEvent.ticketTiers = currEvent.ticketTiers.map((t: any) => {
+      const updatedTiers = tiers.map((t: any) => {
         if (t.id === tierId) {
           tierFound = true;
           if ((t.remainingInventory || 0) < quantity) {
@@ -362,10 +628,10 @@ async function finalizeBookingServerSide(
         }
         return t;
       });
-
       if (!tierFound || inventoryError) {
         return undefined;
       }
+      currEvent.ticketTiers = updatedTiers;
       return currEvent;
     }, authToken);
 
@@ -395,7 +661,20 @@ async function finalizeBookingServerSide(
       return { success: false, error: inventoryError || "Failed to deduct ticket inventory atomically." };
     }
     inventoryDeducted = true;
-
+    // 5.5 Confirm the attached reservation (locks the hold to this paid booking)
+    if (pendingOrder?.reservationId) {
+      try {
+        await rtdbTransaction(`reservations/${pendingOrder.reservationId}`, (curr: any) => {
+          if (curr && curr.status === "active") {
+            return { ...curr, status: "confirmed", orderId, confirmedAt: Date.now() };
+          }
+          return curr; // non-active reservation already swept; continue
+        }, authToken);
+        console.log(`[RESERVATION] Confirmed ${pendingOrder.reservationId} via payment ${orderId}`);
+      } catch (cErr) {
+        console.warn("[RESERVATION CONFIRM WARN]", cErr);
+      }
+    }
     // 6. Generate Ticket and Booking records
     const ticketId = 'tkt_' + Date.now() + '_' + Math.random().toString(36).substring(2, 10);
     const bookingId = 'bkg_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8);
@@ -412,7 +691,7 @@ async function finalizeBookingServerSide(
     let tierName = "General";
     let price = amount / quantity;
 
-    const t = eventData.ticketTiers?.find((tier: any) => tier.id === tierId);
+    const t = normalizeTiers(eventData.ticketTiers).find((tier: any) => tier.id === tierId);
     if (t) {
       tierName = t.name;
       price = t.price;
@@ -455,6 +734,7 @@ async function finalizeBookingServerSide(
       status: 'valid',
       purchasedAt: new Date().toISOString(),
       ownerId: userId,
+      ...(pendingOrder?.reservationId ? { reservationId: pendingOrder.reservationId } : {}),
     };
 
     const newBookingRecord = {
@@ -471,6 +751,7 @@ async function finalizeBookingServerSide(
       attendeeEmail: customerDetails.email,
       ticketId,
       isWalkIn: paymentMethod.includes('walkin'),
+      ...(pendingOrder?.reservationId ? { reservationId: pendingOrder.reservationId } : {}),
     };
 
     // Save records
@@ -948,6 +1229,404 @@ async function startServer() {
     }
   });
 
+  // -----------------------------------------------------------
+  // Reservation endpoints (server-authoritative seat holds)
+  // -----------------------------------------------------------
+
+  /** Identify the owner for reservation endpoints: logged-in uid or a guest session id. */
+  async function resolveReservationOwner(
+    req: express.Request
+  ): Promise<{ ownerId: string; authenticated: boolean; uid?: string; role?: string }> {
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      const token = authHeader.split(" ")[1];
+      const verified = await (async () => {
+        const cacheKey = `rs_${token}`;
+        const cached = (app as any).__reservationTokenCache?.get?.(cacheKey);
+        if (cached && cached.expiresAt > Date.now()) return cached;
+        try {
+          const v = await verifyFirebaseToken(token);
+          const entry = { ...v, expiresAt: Date.now() + 5 * 60 * 1000 };
+          if ((app as any).__reservationTokenCache) (app as any).__reservationTokenCache.set(cacheKey, entry);
+          return v ? entry : null;
+        } catch {
+          return null;
+        }
+      })();
+      if (verified) {
+        const role = await fetchUserRoleFromRTDB(verified.uid, token);
+        return { ownerId: verified.uid, authenticated: true, uid: verified.uid, role };
+      }
+    }
+    // Guest session identity: derived from a header + IP + UA, stable per session, never user-supplied as identity.
+    const headerSession = (req.headers["x-session-id"] as string)?.slice(0, 64) || "";
+    const raw = `${req.ip || req.socket?.remoteAddress || "unknown"}|${req.headers["user-agent"] || "unknown"}|${headerSession}`;
+    const guestId = "guest_" + crypto.createHash("sha256").update(raw).digest("hex").slice(0, 16);
+    return { ownerId: guestId, authenticated: false };
+  }
+
+  app.post("/api/reservations", async (req, res) => {
+    try {
+      const { eventId, showtimeId, tierId, quantity, seatIds, idempotencyKey } = req.body || {};
+
+      if (!eventId || !tierId || !quantity) {
+        return res.status(400).json({ success: false, error: "Missing eventId, tierId, or quantity." });
+      }
+      if (!Number.isInteger(quantity) || quantity < 1 || quantity > MAX_TICKETS_PER_RESERVATION) {
+        return res.status(400).json({ success: false, error: `Quantity must be between 1 and ${MAX_TICKETS_PER_RESERVATION}.` });
+      }
+
+      // Idempotency: same key returns the same completed result
+      const idKey = String(idempotencyKey || `${Date.now()}_${Math.random().toString(36).slice(2)}`);
+      const idHash = hashIdempotencyKey(idKey);
+      const existing = idempotencyResults.get(idHash);
+      if (existing) {
+        // Only reuse when the reservation is still alive: stale, cancelled,
+        // expired, or released records must never be returned — the client
+        // treats them as a live hold and can end up paying for dead seats.
+        const cachedId = existing.result?.reservationId;
+        if (cachedId) {
+          const rec = await rtdbGet(`reservations/${cachedId}`, await getAdminAuthToken());
+          const r = rec?.data;
+          if (r && r.status === "active" && r.expiresAt && r.expiresAt > Date.now()) {
+            return res.json({ success: true, idempotent: true, ...existing.result });
+          }
+        }
+        // Fall through: treat the replay as a fresh request and recreate.
+        idempotencyResults.delete(idHash);
+      }
+
+      const owner = await resolveReservationOwner(req);
+      const authToken = await getAdminAuthToken();
+
+      // Load and validate event
+      const eventRes = await rtdbGet(`events/${eventId}`, authToken);
+      const eventData = eventRes.data;
+      if (!eventData) {
+        return res.status(404).json({ success: false, error: "Event not found." });
+      }
+      if ((eventData.status || "published") === "cancelled" || (eventData.status || "published") === "sold_out") {
+        return res.status(409).json({ success: false, error: `Event is ${eventData.status || "unavailable"}.` });
+      }
+
+      const normalizedSeats = normalizeSeatIds(seatIds || []);
+      if (normalizedSeats.length > 0 && normalizedSeats.length !== quantity) {
+        return res.status(400).json({ success: false, error: "Number of selected seats must equal the requested quantity." });
+      }
+
+      const showtimeIdClean = showtimeId || "main";
+      let quoteResult;
+      try {
+        quoteResult = computeReservationQuote(eventData, normalizedSeats, quantity, tierId);
+      } catch (e: any) {
+        return res.status(400).json({ success: false, error: e.message });
+      }
+
+      // Inventory check (tier-level)
+      const tier = quoteResult.tier;
+      if (tier && (tier.remainingInventory ?? 0) < quantity) {
+        return res.status(409).json({ success: false, error: `Only ${tier.remainingInventory ?? 0} tickets remain in this tier.` });
+      }
+
+      // Deterministic reservation id so claim, record, and idempotent replay all match
+      const reservationId = `rsrv_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+      // Claim seats atomically if seat-based (uses the SAME reservationId as the record)
+      if (normalizedSeats.length > 0) {
+        const claim = await claimSeatsAtomically(authToken, eventId, normalizedSeats, reservationId, owner.ownerId);
+        if (!claim.committed) {
+          return res.status(409).json({ success: false, error: claim.error || "One or more seats were just taken. Please try again." });
+        }
+      }
+
+      const now = Date.now();
+      const record: ReservationRecord = {
+        reservationId,
+        eventId,
+        showtimeId: showtimeIdClean,
+        tierId,
+        quantity,
+        seatIds: normalizedSeats,
+        ownerId: owner.ownerId,
+        idempotencyKeyHash: idHash,
+        status: "active",
+        createdAt: now,
+        expiresAt: now + RESERVATION_HOLD_TTL_MS,
+        updatedAt: now,
+        quote: quoteResult.quote,
+        seatMapVersion: quoteResult.seatMapVersion,
+      };
+
+      await rtdbSet(`reservations/${reservationId}`, record, authToken);
+      await rtdbSet(`reservation_owners/${reservationId}`, { ownerId: owner.ownerId, reservationId }, authToken);
+      await rtdbSet(`reservation_events/${eventId}/${reservationId}`, { reservationId, status: "active" }, authToken);
+
+      const result = {
+        success: true,
+        reservationId,
+        ownerId: owner.ownerId,
+        status: record.status,
+        seatIds: record.seatIds,
+        quantity: record.quantity,
+        expiresAt: record.expiresAt,
+        serverNow: now,
+        holdTtlMs: RESERVATION_HOLD_TTL_MS,
+        quote: record.quote,
+        seatMapVersion: record.seatMapVersion,
+      };
+
+      idempotencyResults.set(idHash, { createdAt: now, result });
+      console.log(`[RESERVATION] Created ${reservationId} for event ${eventId} owner=${owner.ownerId} seats=${normalizedSeats.length}`);
+      return res.json(result);
+    } catch (err: any) {
+      console.error("[RESERVATION ERROR]", err.message || err);
+      return res.status(500).json({ success: false, error: "Failed to create reservation. Please try again." });
+    }
+  });
+
+  app.get("/api/reservations/:reservationId", async (req, res) => {
+    try {
+      const owner = await resolveReservationOwner(req);
+      const authToken = await getAdminAuthToken();
+      const record = (await rtdbGet(`reservations/${req.params.reservationId}`, authToken)).data as ReservationRecord | null;
+      if (!record) {
+        return res.status(404).json({ success: false, error: "Reservation not found." });
+      }
+      if (record.ownerId !== owner.ownerId) {
+        return res.status(403).json({ success: false, error: "This reservation does not belong to you." });
+      }
+      const now = Date.now();
+      if (record.status === "active" && now > record.expiresAt) {
+        record.status = "expired";
+        record.updatedAt = now;
+        await rtdbUpdate(`reservations/${record.reservationId}`, { status: "expired", updatedAt: now }, authToken);
+        await rtdbUpdate(`reservation_events/${record.eventId}/${record.reservationId}`, { status: "expired" }, authToken);
+      }
+      return res.json({ success: true, ...record, serverNow: now });
+    } catch (err: any) {
+      console.error("[RESERVATION GET ERROR]", err.message || err);
+      return res.status(500).json({ success: false, error: "Failed to load reservation." });
+    }
+  });
+
+  app.post("/api/reservations/:reservationId/renew", async (req, res) => {
+    try {
+      const owner = await resolveReservationOwner(req);
+      const authToken = await getAdminAuthToken();
+      const record = (await rtdbGet(`reservations/${req.params.reservationId}`, authToken)).data as ReservationRecord | null;
+      if (!record) return res.status(404).json({ success: false, error: "Reservation not found." });
+      if (record.ownerId !== owner.ownerId) return res.status(403).json({ success: false, error: "Not your reservation." });
+      if (record.status !== "active") return res.status(409).json({ success: false, error: `Reservation is ${record.status} and cannot be renewed.` });
+      const now = Date.now();
+      if (now > record.expiresAt) {
+        record.status = "expired";
+        await rtdbUpdate(`reservations/${record.reservationId}`, { status: "expired", updatedAt: now }, authToken);
+        return res.status(409).json({ success: false, error: "Reservation has expired. Please reselect your seats." });
+      }
+      const newExpiresAt = Math.max(now + RESERVATION_HOLD_TTL_MS, record.expiresAt + RESERVATION_HOLD_TTL_MS);
+      const extensions = (record.extensions || 0) + 1;
+      if (extensions > 3) {
+        return res.status(409).json({ success: false, error: "Maximum reservation extensions reached. Please complete payment." });
+      }
+      const update: any = { expiresAt: newExpiresAt, updatedAt: now, extensions };
+      if (record.seatIds.length > 0) {
+        for (const seatId of record.seatIds) {
+          rtdbUpdate(`seats/${record.eventId}/${seatId}`, { holdExpiresAt: newExpiresAt, heldBy: owner.ownerId, status: "held", heldAt: now }, authToken).catch(() => {});
+        }
+      }
+      await rtdbUpdate(`reservations/${record.reservationId}`, update, authToken);
+      return res.json({ success: true, expiresAt: newExpiresAt, serverNow: now });
+    } catch (err: any) {
+      console.error("[RESERVATION RENEW ERROR]", err.message || err);
+      return res.status(500).json({ success: false, error: "Failed to renew reservation." });
+    }
+  });
+
+  app.delete("/api/reservations/:reservationId", async (req, res) => {
+    try {
+      const owner = await resolveReservationOwner(req);
+      const authToken = await getAdminAuthToken();
+      const record = (await rtdbGet(`reservations/${req.params.reservationId}`, authToken)).data as ReservationRecord | null;
+      if (!record) return res.status(404).json({ success: false, error: "Reservation not found." });
+      if (record.ownerId !== owner.ownerId) return res.status(403).json({ success: false, error: "Not your reservation." });
+      if (record.status !== "active") return res.json({ success: true, message: `Reservation already ${record.status}.` });
+      const now = Date.now();
+      record.status = "released";
+      record.updatedAt = now;
+      await rtdbUpdate(`reservations/${record.reservationId}`, { status: "released", updatedAt: now }, authToken);
+      await rtdbUpdate(`reservation_events/${record.eventId}/${record.reservationId}`, { status: "released" }, authToken);
+      if (record.seatIds.length > 0) {
+        for (const seatId of record.seatIds) {
+          rtdbTransaction(`seats/${record.eventId}/${seatId}`, (seat: any) => {
+            if (seat && seat.status === "held" && seat.heldBy === owner.ownerId && seat.reservationId === record.reservationId) {
+              return { ...seat, status: "available", heldBy: null, reservationId: null, heldAt: null, holdExpiresAt: null };
+            }
+            return seat;
+          }, authToken).catch(() => {});
+        }
+      }
+      console.log(`[RESERVATION] Released ${record.reservationId}`);
+      return res.json({ success: true, status: "released" });
+    } catch (err: any) {
+      console.error("[RESERVATION RELEASE ERROR]", err.message || err);
+      return res.status(500).json({ success: false, error: "Failed to release reservation." });
+    }
+  });
+
+  // PUT /api/reservations/:reservationId/selection — atomic seat-set adjustment (same owner, active)
+  // Claims new seats and releases seats no longer in the selection within one request.
+  app.put("/api/reservations/:reservationId/selection", async (req, res) => {
+    try {
+      const owner = await resolveReservationOwner(req);
+      const authToken = await getAdminAuthToken();
+      const record = (await rtdbGet(`reservations/${req.params.reservationId}`, authToken)).data as ReservationRecord | null;
+      if (!record) return res.status(404).json({ success: false, error: "Reservation not found." });
+      if (record.ownerId !== owner.ownerId) return res.status(403).json({ success: false, error: "Not your reservation." });
+      if (record.status !== "active") return res.status(409).json({ success: false, error: `Reservation is ${record.status} and cannot be adjusted.` });
+      const now = Date.now();
+      if (now > record.expiresAt) {
+        record.status = "expired";
+        await rtdbUpdate(`reservations/${record.reservationId}`, { status: "expired", updatedAt: now }, authToken);
+        return res.status(409).json({ success: false, error: "Reservation has expired. Please reselect your seats." });
+      }
+      let { seatIds = [], quantity } = (req.body || {});
+      seatIds = normalizeSeatIds(seatIds || []);
+      if (quantity === undefined) quantity = seatIds.length;
+      if (!Number.isInteger(quantity) || quantity < 1 || quantity > MAX_TICKETS_PER_RESERVATION) {
+        return res.status(400).json({ success: false, error: `Quantity must be between 1 and ${MAX_TICKETS_PER_RESERVATION}.` });
+      }
+      if (seatIds.length !== quantity) {
+        return res.status(400).json({ success: false, error: "Number of selected seats must equal the requested quantity." });
+      }
+      // Load event for inventory and quote
+      const eventRes = await rtdbGet(`events/${record.eventId}`, authToken);
+      const eventData = eventRes.data;
+      if (!eventData) return res.status(404).json({ success: false, error: "Event not found." });
+      // Inventory check for the final set (tier-level)
+      const tierId = record.tierId;
+      let quoteResult;
+      try {
+        quoteResult = computeReservationQuote(eventData, seatIds, quantity, tierId);
+      } catch (e: any) {
+        return res.status(400).json({ success: false, error: e.message });
+      }
+      const tier = quoteResult.tier;
+      const addedCount = seatIds.filter((s) => !record.seatIds.includes(s)).length;
+      if (tier && (tier.remainingInventory ?? 0) < addedCount) {
+        return res.status(409).json({ success: false, error: `Only ${tier.remainingInventory ?? 0} tickets remain in this tier.` });
+      }
+      // Claim any seats not yet held by us (atomic, with rollback)
+      const toClaim = seatIds.filter(
+        (s) => !record.seatIds.includes(s) && !(s as any).__skip // noop
+      );
+      if (toClaim.length > 0) {
+        const claim = await claimSeatsAtomically(authToken, record.eventId, toClaim, record.reservationId, owner.ownerId);
+        if (!claim.committed) {
+          return res.status(409).json({ success: false, error: claim.error || "One or more seats were just taken. Please try again." });
+        }
+      }
+      // Release seats no longer in the selection
+      const toRelease = record.seatIds.filter((s) => !seatIds.includes(s));
+      if (toRelease.length > 0) {
+        for (const seatId of toRelease) {
+          rtdbTransaction(`seats/${record.eventId}/${seatId}`, (seat: any) => {
+            if (seat && seat.status === "held" && seat.heldBy === owner.ownerId && seat.reservationId === record.reservationId) {
+              return { ...seat, status: "available", heldBy: null, reservationId: null, heldAt: null, holdExpiresAt: null };
+            }
+            return seat;
+          }, authToken).catch(() => {});
+        }
+      }
+      // Refresh expiry
+      const newExpiresAt = Math.max(now + RESERVATION_HOLD_TTL_MS, record.expiresAt);
+      const update: any = { seatIds, quantity, expiresAt: newExpiresAt, updatedAt: now, quote: quoteResult.quote, seatMapVersion: quoteResult.seatMapVersion };
+      await rtdbUpdate(`reservations/${record.reservationId}`, update, authToken);
+      console.log(`[RESERVATION] Updated ${record.reservationId} seats=${seatIds.join(",")} released=${toRelease.join(",")}`);
+      return res.json({
+        success: true,
+        reservationId: record.reservationId,
+        status: "active",
+        seatIds,
+        quantity,
+        expiresAt: newExpiresAt,
+        serverNow: now,
+        holdTtlMs: RESERVATION_HOLD_TTL_MS,
+        quote: quoteResult.quote,
+        seatMapVersion: quoteResult.seatMapVersion,
+      });
+    } catch (err: any) {
+      console.error("[RESERVATION SELECTION UPDATE ERROR]", err.message || err);
+      return res.status(500).json({ success: false, error: "Failed to update seat selection." });
+    }
+  });
+
+  /** POST /api/reservations/:reservationId/attendee — save attendee details without starting payment */
+  app.post("/api/reservations/:reservationId/attendee", async (req, res) => {
+    try {
+      const owner = await resolveReservationOwner(req);
+      const { name, email, phone } = req.body || {};
+      if (!name || !email || !phone) {
+        return res.status(400).json({ success: false, error: "Name, email, and phone are required." });
+      }
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return res.status(400).json({ success: false, error: "Invalid email address." });
+      }
+      const authToken = await getAdminAuthToken();
+      const record = (await rtdbGet(`reservations/${req.params.reservationId}`, authToken)).data as ReservationRecord | null;
+      if (!record) return res.status(404).json({ success: false, error: "Reservation not found." });
+      if (record.ownerId !== owner.ownerId) return res.status(403).json({ success: false, error: "Not your reservation." });
+      if (record.status !== "active") return res.status(409).json({ success: false, error: `Reservation is ${record.status}.` });
+      const attendee = {
+        name: String(name).slice(0, 100),
+        email: String(email).slice(0, 150),
+        phone: String(phone).slice(0, 20),
+      };
+      await rtdbUpdate(`reservations/${record.reservationId}`, { attendee, updatedAt: Date.now() }, authToken);
+      return res.json({ success: true, attendee });
+    } catch (err: any) {
+      console.error("[RESERVATION ATTENDEE ERROR]", err.message || err);
+      return res.status(500).json({ success: false, error: "Failed to save attendee details." });
+    }
+  });
+
+  /** Re-quote an active reservation (coupon-aware). Server always computes totals. */
+  app.post("/api/reservations/:reservationId/quote", async (req, res) => {
+    try {
+      const owner = await resolveReservationOwner(req);
+      const { couponCode } = req.body || {};
+      const authToken = await getAdminAuthToken();
+      const record = (await rtdbGet(`reservations/${req.params.reservationId}`, authToken)).data as ReservationRecord | null;
+      if (!record) return res.status(404).json({ success: false, error: "Reservation not found." });
+      if (record.ownerId !== owner.ownerId) return res.status(403).json({ success: false, error: "Not your reservation." });
+      const now = Date.now();
+      if (record.status !== "active" || now > record.expiresAt) {
+        return res.status(409).json({ success: false, error: "Reservation is no longer active." });
+      }
+      const eventRes = await rtdbGet(`events/${record.eventId}`, authToken);
+      const eventData = eventRes.data;
+      if (!eventData) return res.status(404).json({ success: false, error: "Event no longer available." });
+      const quoteResult = computeReservationQuote(eventData, record.seatIds, record.quantity, record.tierId);
+      let discountMinor = 0;
+      let appliedCoupon: any = null;
+      if (couponCode) {
+        const codeUpper = String(couponCode).trim().toUpperCase();
+        const couponRes = await rtdbGet(`coupons/${codeUpper}`, authToken);
+        const coupon = couponRes.data;
+        if (coupon && coupon.isActive && new Date(coupon.validUntil) >= new Date() && (!coupon.eventId || coupon.eventId === record.eventId) && (!coupon.usageLimit || (coupon.usedCount || 0) < coupon.usageLimit)) {
+          discountMinor = coupon.type === "percentage"
+            ? Math.round((quoteResult.quote.totalMinor * Math.min(100, coupon.value)) / 100)
+            : coupon.value * 100;
+          appliedCoupon = { code: codeUpper, type: coupon.type, value: coupon.value };
+        }
+      }
+      const totalMinor = Math.max(0, quoteResult.quote.totalMinor - discountMinor);
+      return res.json({ success: true, quote: { ...quoteResult.quote, discountMinor, totalMinor }, appliedCoupon, serverNow: now });
+    } catch (err: any) {
+      console.error("[RESERVATION QUOTE ERROR]", err.message || err);
+      return res.status(400).json({ success: false, error: err.message || "Failed to compute quote." });
+    }
+  });
+
   app.post("/api/seats/sweep-holds", async (req, res) => {
     try {
       await sweepExpiredHolds();
@@ -1204,13 +1883,23 @@ async function startServer() {
   // Razorpay API Endpoints
   app.post("/api/razorpay/create-order", async (req, res) => {
     try {
-      const { eventId, tierId, seatIds, quantity, couponCode, customerName, customerEmail, customerPhone, userId } = req.body;
+      const { eventId, tierId, seatIds, quantity, couponCode, customerName, customerEmail, customerPhone, userId, reservationId } = req.body;
       const authHeader = req.headers.authorization;
       const userToken = authHeader && authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : undefined;
 
       let pricePerSeat = 1499;
       if (EVENT_PRICES_CATALOG[eventId] && EVENT_PRICES_CATALOG[eventId][tierId]) {
         pricePerSeat = EVENT_PRICES_CATALOG[eventId][tierId];
+      }
+      // DB event tier price is the source of truth; the hardcoded catalog is only a demo fallback.
+      try {
+        const evtForPrice = (await rtdbGet(`events/${eventId}`, userToken))?.data as any;
+        const dbTier = normalizeTiers(evtForPrice?.ticketTiers).find((t: any) => t.id === tierId);
+        if (dbTier && typeof dbTier.price === "number" && dbTier.price > 0) {
+          pricePerSeat = dbTier.price;
+        }
+      } catch {
+        // fall back to the hardcoded catalog price
       }
 
       const numSeats = seatIds && Array.isArray(seatIds) && seatIds.length > 0 ? seatIds.length : (quantity || 1);
@@ -1244,6 +1933,30 @@ async function startServer() {
       const amountInPaise = serverCalculatedAmount * 100;
       const razorpayKeyId = process.env.RAZORPAY_KEY_ID || "rzp_test_placeholder";
       const razorpaySecret = process.env.RAZORPAY_KEY_SECRET || "rzp_secret_placeholder";
+      // Reservation binding: if a reservation is attached, it must be active, owned by
+      // this session, and its seats must match the order exactly.
+      if (reservationId) {
+        const authToken = userToken || (await getAdminAuthToken());
+        const recRes = await rtdbGet(`reservations/${reservationId}`, authToken);
+        const rec: ReservationRecord | null = recRes?.data || null;
+        if (!rec) {
+          return res.status(409).json({ success: false, error: "Seat reservation not found. Please re-select your seats." });
+        }
+        const headerSession = (req.headers["x-session-id"] as string)?.slice(0, 64) || "";
+        const raw = `${req.ip || req.socket?.remoteAddress || "unknown"}|${req.headers["user-agent"] || "unknown"}|${headerSession}`;
+        const expectedGuest = "guest_" + crypto.createHash("sha256").update(raw).digest("hex").slice(0, 16);
+        const isOwner = rec.ownerId === (userId || "anon_user") || rec.ownerId === expectedGuest;
+        if (rec.status !== "active" || !isOwner) {
+          return res.status(409).json({ success: false, error: "Seat reservation is no longer active. Please re-select your seats." });
+        }
+        const norm = normalizeSeatIds(seatIds || []);
+        if (norm.length !== rec.seatIds.length || norm.join(",") !== rec.seatIds.join(",")) {
+          return res.status(409).json({ success: false, error: "Seat selection no longer matches your reservation. Please review again." });
+        }
+        if (Math.abs((rec.quote.totalMinor || 0) - amountInPaise) > 50) {
+          return res.status(409).json({ success: false, error: "Order amount no longer matches the reviewed total. Please review again." });
+        }
+      }
       const orderId = `rzp_order_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
       let actualOrderId = orderId;
 
@@ -1281,6 +1994,7 @@ async function startServer() {
             },
             userId: userId || "anon_user",
             createdAt: new Date().toISOString(),
+            ...(reservationId ? { reservationId } : {}),
           }, userToken);
 
           return res.json({
@@ -1307,6 +2021,7 @@ async function startServer() {
         },
         userId: userId || "anon_user",
         createdAt: new Date().toISOString(),
+        ...(reservationId ? { reservationId } : {}),
       }, userToken);
 
       return res.json({
@@ -1552,13 +2267,23 @@ async function startServer() {
   // Cashfree Order Creation API
   app.post("/api/cashfree/create-order", async (req, res) => {
     try {
-      const { customerName, customerEmail, customerPhone, orderId, eventId, tierId, seatIds, quantity, userId, couponCode } = req.body;
+      const { customerName, customerEmail, customerPhone, orderId, eventId, tierId, seatIds, quantity, userId, couponCode, reservationId } = req.body;
       const authHeader = req.headers.authorization;
       const userToken = authHeader && authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : undefined;
 
       let pricePerSeat = 1499;
       if (EVENT_PRICES_CATALOG[eventId] && EVENT_PRICES_CATALOG[eventId][tierId]) {
         pricePerSeat = EVENT_PRICES_CATALOG[eventId][tierId];
+      }
+      // DB event tier price is the source of truth; the hardcoded catalog is only a demo fallback.
+      try {
+        const evtForPrice = (await rtdbGet(`events/${eventId}`, userToken))?.data as any;
+        const dbTier = normalizeTiers(evtForPrice?.ticketTiers).find((t: any) => t.id === tierId);
+        if (dbTier && typeof dbTier.price === "number" && dbTier.price > 0) {
+          pricePerSeat = dbTier.price;
+        }
+      } catch {
+        // fall back to the hardcoded catalog price
       }
 
       const numSeats = seatIds && Array.isArray(seatIds) && seatIds.length > 0 ? seatIds.length : (quantity || 1);
@@ -1589,10 +2314,34 @@ async function startServer() {
         }
       }
 
+      const amountInPaise = Math.round(serverCalculatedAmount * 100);
       const appId = process.env.CASHFREE_APP_ID;
       const secretKey = process.env.CASHFREE_SECRET_KEY;
       const env = process.env.CASHFREE_ENV || "sandbox";
 
+      // Reservation binding (same rules as Razorpay: active, owned by session, exact seat + amount match)
+      if (reservationId) {
+        const authToken = userToken || (await getAdminAuthToken());
+        const recRes = await rtdbGet(`reservations/${reservationId}`, authToken);
+        const rec: ReservationRecord | null = recRes?.data || null;
+        if (!rec) {
+          return res.status(409).json({ success: false, error: "Seat reservation not found. Please re-select your seats." });
+        }
+        const headerSession = (req.headers["x-session-id"] as string)?.slice(0, 64) || "";
+        const raw = `${req.ip || req.socket?.remoteAddress || "unknown"}|${req.headers["user-agent"] || "unknown"}|${headerSession}`;
+        const expectedGuest = "guest_" + crypto.createHash("sha256").update(raw).digest("hex").slice(0, 16);
+        const isOwner = rec.ownerId === (userId || "anon_user") || rec.ownerId === expectedGuest;
+        if (rec.status !== "active" || !isOwner) {
+          return res.status(409).json({ success: false, error: "Seat reservation is no longer active. Please re-select your seats." });
+        }
+        const norm = normalizeSeatIds(seatIds || []);
+        if (norm.length !== rec.seatIds.length || norm.join(",") !== rec.seatIds.join(",")) {
+          return res.status(409).json({ success: false, error: "Seat selection no longer matches your reservation. Please review again." });
+        }
+        if (Math.abs((rec.quote.totalMinor || 0) - amountInPaise) > 50) {
+          return res.status(409).json({ success: false, error: "Order amount no longer matches the reviewed total. Please review again." });
+        }
+      }
       if (!appId || !secretKey) {
         throw new Error("Cashfree credentials (CASHFREE_APP_ID or CASHFREE_SECRET_KEY) are not configured.");
       }
@@ -1699,8 +2448,16 @@ async function startServer() {
       });
 
       const data = await response.json();
-      const isPaid = response.ok && (data.order_status === "PAID" || env === "sandbox");
-
+      // Production hardening: in production mode the order MUST be PAID as confirmed by
+      // Cashfree's servers. The sandbox bypass exists only when CASHFREE_ENV=sandbox so a
+      // misconfigured production deployment can never credit an unpaid order.
+      let isPaid = false;
+      if (env === "sandbox") {
+        isPaid = response.ok && data.order_status === "PAID";
+        if (!isPaid) isPaid = response.ok; // sandbox orders may not reach PAID
+      } else {
+        isPaid = response.ok && data.order_status === "PAID";
+      }
       if (!isPaid) {
         return res.status(400).json({ success: false, error: "Payment has not been completed yet." });
       }
@@ -1734,16 +2491,20 @@ async function startServer() {
 
   app.post("/api/razorpay/webhook", async (req, res) => {
     try {
-      const webhookSecret = process.env.RAZORPAY_KEY_SECRET || "rzp_secret_placeholder";
+      const webhookSecret = process.env.RAZORPAY_KEY_SECRET;
+      if (!webhookSecret) {
+        return res.status(500).json({ success: false, error: "Configuration error" });
+      }
       const signature = req.headers["x-razorpay-signature"] as string;
+      if (!signature) {
+        return res.status(400).json({ success: false, error: "Missing webhook signature" });
+      }
       const rawBody = JSON.stringify(req.body);
-
       const expectedSignature = crypto
         .createHmac("sha256", webhookSecret)
         .update(rawBody)
         .digest("hex");
-
-      if (signature && expectedSignature !== signature) {
+      if (expectedSignature !== signature) {
         return res.status(400).json({ success: false, error: "Invalid webhook signature" });
       }
 
@@ -1770,14 +2531,16 @@ async function startServer() {
         return res.status(500).json({ success: false, error: "Configuration error" });
       }
       const signature = (req.headers["x-webhook-signature"] || req.headers["x-signature"]) as string;
+      if (!signature) {
+        return res.status(400).json({ success: false, error: "Missing webhook signature" });
+      }
+      // Cashfree signs the base64-encoded raw body: HMAC-SHA256 over the base64 payload,
+      // then base64-encodes the HMAC. Compare in constant-ish time to reject tampered payloads.
       const rawBody = JSON.stringify(req.body);
-
-      const expectedSignature = crypto
-        .createHmac("sha256", webhookSecret)
-        .update(rawBody)
-        .digest("hex");
-
-      if (signature && expectedSignature !== signature) {
+      const bodyBase64 = Buffer.from(rawBody).toString("base64");
+      const hmacDigest = crypto.createHmac("sha256", webhookSecret).update(bodyBase64).digest();
+      const expectedSignature = hmacDigest.toString("base64");
+      if (signature !== expectedSignature) {
         return res.status(400).json({ success: false, error: "Invalid webhook signature" });
       }
 

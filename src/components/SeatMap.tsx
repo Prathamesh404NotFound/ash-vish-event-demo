@@ -16,6 +16,14 @@ interface SeatMapProps {
   eventDate?: string;
   eventTime?: string;
   onProceedToCheckout?: () => void;
+  /** Live server+RTDB seat projection (display-only authority). */
+  seatProjection?: Record<string, { status: string; heldBy?: string; expiresAt?: number; bookedAt?: number }>;
+  /** Reservation error bubbles up to the page. */
+  onReservationError?: (message: string) => void;
+  /** Current reservation status ('active' when holds exist for this buyer). */
+  reservationStatus?: string;
+  /** Owner id of this buyer's live reservation (server-derived session identity). */
+  reservationOwnerId?: string;
 }
 
 const HOLD_EXPIRY_MS = 10 * 60 * 1000; // 10 minutes hold expiry
@@ -31,6 +39,10 @@ export const SeatMap: React.FC<SeatMapProps> = ({
   eventDate = 'Today',
   eventTime = '07:30 PM',
   onProceedToCheckout,
+  seatProjection = {},
+  onReservationError,
+  reservationStatus,
+  reservationOwnerId,
 }) => {
   const activeConfig = seatMapConfig || {
     rows: 6,
@@ -42,6 +54,20 @@ export const SeatMap: React.FC<SeatMapProps> = ({
     }
   };
   const { rows = 6, cols = 8, aisleAfterCols = [], tierByRow = {} } = activeConfig;
+  // Resolve the tier id for a seat row by matching the tier name against the event's ticket tiers.
+  const resolvedTierId = React.useMemo(() => {
+    const byName = new Map(ticketTiers.map((t) => [String(t.name || '').trim().toLowerCase(), t.id]));
+    return (rowIdx: number) => {
+      for (const [range, name] of Object.entries(tierByRow)) {
+        const [lo, hi] = range.split('-').map(Number);
+        if (rowIdx >= lo && rowIdx <= hi) {
+          const id = byName.get(String(name).trim().toLowerCase());
+          if (id) return id;
+        }
+      }
+      return ticketTiers[0]?.id;
+    };
+  }, [tierByRow, ticketTiers]);
 
   const [dbSeats, setDbSeats] = useState<Record<string, SeatNode>>({});
   const [localHeldSeats, setLocalHeldSeats] = useState<string[]>(selectedSeatIds);
@@ -49,6 +75,8 @@ export const SeatMap: React.FC<SeatMapProps> = ({
   const [selectedShowtime, setSelectedShowtime] = useState<string>(eventTime);
   const [holdTimeLeft, setHoldTimeLeft] = useState<number>(600);
   const [hoveredSeatId, setHoveredSeatId] = useState<string | null>(null);
+  const claimingRef = React.useRef<string[]>([]);
+  const releaseTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // States and refs for pinch-to-zoom and pan interactions
   const hasDraggedRef = React.useRef(false);
@@ -76,10 +104,11 @@ export const SeatMap: React.FC<SeatMapProps> = ({
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return; // Only track left click / primary touch
-    
+
     const target = e.target as HTMLElement;
-    if (target.closest('.zoom-ctrl')) {
-      return; // Do not drag on zooming controls
+    if (target.closest('.zoom-ctrl') || target.closest('.seat-btn')) {
+      return; // Do not drag on zoom controls or seat buttons — seat presses
+      // must always behave as clicks so selection reliably fires.
     }
 
     setIsDragging(true);
@@ -160,78 +189,80 @@ export const SeatMap: React.FC<SeatMapProps> = ({
   useEffect(() => {
     setLocalHeldSeats(selectedSeatIds);
   }, [selectedSeatIds]);
-
-  // Hold Countdown timer for user's selected seats
+  // Realtime projection is the display authority: merge it with local selections.
+  // When the wizard/other buyers change seats server-side, the projection refreshes
+  // automatically — seats taken by others drop out of the buyer's local selection.
   useEffect(() => {
-    if (localHeldSeats.length === 0) return;
-
-    const timer = setInterval(() => {
-      setHoldTimeLeft((prev) => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          localHeldSeats.forEach((seatId) => {
-            const seatRef = ref(rtdb, `seats/${eventId}/${seatId}`);
-            runTransaction(seatRef, (seat) => {
-              if (seat && seat.heldBy === currentUserId) {
-                return { ...seat, status: 'available', heldBy: null, heldAt: null, holdExpiresAt: null };
-              }
-              return seat;
-            }).catch(console.warn);
-          });
-          setLocalHeldSeats([]);
-          onSeatsSelected([]);
-          setErrorMsg('10-minute hold time expired. Please re-select your seats.');
-          return 600;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [localHeldSeats, eventId, currentUserId]);
-
-  // Realtime subscription to seat nodes for this event
-  useEffect(() => {
-    const seatsRef = ref(rtdb, `seats/${eventId}`);
-    const unsubscribe = onValue(seatsRef, (snapshot) => {
-      if (snapshot.exists()) {
-        const val = snapshot.val() as Record<string, SeatNode>;
-        const now = Date.now();
-        const cleaned: Record<string, SeatNode> = {};
-        Object.entries(val).forEach(([seatId, node]) => {
-          const expiresAt = node.holdExpiresAt || (node.heldAt ? node.heldAt + HOLD_EXPIRY_MS : 0);
-          if (node.status === 'held' && expiresAt && now > expiresAt) {
-            cleaned[seatId] = { ...node, status: 'available', heldBy: undefined, heldAt: undefined, holdExpiresAt: undefined };
-          } else {
-            cleaned[seatId] = node;
-          }
-        });
-        setDbSeats(cleaned);
-      } else {
-        setDbSeats({});
+    if (!seatProjection || Object.keys(seatProjection).length === 0) return;
+    const now = Date.now();
+    // A hold belongs to this buyer when heldBy matches the auth user OR
+    // (guest/session-based identity) matches this session's id.
+    const sessionId = (window as any).__SESSION_ID as string | undefined;
+    // Server-authoritative: holds owned by this buyer's live reservation are
+    // 'mine' regardless of the client-side guess (guest id hashing happens server-side).
+    const isMyHold = (heldBy: string) =>
+      heldBy === currentUserId ||
+      (typeof reservationOwnerId === 'string' && heldBy === reservationOwnerId) ||
+      (typeof sessionId === 'string' && heldBy === sessionId);
+    const projectionHeld = new Set(
+      (Object.entries(seatProjection) as [string, { status: string; heldBy?: string; expiresAt?: number; bookedAt?: number }][])
+        .filter(
+          ([, s]) =>
+            s.status === 'held' && s.heldBy && !isMyHold(s.heldBy) &&
+            (!s.expiresAt || s.expiresAt > now)
+        )
+        .map(([seatId]) => seatId)
+    );
+    setLocalHeldSeats((prev) => {
+      const taken = prev.filter((id) => projectionHeld.has(id));
+      if (taken.length > 0) {
+        const labels = taken.join(', ');
+        setErrorMsg(`Seat(s) ${labels} were just taken by another buyer.`);
+        onReservationError?.(`Seat(s) ${labels} were just taken by another buyer. Please re-select.`);
+        const updated = prev.filter((id) => !projectionHeld.has(id));
+        onSeatsSelected(updated);
+        return updated;
       }
+      return prev;
     });
-
-    return () => unsubscribe();
-  }, [eventId]);
+    setDbSeats({}); // projection supersedes the legacy DB snapshot
+  }, [seatProjection, currentUserId, onReservationError, onSeatsSelected]);
 
   const getSeatStatus = (seatId: string): { status: 'available' | 'held' | 'booked'; isMine: boolean } => {
+    // Server projection is authoritative. A projection entry overrides dbSeats.
+    const proj = seatProjection?.[seatId];
+    const now = Date.now();
+    if (proj) {
+      const expired = proj.status === 'held' && proj.expiresAt && now > proj.expiresAt;
+      if (proj.status === 'booked' || proj.status === 'sold') return { status: 'booked', isMine: false };
+      if (proj.status === 'held' && !expired) {
+        const sessionId = (window as any).__SESSION_ID as string | undefined;
+        const isMine =
+          (proj.heldBy || '') === currentUserId ||
+          (typeof reservationOwnerId === 'string' && (proj.heldBy || '') === reservationOwnerId) ||
+          localHeldSeats.includes(seatId);
+        return { status: 'held', isMine };
+      }
+      if (localHeldSeats.includes(seatId)) return { status: 'held', isMine: true };
+      return { status: 'available', isMine: false };
+    }
     const node = dbSeats[seatId];
     if (!node) {
       if (localHeldSeats.includes(seatId)) return { status: 'held', isMine: true };
       return { status: 'available', isMine: false };
     }
-
     if (node.status === 'held') {
-      const now = Date.now();
       const expiresAt = node.holdExpiresAt || (node.heldAt ? node.heldAt + HOLD_EXPIRY_MS : 0);
       if (expiresAt && now > expiresAt) {
         return { status: 'available', isMine: false };
       }
-      const isMine = node.heldBy === currentUserId || localHeldSeats.includes(seatId);
+      const sessionId = (window as any).__SESSION_ID as string | undefined;
+      const isMine =
+        node.heldBy === currentUserId ||
+        (typeof reservationOwnerId === 'string' && node.heldBy === reservationOwnerId) ||
+        localHeldSeats.includes(seatId);
       return { status: 'held', isMine };
     }
-
     return { status: node.status, isMine: false };
   };
 
@@ -253,87 +284,35 @@ export const SeatMap: React.FC<SeatMapProps> = ({
     }
 
     const isAlreadySelected = localHeldSeats.includes(seatId);
-
     if (isAlreadySelected) {
-      // Release seat
+      // Deselect locally — the wizard persists (or releases) the reservation
+      // when the buyer confirms or leaves the flow. Nothing is written to RTDB
+      // directly to avoid double-ownership conflicts.
       const updated = localHeldSeats.filter((id) => id !== seatId);
       setLocalHeldSeats(updated);
       onSeatsSelected(updated);
-
-      // Release in RTDB via transaction
-      try {
-        const seatRef = ref(rtdb, `seats/${eventId}/${seatId}`);
-        await runTransaction(seatRef, (seat) => {
-          if (seat && seat.heldBy === currentUserId) {
-            return { ...seat, status: 'available', heldBy: null, heldAt: null, holdExpiresAt: null };
-          }
-          return seat;
-        });
-      } catch (e) {
-        console.warn('Seat release transaction note:', e);
-      }
     } else {
-      // Select new seat
+      // Select new seat (UI-only). Server persistence is delegated to the
+      // checkout wizard through onSeatsSelected, which routes through the
+      // atomic reservation API (BookingContext.createReservation). Doing the
+      // hold here would bypass the shared reservation state and could create
+      // orphaned or duplicate reservations.
       if (localHeldSeats.length >= requiredQuantity) {
         setErrorMsg(`You can select up to ${requiredQuantity} seat(s). Unselect a seat to pick another.`);
         return;
       }
-
-      // Claim seat via RTDB Transaction
-      const seatRef = ref(rtdb, `seats/${eventId}/${seatId}`);
-      let claimedSuccess = false;
-
-      try {
-        const res = await runTransaction(seatRef, (seatData) => {
-          const now = Date.now();
-          const expiresAt = seatData?.holdExpiresAt || (seatData?.heldAt ? seatData.heldAt + HOLD_EXPIRY_MS : 0);
-          const isExpired = expiresAt > 0 && now > expiresAt;
-
-          if (!seatData || seatData.status === 'available' || (seatData.status === 'held' && isExpired)) {
-            const rowNum = typeof seatData?.row === 'number' ? seatData.row : parseInt(seatId.split('-')[0].replace('R', ''), 10) || 1;
-            const colNum = typeof seatData?.col === 'number' ? seatData.col : parseInt(seatId.split('-')[1].replace('C', ''), 10) || 1;
-            return {
-              ...seatData,
-              id: seatId,
-              seatId,
-              row: rowNum,
-              col: colNum,
-              status: 'held',
-              heldBy: currentUserId,
-              heldAt: now,
-              holdExpiresAt: now + HOLD_EXPIRY_MS,
-            };
-          }
-          return undefined; // Abort transaction if seat already taken
-        });
-
-        if (res.committed) {
-          claimedSuccess = true;
-
-          // Add onDisconnect handler to release seat if connection breaks
-          try {
-            onDisconnect(seatRef).update({
-              status: 'available',
-              heldBy: null,
-              heldAt: null,
-              holdExpiresAt: null,
-            });
-          } catch (discErr) {
-            // Ignore if offline
-          }
-        }
-      } catch (e) {
-        console.warn('Realtime database transaction fallback:', e);
-        claimedSuccess = true;
+      if (claimingRef.current.length > 0) {
+        setErrorMsg('Another seat is being reserved, please wait a moment.');
+        return;
       }
-
-      if (claimedSuccess) {
+      claimingRef.current = [seatId];
+      try {
         const updated = [...localHeldSeats, seatId];
         setLocalHeldSeats(updated);
         onSeatsSelected(updated);
         setHoldTimeLeft(600);
-      } else {
-        setErrorMsg('Seat was just claimed by another user! Please select a different seat.');
+      } finally {
+        claimingRef.current = [];
       }
     }
   };
@@ -598,12 +577,12 @@ export const SeatMap: React.FC<SeatMapProps> = ({
                           <React.Fragment key={seatId}>
                             <button
                               type="button"
+                              className={`seat-btn ${btnClasses}`}
                               onClick={() => handleSeatClick(seatId)}
                               onMouseEnter={() => setHoveredSeatId(seatId)}
                               onMouseLeave={() => setHoveredSeatId(null)}
                               disabled={status === 'booked' || (status === 'held' && !isMine)}
                               title={`Seat ${rowLabel}-${colNum} | ${tierInfo.name} | ${tierInfo.price ? formatINR(tierInfo.price) : 'Standard'} | ${status}`}
-                              className={btnClasses}
                             >
                               <span>{colNum}</span>
                             </button>

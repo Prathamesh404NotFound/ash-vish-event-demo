@@ -4,7 +4,7 @@ import { rtdb, auth } from '../lib/firebase';
 import { useAuth } from './AuthContext';
 import { EventItem, Ticket, TicketTier, BookingRecord, Coupon, EventReview, OrganizerAccount } from '../types';
 import { MOCK_EVENTS, MOCK_TICKETS, DEMO_ORGANIZERS } from '../data/mockEvents';
-import { safeFetch, getApiUrl } from '../lib/api';
+import { safeFetch, getApiUrl, SafeFetchResponse } from '../lib/api';
 import { rtdbGet, rtdbSet, rtdbDelete } from '../lib/rtdb';
 
 export interface CheckoutSession {
@@ -16,7 +16,68 @@ export interface CheckoutSession {
   discountAmount?: number;
 }
 
+/** Server-authoritative reservation returned by POST /api/reservations. */
+export interface ReservationState {
+  reservationId: string;
+  eventId: string;
+  tierId: string;
+  quantity: number;
+  seatIds: string[];
+  status: 'active' | 'confirmed' | 'expired' | 'released' | 'cancelled';
+  ownerId?: string;
+  expiresAt: number;
+  serverNow: number;
+  holdTtlMs: number;
+  quote: { currency: string; subtotalMinor: number; discountMinor: number; feesMinor: number; totalMinor: number };
+  seatMapVersion: number;
+  attendee?: { name: string; email: string; phone: string };
+}
+
+export interface QuoteResult {
+  quote: { currency: string; subtotalMinor: number; discountMinor: number; feesMinor: number; totalMinor: number };
+  appliedCoupon?: { code: string; type: string; value: number };
+}
+
+const SESSION_ID_STORAGE_KEY = 'ash_vish_session_id';
+
+/** Abort reason token used to cancel a superseded in-flight reservation request. */
+const STALE_REQUEST_TOKEN = '__stale_reservation_request__';
+
+export function getSessionId(): string {
+  let sid = localStorage.getItem(SESSION_ID_STORAGE_KEY);
+  if (!sid) {
+    sid = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    try {
+      localStorage.setItem(SESSION_ID_STORAGE_KEY, sid);
+    } catch (err) {
+      // localStorage unavailable (private browsing etc.)
+    }
+  }
+  return sid;
+}
+
 interface BookingContextType {
+  /** Current step in the booking wizard: 1=tickets, 2=seats, 3=attendee, 4=review, 5=payment */
+  bookingStep: number;
+  setBookingStep: (step: number) => void;
+  /** Live seat projection from RTDB (display-only, never booking authority). */
+  seatProjection: Record<string, { status: string; heldBy?: string; expiresAt?: number; bookedAt?: number }>;
+  seatsConnected: boolean;
+  /** Server reservation record for the current checkout (null when no reservation exists). */
+  reservation: ReservationState | null;
+  /** Quote including an optional coupon; fetched from server. */
+  quote: QuoteResult | null;
+  setQuote: (q: QuoteResult | null) => void;
+  /** Confirmation state after the user accepts the summary. */
+  reviewConfirmed: boolean;
+  setReviewConfirmed: (v: boolean) => void;
+  pendingSeatCount: number;
+  reservationError: string | null;
+  createReservation: (seatIds: string[], options?: { skipIfSame?: boolean }) => Promise<ReservationState>;
+  refreshReservation: () => Promise<ReservationState | null>;
+  cancelReservation: () => Promise<void>;
+  setAttendeeDetails: (details: { name: string; email: string; phone: string }) => Promise<boolean>;
+  selectSeats: (seatIds: string[]) => void;
   events: EventItem[];
   myTickets: Ticket[];
   allTickets: Ticket[];
@@ -114,6 +175,99 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const saved = localStorage.getItem('ash_vish_current_checkout');
     return saved ? JSON.parse(saved) : null;
   });
+
+  /** Reconcile a restored checkout with the live event database. Upgraded builds
+   *  may have persisted tier prices in minor units (paise) or the DB tier may
+   *  have changed since the session was saved. The live DB tier is authoritative
+   *  for display; the server quote remains authoritative for payment. */
+  useEffect(() => {
+    if (!currentCheckout) return;
+    const dbEvent = events.find((e) => e.id === currentCheckout.event.id);
+    if (!dbEvent) return;
+    const dbTier = (dbEvent.ticketTiers || []).find((t) => t.id === currentCheckout.tier.id);
+    if (!dbTier || dbTier.price === currentCheckout.tier.price) return;
+    setCurrentCheckout({
+      ...currentCheckout,
+      event: dbEvent,
+      tier: { ...currentCheckout.tier, ...dbTier },
+    });
+  }, [events]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ============================================================
+  // NEW PRODUCTION BOOKING FLOW STATE
+  // ============================================================
+  const [bookingStep, setBookingStep] = useState<number>(() => {
+    const saved = localStorage.getItem('ash_vish_booking_step');
+    return saved ? parseInt(saved, 10) : 1;
+  });
+  const [seatProjection, setSeatProjection] = useState<Record<string, { status: string; heldBy?: string; expiresAt?: number; bookedAt?: number }>>({});
+  const [seatsConnected, setSeatsConnected] = useState<boolean>(true);
+  const [reservation, setReservation] = useState<ReservationState | null>(() => {
+    try {
+      const saved = localStorage.getItem('ash_vish_reservation');
+      if (!saved) return null;
+      const parsed: ReservationState = JSON.parse(saved);
+      // Never restore stale/terminal records from a previous booking flow:
+      // cancelled/expired/released/confirmed reservations must not drive the UI.
+      if (['cancelled', 'expired', 'released', 'confirmed'].includes(parsed?.status || '')) return null;
+      // A hold whose expiry has already passed is dead on arrival.
+      if (parsed?.expiresAt && Date.now() > parsed.expiresAt) return null;
+      return parsed;
+    } catch {
+      return null;
+    }
+  });
+  const [quote, setQuote] = useState<QuoteResult | null>(null);
+  const [reviewConfirmed, setReviewConfirmed] = useState<boolean>(false);
+  const [pendingSeatCount, setPendingSeatCount] = useState<number>(0);
+  const [reservationError, setReservationError] = useState<string | null>(null);
+  const pendingRequestRef = React.useRef<AbortController | null>(null);
+  // Attendee draft persisted across step navigation and page reloads.
+  const [attendeeDraft, setAttendeeDraft] = useState<{ name: string; email: string; phone: string } | null>(() => {
+    try {
+      const saved = localStorage.getItem('ash_vish_attendee');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  /** Server-authority validation of a restored reservation.
+   *  The local init guard only filters expired/terminal records; the server may
+   *  have since released the hold (sweep, manual release, payment). Never drive
+   *  the UI from a reservation the server no longer honors — clear it and clamp
+   *  the wizard back to the seats step so the user can re-select. */
+  useEffect(() => {
+    if (!reservation) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await safeFetch<any>(`/api/reservations/${reservation.reservationId}`, {
+          headers: { 'X-Session-Id': getSessionId() },
+        });
+        if (cancelled) return;
+        const data = res.data || {};
+        const isTerminal = !res.ok || !data.success ||
+          !['active'].includes(data.status || '') ||
+          Date.now() > (data.expiresAt || 0);
+        if (isTerminal) {
+          setReservation(null);
+          setQuote(null);
+          if (currentCheckout?.event.id) {
+            setBookingStep(currentCheckout.event.seatMap ? 2 : 1);
+          }
+          setReservationError(res.ok ? (data.error || 'Your seat hold is no longer valid.') : 'Could not verify your seat hold with the server.');
+        }
+      } catch {
+        /* offline — trust the local expiry guard; effects will re-check on reconnect */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Runs once on mount when a reservation was restored from storage.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Real-time listener for events (RTDB primary source of truth)
   useEffect(() => {
@@ -226,6 +380,240 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       localStorage.removeItem('ash_vish_current_checkout');
     }
   }, [currentCheckout]);
+
+  // Persist wizard step and reservation to localStorage for refresh recovery
+  useEffect(() => {
+    localStorage.setItem('ash_vish_booking_step', String(bookingStep));
+  }, [bookingStep]);
+
+  useEffect(() => {
+    if (reservation) {
+      localStorage.setItem('ash_vish_reservation', JSON.stringify(reservation));
+    } else {
+      localStorage.removeItem('ash_vish_reservation');
+    }
+  }, [reservation]);
+
+  /** Live seat projection for the current checkout event (display only; authority stays with the reservation API). */
+  useEffect(() => {
+    const eventId = currentCheckout?.event.id;
+    if (!eventId) {
+      setSeatProjection({});
+      return;
+    }
+    const seatsRef = ref(rtdb, `seats/${eventId}`);
+    const unsubscribe = onValue(
+      seatsRef,
+      (snapshot) => {
+        setSeatsConnected(true);
+        if (snapshot.exists()) {
+          const val = snapshot.val() as Record<string, any>;
+          const now = Date.now();
+          const projection: Record<string, { status: string; heldBy?: string; expiresAt?: number; bookedAt?: number }> = {};
+          Object.entries(val).forEach(([seatId, node]) => {
+            const expiresAt = node.holdExpiresAt || (node.heldAt ? node.heldAt + 5 * 60 * 1000 : 0);
+            let status = node.status || 'available';
+            if (status === 'held' && expiresAt && now > expiresAt) {
+              // Held seat expired: projection shows available until server sweep confirms
+              status = 'available';
+            }
+            projection[seatId] = {
+              status,
+              heldBy: status === 'held' ? node.heldBy : undefined,
+              expiresAt: status === 'held' ? expiresAt : undefined,
+              bookedAt: status === 'booked' ? node.bookedAt || node.bookedAt : undefined,
+            };
+          });
+          setSeatProjection(projection);
+        } else {
+          setSeatProjection({});
+        }
+      },
+      () => {
+        setSeatsConnected(false);
+      }
+    );
+    return () => unsubscribe();
+  }, [currentCheckout?.event.id]);
+
+  // Auto-expire local reservation when the server clock passes expiresAt
+  useEffect(() => {
+    if (!reservation || reservation.status !== 'active') return;
+    const timer = setInterval(() => {
+      setReservation((prev) => {
+        if (!prev) return prev;
+        if (Date.now() > prev.expiresAt && prev.status === 'active') {
+          return { ...prev, status: 'expired' };
+        }
+        return prev;
+      });
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [reservation]);
+
+  // Drop terminal reservation records from localStorage so a finished or
+  // failed booking flow can never resurrect stale state on the next visit.
+  useEffect(() => {
+    if (reservation && ['expired', 'cancelled', 'released', 'confirmed'].includes(reservation.status)) {
+      localStorage.removeItem('ash_vish_reservation');
+    }
+  }, [reservation?.status]);
+
+  const apiHeaders = (): Record<string, string> => ({
+    'Content-Type': 'application/json',
+    'X-Session-Id': getSessionId(),
+  });
+
+  const createReservation = async (
+    seatIds: string[],
+    options?: { skipIfSame?: boolean }
+  ): Promise<ReservationState> => {
+    if (!currentCheckout) throw new Error('No checkout session');
+    const { event, tier, quantity } = currentCheckout;
+
+    // Reuse the same session reservation: create a new one only if none exists,
+    // otherwise atomically adjust its seat set (claim new seats, release dropped ones).
+    // Cancel any in-flight request to avoid late responses overwriting state.
+    // The abort carries a dedicated token so a self-aborted request (e.g. a dev-only
+    // StrictMode re-invocation superseding the previous attempt) can never surface as a
+    // user-facing error banner.
+    const stale = pendingRequestRef.current;
+    const controller = new AbortController();
+    pendingRequestRef.current = controller;
+    if (stale && stale !== controller && stale.signal.reason === undefined) {
+      try {
+        stale.abort(STALE_REQUEST_TOKEN);
+      } catch {
+        // Older browsers throw if abort(reason) unsupported; plain abort() is fine.
+        stale.abort();
+      }
+    }
+    let res: SafeFetchResponse<any>;
+    const tierMatch = reservation?.eventId === event.id && reservation?.tierId === tier.id;
+    if (reservation && reservation.status === 'active' && tierMatch) {
+      res = await safeFetch<any>(`/api/reservations/${reservation.reservationId}/selection`, {
+        method: 'PUT',
+        headers: apiHeaders(),
+        body: JSON.stringify({ seatIds, quantity }),
+        signal: controller.signal,
+      });
+    } else {
+      const idempotencyKey = `idem_${getSessionId()}_${event.id}_${tier.id}_${seatIds.slice().sort().join(',')}`;
+      res = await safeFetch<any>('/api/reservations', {
+        method: 'POST',
+        headers: apiHeaders(),
+        body: JSON.stringify({ eventId: event.id, tierId: tier.id, quantity, seatIds, idempotencyKey }),
+        signal: controller.signal,
+      });
+    }
+    const data = res.data || {};
+    // Self-aborted (superseded) requests are not errors — the newer attempt is in flight.
+    if (res.error === STALE_REQUEST_TOKEN) {
+      throw new Error(STALE_REQUEST_TOKEN);
+    }
+    if (!res.ok || !data.success) {
+      const error = data.error || res.error || 'Unable to hold the seat. Please try again.';
+      // External aborts (navigation, tab close mid-request) must not flash a banner.
+      if (/abort/i.test(String(res.error))) {
+        throw new Error('external-abort');
+      }
+      console.warn('[BookingContext] createReservation failed:', error);
+      setReservationError(error);
+      throw new Error(error);
+    }
+    setReservationError(null);
+    const next: ReservationState = {
+      reservationId: data.reservationId,
+      eventId: data.eventId ?? event.id,
+      tierId: data.tierId ?? tier.id,
+      quantity: data.quantity,
+      seatIds: data.seatIds,
+      status: data.status,
+      ownerId: data.ownerId,
+      expiresAt: data.expiresAt,
+      serverNow: data.serverNow,
+      holdTtlMs: data.holdTtlMs,
+      quote: data.quote,
+      seatMapVersion: data.seatMapVersion,
+    };
+    setReservation(next);
+    // Keep selection in sync
+    selectTicketsForCheckout(event, tier, quantity, data.seatIds);
+    return next;
+  };
+
+  const refreshReservation = async (): Promise<ReservationState | null> => {
+    if (!reservation) return null;
+    try {
+      const res = await safeFetch<any>(`/api/reservations/${reservation.reservationId}`, {
+        headers: apiHeaders(),
+      });
+      const data = res.data || {};
+      if (!res.ok || !data.success) return null;
+      const next: ReservationState = {
+        reservationId: data.reservationId,
+        eventId: data.eventId,
+        tierId: data.tierId,
+        quantity: data.quantity,
+        seatIds: data.seatIds,
+        status: data.status,
+        ownerId: data.ownerId,
+        expiresAt: data.expiresAt,
+        serverNow: data.serverNow,
+        holdTtlMs: data.holdTtlMs,
+        quote: data.quote,
+        seatMapVersion: data.seatMapVersion,
+        attendee: data.attendee,
+      };
+      setReservation(next);
+      return next;
+    } catch {
+      return reservation;
+    }
+  };
+
+  const cancelReservation = async () => {
+    if (!reservation) {
+      setReservation(null);
+      return;
+    }
+    try {
+      await safeFetch(`/api/reservations/${reservation.reservationId}`, {
+        method: 'DELETE',
+        headers: apiHeaders(),
+      });
+    } catch (err) {
+      console.warn('Cancel reservation network note:', err);
+    }
+    setReservation(null);
+    setQuote(null);
+  };
+
+  const setAttendeeDetails = async (details: { name: string; email: string; phone: string }): Promise<boolean> => {
+    if (!reservation) return false;
+    try {
+      const res = await safeFetch<any>(`/api/reservations/${reservation.reservationId}/attendee`, {
+        method: 'POST',
+        headers: apiHeaders(),
+        body: JSON.stringify(details),
+      });
+      const data = res.data || {};
+      if (!res.ok || !data.success) {
+        showToast(data.error || res.error || 'Could not save attendee details.', 'error');
+        return false;
+      }
+      setReservation((prev) => (prev ? { ...prev, attendee: data.attendee } : prev));
+      return true;
+    } catch {
+      showToast('Network error while saving attendee details.', 'error');
+      return false;
+    }
+  };
+
+  const selectSeats = (seatIds: string[]) => {
+    if (!currentCheckout) return;
+    selectTicketsForCheckout(currentCheckout.event, currentCheckout.tier, currentCheckout.quantity, seatIds);
+  };
 
   const toggleFavorite = (eventId: string) => {
     setFavorites((prev) =>
@@ -1200,6 +1588,22 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   return (
     <BookingContext.Provider
       value={{
+        bookingStep,
+        setBookingStep,
+        seatProjection,
+        seatsConnected,
+        reservation,
+        quote,
+        setQuote,
+        reviewConfirmed,
+        setReviewConfirmed,
+        pendingSeatCount,
+        reservationError,
+        createReservation,
+        refreshReservation,
+        cancelReservation,
+        setAttendeeDetails,
+        selectSeats,
         events,
         myTickets,
         allTickets,
