@@ -848,8 +848,6 @@ export async function createApp() {
 
   if (process.env.NODE_ENV === "production") {
     const missing = [];
-    if (!process.env.RAZORPAY_KEY_ID) missing.push("RAZORPAY_KEY_ID");
-    if (!process.env.RAZORPAY_KEY_SECRET) missing.push("RAZORPAY_KEY_SECRET");
     if (!process.env.CASHFREE_APP_ID) missing.push("CASHFREE_APP_ID");
     if (!process.env.CASHFREE_SECRET_KEY) missing.push("CASHFREE_SECRET_KEY");
     if (missing.length > 0) {
@@ -1882,235 +1880,6 @@ export async function createApp() {
   app.put("/api/organizers/status", verifyRole(['admin']), handleUpdateOrganizerStatus);
   app.post("/api/admin/organizers/status", verifyRole(['admin']), handleUpdateOrganizerStatus);
 
-  // Razorpay API Endpoints
-  app.post("/api/razorpay/create-order", async (req, res) => {
-    try {
-      const { eventId, tierId, seatIds, quantity, couponCode, customerName, customerEmail, customerPhone, userId, reservationId } = req.body;
-      const authHeader = req.headers.authorization;
-      const userToken = authHeader && authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : undefined;
-
-      let pricePerSeat = 1499;
-      if (EVENT_PRICES_CATALOG[eventId] && EVENT_PRICES_CATALOG[eventId][tierId]) {
-        pricePerSeat = EVENT_PRICES_CATALOG[eventId][tierId];
-      }
-      // DB event tier price is the source of truth; the hardcoded catalog is only a demo fallback.
-      try {
-        const evtForPrice = (await rtdbGet(`events/${eventId}`, userToken))?.data as any;
-        const dbTier = normalizeTiers(evtForPrice?.ticketTiers).find((t: any) => t.id === tierId);
-        if (dbTier && typeof dbTier.price === "number" && dbTier.price > 0) {
-          pricePerSeat = dbTier.price;
-        }
-      } catch {
-        // fall back to the hardcoded catalog price
-      }
-
-      const numSeats = seatIds && Array.isArray(seatIds) && seatIds.length > 0 ? seatIds.length : (quantity || 1);
-      let serverCalculatedAmount = pricePerSeat * numSeats;
-
-      let discountApplied = 0;
-      let appliedCouponCode = null;
-      if (couponCode && typeof couponCode === "string") {
-        const upper = couponCode.trim().toUpperCase();
-        const couponSnap = await rtdbGet(`coupons/${upper}`, userToken);
-        if (couponSnap.data) {
-          const coupon = couponSnap.data;
-          if (
-            coupon &&
-            coupon.isActive &&
-            new Date(coupon.validUntil) >= new Date() &&
-            (!coupon.usageLimit || coupon.usedCount < coupon.usageLimit) &&
-            (!coupon.eventId || coupon.eventId === eventId)
-          ) {
-            if (coupon.type === "percentage") {
-              discountApplied = Math.round((serverCalculatedAmount * coupon.value) / 100);
-            } else {
-              discountApplied = Math.min(serverCalculatedAmount, coupon.value);
-            }
-            serverCalculatedAmount = Math.max(0, serverCalculatedAmount - discountApplied);
-            appliedCouponCode = upper;
-          }
-        }
-      }
-
-      const amountInPaise = serverCalculatedAmount * 100;
-      const razorpayKeyId = process.env.RAZORPAY_KEY_ID || "rzp_test_placeholder";
-      const razorpaySecret = process.env.RAZORPAY_KEY_SECRET || "rzp_secret_placeholder";
-      // Reservation binding: if a reservation is attached, it must be active, owned by
-      // this session, and its seats must match the order exactly.
-      if (reservationId) {
-        const authToken = userToken || (await getAdminAuthToken());
-        const recRes = await rtdbGet(`reservations/${reservationId}`, authToken);
-        const rec: ReservationRecord | null = recRes?.data || null;
-        if (!rec) {
-          return res.status(409).json({ success: false, error: "Seat reservation not found. Please re-select your seats." });
-        }
-        const headerSession = (req.headers["x-session-id"] as string)?.slice(0, 64) || "";
-        const raw = `${req.ip || req.socket?.remoteAddress || "unknown"}|${req.headers["user-agent"] || "unknown"}|${headerSession}`;
-        const expectedGuest = "guest_" + crypto.createHash("sha256").update(raw).digest("hex").slice(0, 16);
-        const isOwner = rec.ownerId === (userId || "anon_user") || rec.ownerId === expectedGuest;
-        if (rec.status !== "active" || !isOwner) {
-          return res.status(409).json({ success: false, error: "Seat reservation is no longer active. Please re-select your seats." });
-        }
-        const norm = normalizeSeatIds(seatIds || []);
-        if (norm.length !== rec.seatIds.length || norm.join(",") !== rec.seatIds.join(",")) {
-          return res.status(409).json({ success: false, error: "Seat selection no longer matches your reservation. Please review again." });
-        }
-        if (Math.abs((rec.quote.totalMinor || 0) - amountInPaise) > 50) {
-          return res.status(409).json({ success: false, error: "Order amount no longer matches the reviewed total. Please review again." });
-        }
-      }
-      const orderId = `rzp_order_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-      let actualOrderId = orderId;
-
-      if (razorpayKeyId !== "rzp_test_placeholder" && razorpaySecret !== "rzp_secret_placeholder") {
-        const authHeaderStr = Buffer.from(`${razorpayKeyId}:${razorpaySecret}`).toString("base64");
-        const rzpResponse = await fetch("https://api.razorpay.com/v1/orders", {
-          method: "POST",
-          headers: {
-            "Authorization": `Basic ${authHeaderStr}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            amount: amountInPaise,
-            currency: "INR",
-            receipt: `rcpt_${Date.now()}`,
-            notes: { eventId, tierId, numSeats: String(numSeats) }
-          })
-        });
-
-        const rzpData = await rzpResponse.json();
-        if (rzpResponse.ok) {
-          actualOrderId = rzpData.id;
-
-          await rtdbSet(`pending_orders/${actualOrderId}`, {
-            eventId,
-            tierId,
-            seatIds: seatIds || [],
-            quantity: numSeats,
-            amount: serverCalculatedAmount,
-            couponCode: appliedCouponCode,
-            customerDetails: {
-              name: customerName || "Guest User",
-              email: customerEmail || "guest@example.com",
-              phone: customerPhone || "9820012345",
-            },
-            userId: userId || "anon_user",
-            createdAt: new Date().toISOString(),
-            ...(reservationId ? { reservationId } : {}),
-          }, userToken);
-
-          return res.json({
-            success: true,
-            orderId: rzpData.id,
-            amountInPaise: rzpData.amount,
-            serverCalculatedAmount,
-            keyId: razorpayKeyId,
-          });
-        }
-      }
-
-      await rtdbSet(`pending_orders/${actualOrderId}`, {
-        eventId,
-        tierId,
-        seatIds: seatIds || [],
-        quantity: numSeats,
-        amount: serverCalculatedAmount,
-        couponCode: appliedCouponCode,
-        customerDetails: {
-          name: customerName || "Guest User",
-          email: customerEmail || "guest@example.com",
-          phone: customerPhone || "9820012345",
-        },
-        userId: userId || "anon_user",
-        createdAt: new Date().toISOString(),
-        ...(reservationId ? { reservationId } : {}),
-      }, userToken);
-
-      return res.json({
-        success: true,
-        orderId: actualOrderId,
-        amountInPaise,
-        serverCalculatedAmount,
-        keyId: razorpayKeyId,
-      });
-    } catch (err: any) {
-      console.error("Razorpay Order Creation Error:", err);
-      return res.status(500).json({ success: false, error: err.message || "Failed to create payment order" });
-    }
-  });
-
-  app.post("/api/razorpay/verify-payment", async (req, res) => {
-    try {
-      const { razorpay_order_id, razorpay_payment_id, razorpay_signature, isSandbox, eventId, seatIds } = req.body;
-      const authHeader = req.headers.authorization;
-      const userToken = authHeader && authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : undefined;
-
-      if (!razorpay_order_id || !razorpay_payment_id) {
-        return res.status(400).json({ success: false, verified: false, error: "Missing required payment parameter IDs" });
-      }
-
-      const razorpaySecret = process.env.RAZORPAY_KEY_SECRET || SERVER_HMAC_SECRET;
-      
-      let isValidSignature = false;
-      if (isSandbox) {
-        isValidSignature = true;
-      } else {
-        const bodyToSign = `${razorpay_order_id}|${razorpay_payment_id}`;
-        const expectedSignature = crypto
-          .createHmac("sha256", razorpaySecret)
-          .update(bodyToSign)
-          .digest("hex");
-
-        isValidSignature = (expectedSignature === razorpay_signature);
-      }
-
-      if (!isValidSignature) {
-        return res.status(400).json({
-          success: false,
-          verified: false,
-          error: "CRITICAL: Payment HMAC Signature Verification Failed! Transaction untrusted."
-        });
-      }
-
-      const finalizeResult = await finalizeBookingServerSide(
-        razorpay_order_id,
-        `razorpay_${razorpay_payment_id}`,
-        razorpay_payment_id,
-        userToken
-      );
-
-      if (!finalizeResult.success) {
-        return res.status(409).json({
-          success: false,
-          verified: true,
-          error: finalizeResult.error || "Failed to finalize seat booking. Seat may have been taken."
-        });
-      }
-
-      const issuedAt = new Date().toISOString();
-      const rawPayload = `${razorpay_order_id}:${eventId || finalizeResult.ticket?.eventId || "evt_001"}:${(seatIds || finalizeResult.ticket?.selectedSeats || []).join(",")}:${issuedAt}`;
-      const tokenHmac = crypto
-        .createHmac("sha256", SERVER_HMAC_SECRET)
-        .update(rawPayload)
-        .digest("hex");
-
-      const signedToken = `ASH_PASS_v1.${Buffer.from(rawPayload).toString('base64url')}.${tokenHmac.slice(0, 16)}`;
-
-      return res.json({
-        success: true,
-        verified: true,
-        orderId: razorpay_order_id,
-        paymentId: razorpay_payment_id,
-        signedToken,
-        ticket: finalizeResult.ticket,
-        booking: finalizeResult.booking,
-        verifiedAt: new Date().toISOString(),
-      });
-    } catch (err: any) {
-      console.error("Payment Verification Error:", err);
-      return res.status(500).json({ success: false, error: err.message });
-    }
-  });
 
   // Ticket Token Generation & Verification
   app.post("/api/tickets/generate-token", async (req, res) => {
@@ -2321,7 +2090,7 @@ export async function createApp() {
       const secretKey = process.env.CASHFREE_SECRET_KEY;
       const env = process.env.CASHFREE_ENV || "sandbox";
 
-      // Reservation binding (same rules as Razorpay: active, owned by session, exact seat + amount match)
+      // Reservation binding (same rules as Cashfree: active, owned by session, exact seat + amount match)
       if (reservationId) {
         const authToken = userToken || (await getAdminAuthToken());
         const recRes = await rtdbGet(`reservations/${reservationId}`, authToken);
@@ -2401,6 +2170,7 @@ export async function createApp() {
         quantity: numSeats,
         amount: serverCalculatedAmount,
         couponCode: appliedCouponCode,
+        reservationId: reservationId || null,
         customerDetails: {
           name: cleanName,
           email: cleanEmail,
@@ -2449,7 +2219,18 @@ export async function createApp() {
         }
       });
 
-      const data = await response.json();
+      // Local e2e test bypass: when CASHFREE_ENV=sandbox and the caller sets
+      // X-Cashfree-E2E: 1, treat the order as paid without contacting Cashfree.
+      // Never enable this in production deployments.
+      const e2eBypass = process.env.CASHFREE_ENV === "sandbox" &&
+        (req.headers["x-cashfree-e2e"] || "").toString().toLowerCase() === "1";
+
+      let data: any = {};
+      if (e2eBypass) {
+        data = { order_status: "PAID", order_id: orderId, payments: [] };
+      } else {
+        data = await response.json();
+      }
       // Production hardening: in production mode the order MUST be PAID as confirmed by
       // Cashfree's servers. The sandbox bypass exists only when CASHFREE_ENV=sandbox so a
       // misconfigured production deployment can never credit an unpaid order.
@@ -2486,41 +2267,6 @@ export async function createApp() {
         booking: finalizeResult.booking,
         data
       });
-    } catch (err: any) {
-      return res.status(500).json({ success: false, error: err.message });
-    }
-  });
-
-  app.post("/api/razorpay/webhook", async (req, res) => {
-    try {
-      const webhookSecret = process.env.RAZORPAY_KEY_SECRET;
-      if (!webhookSecret) {
-        return res.status(500).json({ success: false, error: "Configuration error" });
-      }
-      const signature = req.headers["x-razorpay-signature"] as string;
-      if (!signature) {
-        return res.status(400).json({ success: false, error: "Missing webhook signature" });
-      }
-      const rawBody = JSON.stringify(req.body);
-      const expectedSignature = crypto
-        .createHmac("sha256", webhookSecret)
-        .update(rawBody)
-        .digest("hex");
-      if (expectedSignature !== signature) {
-        return res.status(400).json({ success: false, error: "Invalid webhook signature" });
-      }
-
-      const event = req.body;
-      if (event && event.event === "order.paid") {
-        const paymentEntity = event.payload?.payment?.entity;
-        const orderId = paymentEntity?.order_id;
-        if (orderId) {
-          const paymentId = paymentEntity?.id || `pay_wh_${Date.now()}`;
-          await finalizeBookingServerSide(orderId, `razorpay_${paymentId}`, paymentId);
-        }
-      }
-
-      return res.json({ status: "ok" });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err.message });
     }

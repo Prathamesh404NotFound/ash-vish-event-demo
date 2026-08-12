@@ -8,7 +8,6 @@ import { ref, get } from 'firebase/database';
 import { rtdb } from '../lib/firebase';
 import { SeatMap } from '../components/SeatMap';
 import { useCashfree } from '../hooks/useCashfree';
-import { useRazorpay } from '../hooks/useRazorpay';
 import { safeFetch, getApiUrl } from '../lib/api';
 
 interface CheckoutWizardProps {
@@ -40,9 +39,7 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
     payWithCashfree, isLoading: isCashfreeLoading, error: cashfreeError,
     pendingOrder, confirmPendingOrder, cancelPendingOrder,
   } = useCashfree();
-  const { processRazorpayPayment, isLoading: isRazorpayLoading } = useRazorpay();
 
-  const [paymentGateway, setPaymentGateway] = useState<'razorpay' | 'cashfree'>('razorpay');
   const [isProcessing, setIsProcessing] = useState(false);
   const [submitError, setSubmitError] = useState<string>('');
 
@@ -441,92 +438,55 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
       return;
     }
 
-    if (paymentGateway === 'razorpay') {
-      await processRazorpayPayment({
+    try {
+      await payWithCashfree({
         amount: serverTotal,
+        orderId: `cf_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        customerDetails: { name: attendeeName, email: attendeeEmail, phone: attendeePhone },
         eventId: event.id,
         tierId: tier.id,
         seatIds: reservation.seatIds,
         quantity,
-        couponCode: quoteAppliedCoupon?.code,
         reservationId: reservation.reservationId,
         userId: user?.id || 'anon_user',
-        customerDetails: { name: attendeeName, email: attendeeEmail, phone: attendeePhone },
+        couponCode: quoteAppliedCoupon?.code || undefined,
         onSuccess: async (result) => {
           try {
+            setIsProcessing(true);
+            const verifyRes = await safeFetch(`/api/cashfree/verify-order/${result.orderId}`);
+
             let confirmedTicket;
-            if (result.ticket && result.booking) {
-              confirmedTicket = confirmServerPurchasedTicket(result.ticket, result.booking);
+            if (verifyRes.ok && verifyRes.data?.success && verifyRes.data?.ticket && verifyRes.data?.booking) {
+              confirmedTicket = confirmServerPurchasedTicket(verifyRes.data.ticket, verifyRes.data.booking);
             } else {
               confirmedTicket = await confirmPurchase(
                 { name: attendeeName, email: attendeeEmail, phone: attendeePhone },
-                `razorpay_${result.paymentId}`,
+                'cashfree',
                 user?.id
               );
             }
+
             await sendConfirmationEmail(confirmedTicket);
             setIsProcessing(false);
             onSuccess();
           } catch (confirmErr) {
             console.error('Error confirming purchase after payment:', confirmErr);
-            setSubmitError('Payment signature verified, but ticket creation failed. Contact support.');
+            setSubmitError('Payment succeeded, but ticket registration failed. Please contact support.');
             setIsProcessing(false);
           }
         },
         onFailure: (errMsg) => handlePaymentFailure(errMsg),
-        onCancel: () => handlePaymentFailure('Payment cancelled by user.'),
       });
-    } else {
-      try {
-        await payWithCashfree({
-          amount: serverTotal,
-          orderId: `cf_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-          customerDetails: { name: attendeeName, email: attendeeEmail, phone: attendeePhone },
-          eventId: event.id,
-          tierId: tier.id,
-          seatIds: reservation.seatIds,
-          quantity,
-          reservationId: reservation.reservationId,
-          userId: user?.id || 'anon_user',
-          couponCode: quoteAppliedCoupon?.code || undefined,
-          onSuccess: async (result) => {
-            try {
-              setIsProcessing(true);
-              const verifyRes = await safeFetch(`/api/cashfree/verify-order/${result.orderId}`);
-
-              let confirmedTicket;
-              if (verifyRes.ok && verifyRes.data?.success && verifyRes.data?.ticket && verifyRes.data?.booking) {
-                confirmedTicket = confirmServerPurchasedTicket(verifyRes.data.ticket, verifyRes.data.booking);
-              } else {
-                confirmedTicket = await confirmPurchase(
-                  { name: attendeeName, email: attendeeEmail, phone: attendeePhone },
-                  'cashfree',
-                  user?.id
-                );
-              }
-
-              await sendConfirmationEmail(confirmedTicket);
-              setIsProcessing(false);
-              onSuccess();
-            } catch (confirmErr) {
-              console.error('Error confirming purchase after payment:', confirmErr);
-              setSubmitError('Payment succeeded, but ticket registration failed. Please contact support.');
-              setIsProcessing(false);
-            }
-          },
-          onFailure: (errMsg) => handlePaymentFailure(errMsg),
-        });
-      } catch (err: any) {
-        console.error('Cashfree process error:', err);
-        handlePaymentFailure(err?.message || 'Payment execution failed.');
-      }
+    } catch (err: any) {
+      console.error('Cashfree process error:', err);
+      handlePaymentFailure(err?.message || 'Payment execution failed.');
     }
   };
 
   // ------------------------------------------------------------------
   // Derived UI helpers
   // ------------------------------------------------------------------
-  const isBusy = isProcessing || isCashfreeLoading || isRazorpayLoading;
+  const isBusy = isProcessing || isCashfreeLoading;
   const stepsMeta = useMemo(
     () => [
       { n: FIRST_STEP, label: 'Tickets' },
@@ -922,25 +882,11 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
 
           <div className="bg-[#141414] border border-[#D4AF37]/30 rounded-3xl p-6 space-y-4">
             <h3 className="font-heading font-bold text-lg text-white">Select Payment Gateway</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <button type="button" onClick={() => setPaymentGateway('razorpay')}
-                className={`p-4 rounded-2xl border text-left transition-all cursor-pointer flex flex-col gap-2 ${
-                  paymentGateway === 'razorpay' ? 'bg-[#1C1C1C] border-[#D4AF37] ring-1 ring-[#D4AF37]' : 'bg-[#181818] border-white/10 hover:border-white/20'
-                }`}>
-                <span className="text-xs font-bold text-white flex items-center gap-2">
-                  <CreditCard className="w-4 h-4 text-blue-400" /> Razorpay
-                </span>
-                <p className="text-[11px] text-gray-400">Razorpay, UPI, Cards & Wallets</p>
-              </button>
-              <button type="button" onClick={() => setPaymentGateway('cashfree')}
-                className={`p-4 rounded-2xl border text-left transition-all cursor-pointer flex flex-col gap-2 ${
-                  paymentGateway === 'cashfree' ? 'bg-[#1C1C1C] border-[#D4AF37] ring-1 ring-[#D4AF37]' : 'bg-[#181818] border-white/10 hover:border-white/20'
-                }`}>
-                <span className="text-xs font-bold text-white flex items-center gap-2">
-                  <CreditCard className="w-4 h-4 text-emerald-400" /> Cashfree PG
-                </span>
-                <p className="text-[11px] text-gray-400">Cashfree PG, Instant UPI & Wallets</p>
-              </button>
+            <div className="p-4 rounded-2xl border border-[#D4AF37] bg-[#1C1C1C] flex flex-col gap-2">
+              <span className="text-xs font-bold text-white flex items-center gap-2">
+                <CreditCard className="w-4 h-4 text-emerald-400" /> Cashfree PG
+              </span>
+              <p className="text-[11px] text-gray-400">Cashfree PG, Instant UPI &amp; Wallets</p>
             </div>
           </div>
 
