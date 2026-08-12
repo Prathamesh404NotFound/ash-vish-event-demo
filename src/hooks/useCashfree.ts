@@ -144,7 +144,14 @@ export const useCashfree = (enabled: boolean = true) => {
           // (see CheckoutWizard's resumeAfterRedirect logic) and completes the
           // server-side signature verification once the order is PAID.
           const pendingKey = 'ash_vish_cf_pending_payment';
-          const mode = (import.meta.env as any)?.PROD ? 'production' : 'sandbox';
+          // Use the gateway environment the SERVER created the session in
+          // (returned as gatewayEnv). The browser's PROD flag describes our
+          // app's build, NOT the payment gateway: with test keys the server
+          // creates sandbox sessions, and initializing the SDK in 'production'
+          // mode against a sandbox session makes the checkout report
+          // payment_session_id_invalid.
+          const mode =
+            (orderRes?.data?.gatewayEnv === 'production' ? 'production' : 'sandbox') as 'production' | 'sandbox';
           const pending = {
             orderId,
             eventId: options.eventId,

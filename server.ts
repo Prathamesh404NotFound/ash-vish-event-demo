@@ -2209,6 +2209,13 @@ export async function createApp() {
             serverCalculatedAmount,
             paymentSessionId: cfData.payment_session_id,
             orderToken: cfData.order_token || "",
+            // Tell the frontend which Cashfree gateway environment the session
+            // belongs to so the JS SDK opens the matching checkout. Creating a
+            // session in the sandbox gateway and initializing the SDK in
+            // `production` mode (or vice versa) makes the checkout report
+            // `payment_session_id_invalid` — the session exists only in the
+            // environment it was created in.
+            gatewayEnv: isProduction ? "production" : "sandbox",
           });
         }
         // Cashfree rejected the order creation (auth/env issue, etc.) — return
