@@ -58,7 +58,6 @@ export const SeatMap: React.FC<SeatMapProps> = ({
   const [dbSeats, setDbSeats] = useState<Record<string, SeatNode>>({});
   const [localHeldSeats, setLocalHeldSeats] = useState<string[]>(selectedSeatIds);
   const [errorMsg, setErrorMsg] = useState<string>('');
-  const [selectedShowtime, setSelectedShowtime] = useState<string>(eventTime);
   const [holdTimeLeft, setHoldTimeLeft] = useState<number>(600);
   const [hoveredSeatId, setHoveredSeatId] = useState<string | null>(null);
   const claimingRef = React.useRef<string[]>([]);
@@ -207,56 +206,30 @@ export const SeatMap: React.FC<SeatMapProps> = ({
     return 'STANDARD';
   };
 
-  // Showtimes pill choices
-  const showtimes = [
-    { time: eventTime || '07:30 PM', tag: 'PXL' },
-    { time: '04:00 PM', tag: '4K HIGH DEFINITION' },
-    { time: '09:30 PM', tag: 'IMAX 3D' },
-  ];
 
   return (
     <div className="bg-[#121212] border border-[#D4AF37]/20 rounded-3xl overflow-hidden shadow-2xl animate-in fade-in space-y-0">
       
-      {/* Top Showtime Bar (Cinema BookMyShow Style) */}
+      {/* Top Event Info Bar */}
       <div className="bg-[#1A1A1A] border-b border-[#D4AF37]/10 p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="p-2.5 rounded-xl bg-[#D4AF37]/10 border border-[#D4AF37]/20 text-[#D4AF37]">
             <Clock className="w-5 h-5" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="font-heading font-extrabold text-white text-sm sm:text-base tracking-wide">
                 {eventDate}
               </span>
+              {eventTime && (
+                <span className="font-mono text-[#D4AF37] text-sm font-bold">• {eventTime}</span>
+              )}
               <span className="px-2 py-0.5 rounded-full bg-[#D4AF37]/15 text-[#F3E5AB] text-[11px] font-bold border border-[#D4AF37]/30">
                 {requiredQuantity} {requiredQuantity === 1 ? 'Ticket' : 'Tickets'}
               </span>
             </div>
-            <p className="text-xs text-gray-400">Select seats for showtime below</p>
+            <p className="text-xs text-gray-400">Single showtime event — select your seats below</p>
           </div>
-        </div>
-
-        {/* Showtime Selector Pills */}
-        <div className="flex items-center gap-2 overflow-x-auto w-full sm:w-auto pb-1 sm:pb-0">
-          {showtimes.map((st, i) => {
-            const isSelected = selectedShowtime === st.time;
-            return (
-              <button
-                key={i}
-                onClick={() => setSelectedShowtime(st.time)}
-                className={`px-3.5 py-1.5 rounded-xl border text-xs font-bold transition-all whitespace-nowrap flex flex-col items-center ${
-                  isSelected
-                    ? 'bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] border-[#D4AF37] text-black shadow-md shadow-[#D4AF37]/20'
-                    : 'bg-[#121212] border-[#D4AF37]/30 text-[#D4AF37] hover:bg-[#D4AF37]/10'
-                }`}
-              >
-                <span>{st.time}</span>
-                <span className={`text-[9px] font-mono uppercase ${isSelected ? 'text-black/80' : 'text-[#D4AF37]/80'}`}>
-                  {st.tag}
-                </span>
-              </button>
-            );
-          })}
         </div>
       </div>
 
