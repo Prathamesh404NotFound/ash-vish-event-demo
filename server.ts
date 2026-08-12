@@ -840,7 +840,9 @@ async function sweepExpiredHolds() {
   }
 }
 
-async function startServer() {
+// Build the Express application. Extracted so the same app can run as a
+// standalone server (node/tsi) or as a Vercel serverless function.
+export async function createApp() {
   const app = express();
   const PORT = 3000;
 
@@ -2573,9 +2575,39 @@ async function startServer() {
     });
   }
 
+  return app;
+}
+
+// Run as a standalone server only when executed directly (NOT inside Vercel,
+// which sets VERCEL=1 and hosts the app through serverless functions).
+const __isDirectlyRun = (() => {
+  if (process.env.VERCEL) return false;
+  const argv1 = process.argv[1];
+  if (typeof argv1 === "string") {
+    const isScriptEntry =
+      argv1.endsWith("server.ts") || argv1.endsWith("server.js") || argv1.includes("server.cjs");
+    // ESM entry detection: running file matches the current module
+    try {
+      const { pathToFileURL } = require("url");
+      if (pathToFileURL(argv1).href === import.meta.url) return true;
+    } catch {
+      /* url resolution failed — fall through */
+    }
+    // CJS context: require.main check
+    if (typeof require !== "undefined" && require.main === module) return true;
+    // tsx ESM entry: require.main is undefined but the argv path is this script
+    if (isScriptEntry && (typeof require === "undefined" || require.main === undefined)) return true;
+  }
+  return false;
+})();
+
+async function startServer() {
+  const PORT = 3000;
+  const app = await createApp();
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://0.0.0.0:${PORT}`);
   });
 }
-
-startServer();
+if (__isDirectlyRun) {
+  startServer();
+}

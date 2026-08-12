@@ -1,0 +1,20 @@
+{
+  "framework": null,
+  "functions": {
+    "api/[[...route]].ts": {
+      "runtime": "@vercel/node@3.2.4",
+      "memory": 512,
+      "maxDuration": 30
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/[[...route]]"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}
