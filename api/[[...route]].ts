@@ -11,7 +11,10 @@ let loadError: Error | null = null;
 function loadApp(): Promise<AppLike> {
   if (appPromise) return appPromise;
   if (loadError) return Promise.reject(loadError);
-  appPromise = import("../server")
+  // The .js extension is required: Vercel's build compiles this file to CJS
+  // at /var/task/api/[[...route]].js, where extensionless dynamic imports of
+  // ../server fail with ERR_MODULE_NOT_FOUND (built output is server.js).
+  appPromise = import("../server.js")
     .then((mod) => (mod as any).createApp())
     .catch((err) => {
       loadError = err;
