@@ -78,113 +78,6 @@ export const SeatMap: React.FC<SeatMapProps> = ({
   const claimingRef = React.useRef<string[]>([]);
   const releaseTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // States and refs for pinch-to-zoom and pan interactions
-  const hasDraggedRef = React.useRef(false);
-  const containerRef = React.useRef<HTMLDivElement>(null);
-  const startPanRef = React.useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-  
-  const [scale, setScale] = useState<number>(1);
-  const [position, setPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState<boolean>(false);
-  const [touchStartDist, setTouchStartDist] = useState<number | null>(null);
-  const [touchStartScale, setTouchStartScale] = useState<number>(1);
-
-  const handleZoomIn = () => {
-    setScale((prev) => Math.min(2.5, prev + 0.15));
-  };
-
-  const handleZoomOut = () => {
-    setScale((prev) => Math.max(0.5, prev - 0.15));
-  };
-
-  const handleResetZoom = () => {
-    setScale(1);
-    setPosition({ x: 0, y: 0 });
-  };
-
-  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return; // Only track left click / primary touch
-
-    const target = e.target as HTMLElement;
-    if (target.closest('.zoom-ctrl') || target.closest('.seat-btn')) {
-      return; // Do not drag on zoom controls or seat buttons — seat presses
-      // must always behave as clicks so selection reliably fires.
-    }
-
-    setIsDragging(true);
-    hasDraggedRef.current = false;
-    startPanRef.current = {
-      x: e.clientX - position.x,
-      y: e.clientY - position.y
-    };
-
-    if (containerRef.current) {
-      containerRef.current.setPointerCapture(e.pointerId);
-    }
-  };
-
-  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!isDragging) return;
-
-    const dx = e.clientX - startPanRef.current.x;
-    const dy = e.clientY - startPanRef.current.y;
-
-    const moveThreshold = 6;
-    const initialDx = e.clientX - (startPanRef.current.x + position.x);
-    const initialDy = e.clientY - (startPanRef.current.y + position.y);
-    if (Math.hypot(initialDx, initialDy) > moveThreshold) {
-      hasDraggedRef.current = true;
-    }
-
-    setPosition({ x: dx, y: dy });
-  };
-
-  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
-    setIsDragging(false);
-    if (containerRef.current) {
-      try {
-        containerRef.current.releasePointerCapture(e.pointerId);
-      } catch (err) {
-        // Safe check
-      }
-    }
-  };
-
-  const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
-    if (e.touches.length === 2) {
-      setIsDragging(false);
-      hasDraggedRef.current = true;
-
-      const touch1 = e.touches[0];
-      const touch2 = e.touches[1];
-      const dist = Math.hypot(touch1.clientX - touch2.clientX, touch1.clientY - touch2.clientY);
-      setTouchStartDist(dist);
-      setTouchStartScale(scale);
-    }
-  };
-
-  const handleTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
-    if (e.touches.length === 2 && touchStartDist !== null) {
-      const touch1 = e.touches[0];
-      const touch2 = e.touches[1];
-      const dist = Math.hypot(touch1.clientX - touch2.clientX, touch1.clientY - touch2.clientY);
-      const newScale = Math.max(0.5, Math.min(2.5, (dist / touchStartDist) * touchStartScale));
-      setScale(newScale);
-    }
-  };
-
-  const handleTouchEnd = () => {
-    setTouchStartDist(null);
-  };
-
-  const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
-    // Zoom on scroll
-    e.stopPropagation();
-    const zoomFactor = 0.05;
-    const direction = e.deltaY < 0 ? 1 : -1;
-    setScale((prev) => Math.max(0.5, Math.min(2.5, prev + direction * zoomFactor)));
-  };
-
   // Sync external props with local state
   useEffect(() => {
     setLocalHeldSeats(selectedSeatIds);
@@ -267,9 +160,6 @@ export const SeatMap: React.FC<SeatMapProps> = ({
   };
 
   const handleSeatClick = async (seatId: string) => {
-    if (hasDraggedRef.current) {
-      return;
-    }
     setErrorMsg('');
     const current = getSeatStatus(seatId);
 
@@ -461,63 +351,10 @@ export const SeatMap: React.FC<SeatMapProps> = ({
         )}
       </div>
 
-      {/* Main Cinema Seating Grid with Pinch-to-Zoom & Pan Viewport */}
-      <div 
-        ref={containerRef}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={handlePointerUp}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-        onTouchCancel={handleTouchEnd}
-        onWheel={handleWheel}
-        className="relative h-[380px] sm:h-[480px] overflow-hidden bg-[#0A0A0A] border-y border-[#D4AF37]/15 touch-none cursor-grab active:cursor-grabbing select-none flex items-center justify-center"
-      >
-        {/* Floating Zoom and Pan HUD Controls */}
-        <div className="absolute top-4 right-4 z-20 flex flex-col gap-1.5 zoom-ctrl">
-          <button
-            type="button"
-            onClick={handleZoomIn}
-            className="w-9 h-9 rounded-lg bg-[#161616]/95 border border-[#D4AF37]/30 text-[#D4AF37] hover:bg-[#D4AF37]/25 flex items-center justify-center font-bold text-lg shadow-lg backdrop-blur-md active:scale-95 transition-all cursor-pointer"
-            title="Zoom In"
-          >
-            +
-          </button>
-          <button
-            type="button"
-            onClick={handleZoomOut}
-            className="w-9 h-9 rounded-lg bg-[#161616]/95 border border-[#D4AF37]/30 text-[#D4AF37] hover:bg-[#D4AF37]/25 flex items-center justify-center font-bold text-lg shadow-lg backdrop-blur-md active:scale-95 transition-all cursor-pointer"
-            title="Zoom Out"
-          >
-            −
-          </button>
-          <button
-            type="button"
-            onClick={handleResetZoom}
-            className="px-2 py-1.5 rounded-lg bg-[#161616]/95 border border-[#D4AF37]/30 text-[#D4AF37] hover:bg-[#D4AF37]/25 flex items-center justify-center font-extrabold text-[9px] tracking-wider uppercase shadow-lg backdrop-blur-md active:scale-95 transition-all cursor-pointer"
-            title="Reset View"
-          >
-            1:1
-          </button>
-        </div>
-
-        {/* Small Interaction Help Banner */}
-        <div className="absolute bottom-3 left-4 z-20 pointer-events-none bg-black/60 px-3 py-1.5 rounded-full border border-[#D4AF37]/10 text-[10px] text-gray-400 backdrop-blur-sm flex items-center gap-1.5 shadow-md">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-          <span>Pinch / Scroll to zoom • Drag to pan map</span>
-        </div>
-
-        {/* The Scalable/Pannable Seating Grid Board */}
-        <div 
-          style={{
-            transform: `translate(${position.x}px, ${position.y}px) scale(${scale})`,
-            transformOrigin: 'center center',
-            transition: isDragging ? 'none' : 'transform 0.15s ease-out',
-          }}
-          className="w-full flex flex-col items-center p-4 select-none"
-        >
+      {/* Main Cinema Seating Grid */}
+      <div className="relative h-[380px] sm:h-[480px] overflow-hidden overflow-y-auto bg-[#0A0A0A] border-y border-[#D4AF37]/15 select-none flex items-center justify-center">
+        {/* The Seating Grid Board */}
+        <div className="w-full flex flex-col items-center p-4 select-none">
           <div className="min-w-[480px] max-w-3xl mx-auto flex flex-col items-center space-y-6">
             {Array.from({ length: rows }).map((_, rIdx) => {
               const rowNum = rIdx + 1;
