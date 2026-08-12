@@ -1,0 +1,4 @@
+// Zero-import vanilla JS smoke test.
+export default function handler(req, res) {
+  res.status(200).json({ ok: true, now: new Date().toISOString() });
+}
