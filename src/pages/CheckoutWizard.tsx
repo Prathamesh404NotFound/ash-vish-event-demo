@@ -875,7 +875,7 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
               </div>
             </div>
             <p className="text-[10px] text-gray-500 mt-3 flex items-center gap-1">
-              <Clock className="w-3 h-3" /> Seats auto-release in {minutesRemaining > 0 ? `${minutesRemaining} min` : 'under a minute'} if payment is not completed.
+              <Clock className="w-3 h-3" /> Seats auto-release in {minutesRemaining > 0 ? `${minutesRemaining} min` : 'under a minute'} if the booking is not confirmed.
             </p>
           </div>
 
