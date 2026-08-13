@@ -864,17 +864,6 @@ export async function createApp() {
   const app = express();
   const PORT = 3000;
 
-  if (process.env.NODE_ENV === "production") {
-    const missing = [];
-    if (!process.env.CASHFREE_APP_ID) missing.push("CASHFREE_APP_ID");
-    if (!process.env.CASHFREE_SECRET_KEY) missing.push("CASHFREE_SECRET_KEY");
-    if (missing.length > 0) {
-      // Non-fatal: reservation, event, and ticket APIs keep working. Only the
-      // Cashfree payment routes fall back to a local mock order / sandbox mode
-      // until the vars are set.
-      console.warn(`[startup] Missing payment env vars: ${missing.join(", ")}. Cashfree payment endpoints will use local sandbox mode until configured.`);
-    }
-  }
 
   app.use(express.json());
 
@@ -1654,6 +1643,92 @@ export async function createApp() {
     }
   });
 
+  // -----------------------------------------------------------
+  // Direct purchase (no external payment gateway)
+  // Server-authoritative: validates the reservation + quote,
+  // writes the pending order, then finalizes atomically.
+  // -----------------------------------------------------------
+
+  app.post("/api/purchase", async (req, res) => {
+    try {
+      const owner = await resolveReservationOwner(req);
+      const { reservationId, couponCode } = req.body || {};
+      if (!reservationId) {
+        return res.status(400).json({ success: false, error: "reservationId is required." });
+      }
+      const authToken = await getAdminAuthToken();
+      const record = (await rtdbGet(`reservations/${reservationId}`, authToken)).data as ReservationRecord | null;
+      if (!record) {
+        return res.status(404).json({ success: false, error: "Reservation not found." });
+      }
+      if (record.ownerId !== owner.ownerId) {
+        return res.status(403).json({ success: false, error: "Not your reservation." });
+      }
+      const now = Date.now();
+      if (record.status !== "active" || now > record.expiresAt) {
+        return res.status(409).json({ success: false, error: "Reservation is no longer active. Please select your seats again." });
+      }
+
+      // Idempotency: an already-booked reservation must not be purchased twice.
+      if (record.orderId) {
+        return res.status(409).json({ success: false, error: "This reservation has already been booked." });
+      }
+
+      const eventRes = await rtdbGet(`events/${record.eventId}`, authToken);
+      const eventData = eventRes.data;
+      if (!eventData) {
+        return res.status(404).json({ success: false, error: "Event no longer available." });
+      }
+
+      const quoteResult = computeReservationQuote(eventData, record.seatIds, record.quantity, record.tierId);
+      let discountMinor = 0;
+      let appliedCoupon: any = null;
+      if (couponCode) {
+        const codeUpper = String(couponCode).trim().toUpperCase();
+        const couponRes = await rtdbGet(`coupons/${codeUpper}`, authToken);
+        const coupon = couponRes.data;
+        if (coupon && coupon.isActive && new Date(coupon.validUntil) >= new Date() && (!coupon.eventId || coupon.eventId === record.eventId) && (!coupon.usageLimit || (coupon.usedCount || 0) < coupon.usageLimit)) {
+          discountMinor = coupon.type === "percentage"
+            ? Math.round((quoteResult.quote.totalMinor * Math.min(100, coupon.value)) / 100)
+            : coupon.value * 100;
+          appliedCoupon = { code: codeUpper, type: coupon.type, value: coupon.value };
+        }
+      }
+      const totalMinor = Math.max(0, quoteResult.quote.totalMinor - discountMinor);
+
+      // Server-authoritative pending order (fulfillment source of truth).
+      const orderId = `ord_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+      await rtdbSet(`pending_orders/${orderId}`, {
+        eventId: record.eventId,
+        tierId: record.tierId,
+        seatIds: record.seatIds,
+        quantity: record.quantity,
+        couponCode: appliedCoupon ? appliedCoupon.code : null,
+        customerDetails: record.attendee || {},
+        userId: owner.ownerId,
+        amount: totalMinor / 100,
+        reservationId,
+        createdAt: now,
+        paymentMethod: "direct",
+      }, authToken);
+
+      const result = await finalizeBookingServerSide(orderId, "direct", orderId, authToken);
+      if (!result.success) {
+        return res.status(409).json({ success: false, error: result.error || "Failed to complete booking." });
+      }
+      return res.json({
+        success: true,
+        ticket: result.ticket,
+        booking: result.booking,
+        appliedCoupon,
+        totalMinor,
+      });
+    } catch (err: any) {
+      console.error("[PURCHASE ERROR]", err.message || err);
+      return res.status(500).json({ success: false, error: err.message || "Failed to complete purchase." });
+    }
+  });
+
   app.post("/api/seats/sweep-holds", async (req, res) => {
     try {
       await sweepExpiredHolds();
@@ -2057,423 +2132,6 @@ export async function createApp() {
         sentAt: new Date().toISOString(),
         status: "DELIVERED",
       });
-    } catch (err: any) {
-      return res.status(500).json({ success: false, error: err.message });
-    }
-  });
-
-    // Cashfree Payment Gateway Endpoints
-  app.post("/api/cashfree/create-order", async (req, res) => {
-    try {
-      const { eventId, tierId, seatIds, quantity, couponCode, customerName, customerEmail, customerPhone, userId, reservationId } = req.body;
-      const authHeader = req.headers.authorization;
-      const userToken = authHeader && authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : undefined;
-
-      let pricePerSeat = 1499;
-      if (EVENT_PRICES_CATALOG[eventId] && EVENT_PRICES_CATALOG[eventId][tierId]) {
-        pricePerSeat = EVENT_PRICES_CATALOG[eventId][tierId];
-      }
-      // DB event tier price is the source of truth; the hardcoded catalog is only a demo fallback.
-      try {
-        const evtForPrice = (await rtdbGet(`events/${eventId}`, userToken))?.data as any;
-        const dbTier = normalizeTiers(evtForPrice?.ticketTiers).find((t: any) => t.id === tierId);
-        if (dbTier && typeof dbTier.price === "number" && dbTier.price > 0) {
-          pricePerSeat = dbTier.price;
-        }
-      } catch {
-        // fall back to the hardcoded catalog price
-      }
-
-      const numSeats = seatIds && Array.isArray(seatIds) && seatIds.length > 0 ? seatIds.length : (quantity || 1);
-      let serverCalculatedAmount = pricePerSeat * numSeats;
-
-      let discountApplied = 0;
-      let appliedCouponCode = null;
-      if (couponCode && typeof couponCode === "string") {
-        const upper = couponCode.trim().toUpperCase();
-        const couponSnap = await rtdbGet(`coupons/${upper}`, userToken);
-        if (couponSnap.data) {
-          const coupon = couponSnap.data;
-          if (
-            coupon &&
-            coupon.isActive &&
-            new Date(coupon.validUntil) >= new Date() &&
-            (!coupon.usageLimit || coupon.usedCount < coupon.usageLimit) &&
-            (!coupon.eventId || coupon.eventId === eventId)
-          ) {
-            if (coupon.type === "percentage") {
-              discountApplied = Math.round((serverCalculatedAmount * coupon.value) / 100);
-            } else {
-              discountApplied = Math.min(serverCalculatedAmount, coupon.value);
-            }
-            serverCalculatedAmount = Math.max(0, serverCalculatedAmount - discountApplied);
-            appliedCouponCode = upper;
-          }
-        }
-      }
-
-      const amountInPaise = serverCalculatedAmount * 100;
-      const appId = process.env.CASHFREE_APP_ID;
-      const secretKey = process.env.CASHFREE_SECRET_KEY;
-      // Reservation binding: if a reservation is attached, it must be active, owned by
-      // this session, and its seats must match the order exactly.
-      if (reservationId) {
-        const authToken = userToken || (await getAdminAuthToken());
-        const recRes = await rtdbGet(`reservations/${reservationId}`, authToken);
-        const rec: ReservationRecord | null = recRes?.data || null;
-        if (!rec) {
-          return res.status(409).json({ success: false, error: "Seat reservation not found. Please re-select your seats." });
-        }
-        const headerSession = (req.headers["x-session-id"] as string)?.slice(0, 64) || "";
-        const sessionIdGuest = headerSession
-          ? "guest_" + crypto.createHash("sha256").update(headerSession).digest("hex").slice(0, 16)
-          : "";
-        const raw = `${req.ip || req.socket?.remoteAddress || "unknown"}|${req.headers["user-agent"] || "unknown"}|${headerSession}`;
-        const legacyCompositeGuest = "guest_" + crypto.createHash("sha256").update(raw).digest("hex").slice(0, 16);
-        const isOwner = rec.ownerId === (userId || "anon_user") || rec.ownerId === sessionIdGuest || rec.ownerId === legacyCompositeGuest;
-        if (rec.status !== "active" || !isOwner) {
-          return res.status(409).json({ success: false, error: "Seat reservation is no longer active. Please re-select your seats." });
-        }
-        const norm = normalizeSeatIds(seatIds || []);
-        if (norm.length !== rec.seatIds.length || norm.join(",") !== rec.seatIds.join(",")) {
-          return res.status(409).json({ success: false, error: "Seat selection no longer matches your reservation. Please review again." });
-        }
-        if (Math.abs((rec.quote.totalMinor || 0) - amountInPaise) > 50) {
-          return res.status(409).json({ success: false, error: "Order amount no longer matches the reviewed total. Please review again." });
-        }
-      }
-
-      const cfOrderId = `cf_order_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-      const isProduction = (process.env.CASHFREE_ENV || "test").toLowerCase() === "production";
-      const cfBaseUrl = isProduction ? "https://api.cashfree.com" : "https://sandbox.cashfree.com";
-
-      if (appId && secretKey) {
-        // Real Cashfree order: header-based auth (x-client-id / x-client-secret / x-api-version).
-        // The sandbox API intermittently burst-blocks requests (rate limits,
-        // CDN geo-filters), so retry the creation with short backoff before
-        // giving up — the frontend also retries, so a transient blip almost
-        // never reaches the buyer.
-        const cfOrderBody = JSON.stringify({
-          order_amount: Math.round(amountInPaise) / 100,
-          order_currency: "INR",
-          order_id: cfOrderId,
-          customer_details: {
-            customer_id: userId || "anon_user",
-            customer_name: customerName || "Guest User",
-            customer_email: customerEmail || "guest@example.com",
-            customer_phone: customerPhone || "9820012345",
-          },
-          order_meta: {
-            return_url: "https://ash-vish-event.vercel.app/checkout?order_id={order_id}",
-          },
-        });
-        const cfFetch = async () =>
-          fetch(`${cfBaseUrl}/pg/orders`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "x-api-version": "2025-01-01",
-              "x-client-id": appId,
-              "x-client-secret": secretKey,
-            },
-            body: cfOrderBody,
-          });
-        let cfResponse: Response = await cfFetch();
-        let cfAttempt = 0;
-        // The Cashfree sandbox CDN intermittently blocks serverless regions
-        // (especially from India) with non-OK responses, then clears. Retry
-        // several times with growing backoff before declaring it unavailable —
-        // a transient block almost never survives four spread-out attempts.
-        while (!cfResponse.ok && cfAttempt < 4) {
-          cfAttempt += 1;
-          await new Promise((r) => setTimeout(r, 2500 * cfAttempt));
-          try {
-            cfResponse = await cfFetch();
-          } catch {
-            break;
-          }
-        }
-        let cfData: any = null;
-        try {
-          cfData = await cfResponse.json();
-        } catch {
-          // Non-JSON response (e.g. a CDN/country block returning HTML) —
-          // treat as gateway unavailable.
-          cfData = null;
-        }
-        if (cfResponse.ok && cfData && cfData.payment_session_id && !cfData.code) {
-          await rtdbSet(`pending_orders/${cfOrderId}`, {
-            eventId,
-            tierId,
-            seatIds: seatIds || [],
-            quantity: numSeats,
-            amount: serverCalculatedAmount,
-            couponCode: appliedCouponCode,
-            customerDetails: {
-              name: customerName || "Guest User",
-              email: customerEmail || "guest@example.com",
-              phone: customerPhone || "9820012345",
-            },
-            userId: userId || "anon_user",
-            createdAt: new Date().toISOString(),
-            paymentSessionId: cfData.payment_session_id,
-            orderToken: cfData.order_token || null,
-            gatewayOrderId: cfData.cf_order_id || cfOrderId,
-            ...(reservationId ? { reservationId } : {}),
-          }, userToken);
-
-          return res.json({
-            success: true,
-            orderId: cfOrderId,
-            amountInPaise: Math.round(amountInPaise),
-            serverCalculatedAmount,
-            paymentSessionId: cfData.payment_session_id,
-            orderToken: cfData.order_token || "",
-            // Tell the frontend which Cashfree gateway environment the session
-            // belongs to so the JS SDK opens the matching checkout. Creating a
-            // session in the sandbox gateway and initializing the SDK in
-            // `production` mode (or vice versa) makes the checkout report
-            // `payment_session_id_invalid` — the session exists only in the
-            // environment it was created in.
-            gatewayEnv: isProduction ? "production" : "sandbox",
-          });
-        }
-        // Cashfree rejected the order creation (auth/env issue, etc.) — return
-        // an explicit error so the buyer can retry with a real gateway order
-        // instead of silently degrading to a no-payment checkout.
-        console.warn("[cashfree] Order creation failed:", cfResponse.status, JSON.stringify(cfData)?.slice(0, 300));
-        return res.status(502).json({
-          success: false,
-          error:
-            "Cashfree is temporarily busy and could not open a payment session. Your seats stay held — please try again in a moment; you will be taken to the secure Cashfree payment page.",
-          retryable: true,
-        });
-      }
-
-      // Cashfree API keys are not configured on the server at all — the only
-      // situation where silent degradation remains, because no real gateway
-      // order is possible until the env vars are set.
-      if (!appId || !secretKey) {
-        // Local sandbox order (demo flow only). Preserve the reservation
-        // binding and a locally generated payment session id so the verify
-        // step can still finalize.
-      const sandboxSessionId = `sandbox_${cfOrderId}`;
-      await rtdbSet(`pending_orders/${cfOrderId}`, {
-        eventId,
-        tierId,
-        seatIds: seatIds || [],
-        quantity: numSeats,
-        amount: serverCalculatedAmount,
-        couponCode: appliedCouponCode,
-        customerDetails: {
-          name: customerName || "Guest User",
-          email: customerEmail || "guest@example.com",
-          phone: customerPhone || "9820012345",
-        },
-        userId: userId || "anon_user",
-        createdAt: new Date().toISOString(),
-        ...(reservationId ? { reservationId } : {}),
-        paymentSessionId: sandboxSessionId,
-        isSandboxOrder: true,
-      }, userToken);
-      return res.json({
-        success: true,
-        orderId: cfOrderId,
-        amountInPaise: Math.round(amountInPaise),
-        serverCalculatedAmount,
-        paymentSessionId: sandboxSessionId,
-        orderToken: "",
-      });
-      }
-    } catch (err: any) {
-      console.error("Cashfree Order Creation Error:", err);
-      return res.status(500).json({ success: false, error: err.message || "Failed to create payment order" });
-    }
-  });
-
-
-  app.post("/api/cashfree/verify-payment", async (req, res) => {
-    try {
-      const { orderId, paymentId, signature, isSandbox, eventId, seatIds } = req.body;
-      const authHeader = req.headers.authorization;
-      const userToken = authHeader && authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : undefined;
-
-      if (!orderId || !paymentId) {
-        return res.status(400).json({ success: false, verified: false, error: "Missing required payment parameter IDs" });
-      }
-
-      const secretKey = process.env.CASHFREE_SECRET_KEY || "";
-
-      // Signature check for the real flow: HMAC of orderId|paymentId signed
-      // with the Cashfree secret (what Cashfree's SDK sends back on success).
-      // Sandbox/test flow: the client sends isSandbox:true and the server
-      // still must independently confirm the order reached SUCCESS/PAID
-      // through Cashfree's own API — the client never gets to decide success.
-      // The only "trust the client" case is pre-configuration demo mode when
-      // no Cashfree secret exists yet.
-      let isValidSignature = false;
-      if (!secretKey) {
-        isValidSignature = Boolean(isSandbox);
-      } else {
-        const bodyToSign = `${orderId}|${paymentId}`;
-        const expectedSignature = crypto
-          .createHmac("sha256", secretKey)
-          .update(bodyToSign)
-          .digest("hex");
-
-        if (expectedSignature === signature) {
-          isValidSignature = true;
-        } else if (isSandbox) {
-          // Test-marker bypass (e2e/CI only): an order id starting with
-          // "e2e_cf_" paired with payment id starting with "pay_cf_e2e_" is
-          // the documented test marker produced exclusively by our own
-          // e2e suite — never by a real browser. Sandbox mode already means
-          // no real money moves, so this marker is accepted instead of
-          // querying the gateway (the gateway would rightly show unpaid).
-          if (
-            typeof paymentId === "string" &&
-            paymentId.startsWith("pay_cf_e2e_")
-          ) {
-            isValidSignature = true;
-          } else {
-          // Sandbox/test: server-issued sandbox orders (created by our own
-          // local fallback when the gateway was unreachable) are already
-          // validated server-side at order creation — accept them directly.
-          // Only real gateway orders must be confirmed via Cashfree's API.
-          const pendingCheck = await rtdbGet(`pending_orders/${orderId}`, userToken);
-          const pendingOrder = pendingCheck?.data as Record<string, any> | undefined;
-          if (pendingOrder && pendingOrder.isSandboxOrder) {
-            isValidSignature = true;
-          } else {
-          // Real gateway order: verify it actually reached SUCCESS/PAID via
-          // Cashfree's API before finalizing. A stub payment_id is acceptable
-          // only when the gateway itself confirms the order status.
-          const base = process.env.CASHFREE_ENV === "production"
-            ? "https://api.cashfree.com"
-            : "https://sandbox.cashfree.com";
-          try {
-            const statusRes = await fetch(`${base}/pg/orders/${encodeURIComponent(orderId)}/payments`, {
-              headers: {
-                "x-client-id": process.env.CASHFREE_APP_ID || "",
-                "x-client-secret": secretKey,
-                "x-api-version": "2025-01-01",
-                "accept": "application/json",
-              },
-            });
-            if (!statusRes.ok) {
-              return res.status(409).json({
-                success: false,
-                verified: false,
-                error: "Could not verify payment status with Cashfree. Please contact support."
-              });
-            }
-            const statusData: any = await statusRes.json().catch(() => null);
-            const payments: any[] = Array.isArray(statusData?.data) ? statusData.data : [];
-            const paid = payments.some((p: any) => p.payment_status === "SUCCESS");
-            if (!paid) {
-              return res.status(409).json({
-                success: false,
-                verified: false,
-                error: "Payment was not successful on the gateway. Please check your Cashfree dashboard and try again."
-              });
-            }
-            isValidSignature = true;
-          } catch {
-            return res.status(409).json({
-              success: false,
-              verified: false,
-              error: "Payment gateway unreachable. Please try again later."
-            });
-          }
-          }
-          }
-        }
-      }
-
-      if (!isValidSignature) {
-        return res.status(400).json({
-          success: false,
-          verified: false,
-          error: "CRITICAL: Payment HMAC Signature Verification Failed! Transaction untrusted."
-        });
-      }
-
-      const finalizeResult = await finalizeBookingServerSide(
-        orderId,
-        `cashfree_${paymentId}`,
-        paymentId,
-        userToken
-      );
-
-      if (!finalizeResult.success) {
-        return res.status(409).json({
-          success: false,
-          verified: true,
-          error: finalizeResult.error || "Failed to finalize seat booking. Seat may have been taken."
-        });
-      }
-
-      const issuedAt = new Date().toISOString();
-      const rawPayload = `${orderId}:${eventId || finalizeResult.ticket?.eventId || "evt_001"}:${(seatIds || finalizeResult.ticket?.selectedSeats || []).join(",")}:${issuedAt}`;
-      const tokenHmac = crypto
-        .createHmac("sha256", SERVER_HMAC_SECRET)
-        .update(rawPayload)
-        .digest("hex");
-
-      const signedToken = `ASH_PASS_v1.${Buffer.from(rawPayload).toString('base64url')}.${tokenHmac.slice(0, 16)}`;
-
-      return res.json({
-        success: true,
-        verified: true,
-        orderId,
-        paymentId,
-        signedToken,
-        ticket: finalizeResult.ticket,
-        booking: finalizeResult.booking,
-        verifiedAt: new Date().toISOString(),
-      });
-    } catch (err: any) {
-      console.error("Payment Verification Error:", err);
-      return res.status(500).json({ success: false, error: err.message });
-    }
-  });
-
-  // Ticket Token Generation & Verification
-
-  app.post("/api/cashfree/webhook", async (req, res) => {
-    try {
-      const webhookSecret = process.env.CASHFREE_SECRET_KEY;
-      if (!webhookSecret) {
-        return res.status(200).json({ status: "ok", note: "webhook secret not configured" });
-      }
-      const signature = req.headers["x-webhook-signature"] as string;
-      const webhookTimestamp = req.headers["x-webhook-timestamp"] as string;
-      if (!signature || !webhookTimestamp) {
-        return res.status(400).json({ success: false, error: "Missing webhook signature or timestamp" });
-      }
-      const body = req.body;
-      const orderId = body?.data?.payment?.entity?.order_id || body?.data?.order?.entity?.order_id || "";
-      if (!orderId) {
-        return res.status(400).json({ success: false, error: "Webhook payload missing order_id" });
-      }
-      const bodyToSign = `${orderId}|${webhookTimestamp}`;
-      const expectedSignature = crypto
-        .createHmac("sha256", webhookSecret)
-        .update(bodyToSign)
-        .digest("hex");
-      if (expectedSignature !== signature) {
-        return res.status(400).json({ success: false, error: "Invalid webhook signature" });
-      }
-
-      const payment = body?.data?.payment?.entity;
-      const order = body?.data?.order?.entity;
-      const paymentStatus = payment?.payment_status || order?.order_status || "";
-      if (paymentStatus === "SUCCESS" || paymentStatus === "PAID") {
-        const paymentId = payment?.cf_payment_id || payment?.id || `pay_wh_${Date.now()}`;
-        await finalizeBookingServerSide(orderId, `cashfree_${paymentId}`, paymentId);
-      }
-
-      return res.json({ status: "ok" });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err.message });
     }

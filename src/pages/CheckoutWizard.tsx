@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, CheckCircle2, AlertCircle, Lock, Clock, RefreshCw, ShieldCheck, CreditCard } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CheckCircle2, AlertCircle, Lock, Clock, RefreshCw, ShieldCheck } from 'lucide-react';
 import { useBooking, ReservationState, QuoteResult, getSessionId } from '../contexts/BookingContext';
 import { useAuth } from '../contexts/AuthContext';
 import { CountdownTimer } from '../components/CountdownTimer';
@@ -7,7 +7,6 @@ import { formatINR } from '../utils/formatters';
 import { ref, get } from 'firebase/database';
 import { rtdb } from '../lib/firebase';
 import { SeatMap } from '../components/SeatMap';
-import { useCashfree } from '../hooks/useCashfree';
 import { safeFetch, getApiUrl } from '../lib/api';
 
 interface CheckoutWizardProps {
@@ -31,15 +30,12 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
     seatProjection, seatsConnected, reservation, quote, setQuote,
     reviewConfirmed, setReviewConfirmed, pendingSeatCount, reservationError,
     createReservation, refreshReservation, cancelReservation, setAttendeeDetails,
-    confirmPurchase, confirmServerPurchasedTicket, selectTicketsForCheckout, releaseHeldSeats, validateCouponServer, resetBookingFlow,
+    confirmServerPurchasedTicket, selectTicketsForCheckout, releaseHeldSeats, validateCouponServer, resetBookingFlow,
   } = ctx;
   const { user } = useAuth();
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [submitError, setSubmitError] = useState<string>('');
-  // Live progress message shown on the Pay button while the gateway is being
-  // contacted and retried — e.g. "Contacting the payment gateway… (1 of 3)".
-  const [retryMessage, setRetryMessage] = useState<string>('');
 
   // Coupon state (local until payment; server quote is the payment authority)
   const [couponCodeInput, setCouponCodeInput] = useState('');
@@ -89,16 +85,6 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
   const reviewStep = attendeeStep + 1;
   const paymentStep = reviewStep + 1;
 
-  const {
-    processCashfreePayment, resumeAfterRedirect,
-    isLoading: isPaymentLoading, error: paymentError,
-  } = useCashfree(bookingStep === paymentStep);
-
-  // Show progress while retries are in flight; clear it once the retry loop
-  // settles (success or final failure).
-  useEffect(() => {
-    if (!isPaymentLoading) setRetryMessage('');
-  }, [isPaymentLoading]);
 
   const originalTotalPrice = tier.price * quantity;
   // If the server returned a quote, it is the payment authority (includes coupon).
@@ -110,56 +96,6 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
   const serverDiscount = serverDiscountMinor !== undefined ? Math.round(serverDiscountMinor / 100) : discountAmount;
   const serverSubtotal = serverSubtotalMinor !== undefined ? Math.round(serverSubtotalMinor / 100) : originalTotalPrice;
 
-  // ------------------------------------------------------------------
-  // Cashfree hosted-checkout return handling
-  // ------------------------------------------------------------------
-  // Cashfree's hosted page redirects the browser back to us with
-  // ?order_id=... appended. Re-hydrate the pending payment and complete
-  // server verification before the user interacts with anything else.
-  const returnHandledRef = useRef(false);
-  useEffect(() => {
-    if (bookingStep !== paymentStep || returnHandledRef.current) return;
-    const params = new URLSearchParams(window.location.search);
-    const returnedOrderId = params.get('order_id');
-    if (!returnedOrderId) return;
-    returnHandledRef.current = true;
-    // Remove the query param from the URL so a refresh doesn't re-trigger.
-    try {
-      const url = new URL(window.location.href);
-      url.searchParams.delete('order_id');
-      url.searchParams.delete('order_status');
-      window.history.replaceState({}, document.title, url.toString());
-    } catch { /* noop */ }
-    resumeAfterRedirect(returnedOrderId, {
-      onSuccess: async (result) => {
-        try {
-          setIsProcessing(true);
-          let confirmedTicket;
-          if (result.ticket && result.booking) {
-            confirmedTicket = confirmServerPurchasedTicket(result.ticket, result.booking);
-          } else {
-            confirmedTicket = await confirmPurchase(
-              { name: attendeeName, email: attendeeEmail, phone: attendeePhone },
-              'cashfree',
-              user?.id
-            );
-          }
-          await sendConfirmationEmail(confirmedTicket);
-          setIsProcessing(false);
-          resetBookingFlow();
-          onSuccess();
-        } catch (confirmErr) {
-          console.error('Error confirming purchase after payment return:', confirmErr);
-          setSubmitError('Payment returned, but ticket registration failed. Please contact support.');
-          setIsProcessing(false);
-        }
-      },
-      onFailure: (errMsg) => handlePaymentFailure(errMsg),
-    }).catch(() => {
-      /* errors surfaced via paymentError */
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bookingStep]);
 
   // ------------------------------------------------------------------
   // Reservation lifecycle effects
@@ -457,7 +393,7 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
   // ------------------------------------------------------------------
   const handlePaymentFailure = async (errMsg?: string) => {
     setIsProcessing(false);
-    setSubmitError(errMsg || 'Payment was cancelled or failed. Your seats are still held until the timer expires.');
+    setSubmitError(errMsg || 'Booking failed. Your seats are still held until the timer expires.');
   };
 
   const sendConfirmationEmail = async (confirmedTicket: any) => {
@@ -498,68 +434,45 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
       return;
     }
 
+    // Server-authoritative purchase: the server re-validates the reservation,
+    // recomputes the quote (coupon applied on the server), and atomically
+    // finalizes the seat claim + ticket issuance. Nothing local is trusted.
     try {
-      await processCashfreePayment({
-        amount: serverTotal,
-        eventId: event.id,
-        tierId: tier.id,
-        seatIds: reservation.seatIds,
-        quantity,
-        reservationId: reservation.reservationId,
-        userId: user?.id || 'anon_user',
-        couponCode: quoteAppliedCoupon?.code || undefined,
-        customerDetails: { name: attendeeName, email: attendeeEmail, phone: attendeePhone },
-        onProgress: (attempt, total, message) => {
-          // Keep the message short and human — it renders on the Pay button.
-          setRetryMessage(
-            attempt === 0 ? 'Connecting to the payment gateway…' : `Gateway came back busy — retrying (${attempt} of ${total - 1})…`
-          );
-        },
-        onSuccess: async (result) => {
-          try {
-            setIsProcessing(true);
-            // The server verified the Cashfree signature and finalized the seat
-            // claim atomically in the verify-payment handler.
-            let confirmedTicket;
-            if (result.ticket && result.booking) {
-              confirmedTicket = confirmServerPurchasedTicket(result.ticket, result.booking);
-            } else {
-              confirmedTicket = await confirmPurchase(
-                { name: attendeeName, email: attendeeEmail, phone: attendeePhone },
-                'cashfree',
-                user?.id
-              );
-            }
-
-            await sendConfirmationEmail(confirmedTicket);
-            setIsProcessing(false);
-            resetBookingFlow();
-            onSuccess();
-          } catch (confirmErr) {
-            console.error('Error confirming purchase after payment:', confirmErr);
-            setSubmitError('Payment succeeded, but ticket registration failed. Please contact support.');
-            setIsProcessing(false);
-          }
-        },
-        onFailure: (errMsg) => handlePaymentFailure(errMsg),
+      const res = await safeFetch('/api/purchase', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reservationId: reservation.reservationId,
+          couponCode: quoteAppliedCoupon?.code || null,
+        }),
       });
+      if (!res.ok || !res.data?.success) {
+        await handlePaymentFailure(res.data?.error || 'Could not complete booking. Please try again.');
+        return;
+      }
+      setIsProcessing(true);
+      const confirmedTicket = confirmServerPurchasedTicket(res.data.ticket, res.data.booking);
+      await sendConfirmationEmail(confirmedTicket);
+      setIsProcessing(false);
+      resetBookingFlow();
+      onSuccess();
     } catch (err: any) {
-      console.error('Cashfree process error:', err);
-      handlePaymentFailure(err?.message || 'Payment execution failed.');
+      console.error('Purchase error:', err);
+      await handlePaymentFailure(err?.message || 'Network error while booking. Your seats are still held.');
     }
   };
 
   // ------------------------------------------------------------------
   // Derived UI helpers
   // ------------------------------------------------------------------
-  const isBusy = isProcessing || isPaymentLoading;
+  const isBusy = isProcessing;
   const stepsMeta = useMemo(
     () => [
       { n: FIRST_STEP, label: 'Tickets' },
       ...(hasSeatMap ? [{ n: 2, label: 'Seats' }] : []),
       { n: attendeeStep, label: 'Attendee' },
       { n: reviewStep, label: 'Review' },
-      { n: paymentStep, label: 'Payment' },
+      { n: paymentStep, label: 'Confirm' },
     ],
     [hasSeatMap, attendeeStep, reviewStep, paymentStep]
   );
@@ -602,7 +515,7 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
             <h1 className="font-heading font-bold text-2xl sm:text-3xl text-white">
               Secure Checkout
             </h1>
-            <p className="text-xs text-gray-400">One step at a time — review before you pay</p>
+            <p className="text-xs text-gray-400">One step at a time — review before you confirm</p>
           </div>
         </div>
 
@@ -947,13 +860,15 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
           </div>
 
           <div className="bg-[#141414] border border-[#D4AF37]/30 rounded-3xl p-6 space-y-4">
-            <h3 className="font-heading font-bold text-lg text-white">Select Payment Gateway</h3>
-            <div className="p-4 rounded-2xl border border-[#D4AF37] bg-[#1C1C1C] flex flex-col gap-2">
-              <span className="text-xs font-bold text-white flex items-center gap-2">
-                <CreditCard className="w-4 h-4 text-emerald-400" /> Cashfree
-              </span>
-              <p className="text-[11px] text-gray-400">Cashfree — UPI, Cards, Netbanking &amp; Wallets</p>
-            </div>
+            <h3 className="font-heading font-bold text-lg text-white flex items-center gap-2">
+              <ShieldCheck className="w-5 h-5 text-emerald-400" />
+              Confirm Your Booking
+            </h3>
+            <p className="text-xs text-gray-400 leading-relaxed">
+              Clicking below confirms your booking immediately. Your seats are held securely and
+              confirmed atomically by the server — another buyer cannot take them while you confirm.
+              Your QR gate pass will be delivered to your email once the booking is finalized.
+            </p>
           </div>
 
           <button
@@ -963,13 +878,13 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
           >
             {isBusy ? (
               <span className="animate-pulse flex items-center gap-2">
-                <Lock className="w-5 h-5 animate-spin" />
-                {retryMessage || 'Processing Payment...'}
+                <RefreshCw className="w-5 h-5 animate-spin" />
+                Booking your seats...
               </span>
             ) : (
               <>
                 <Lock className="w-5 h-5" />
-                <span>Pay Now — {formatINR(serverTotal)}</span>
+                <span>Confirm &amp; Book — {formatINR(serverTotal)}</span>
               </>
             )}
           </button>
@@ -978,13 +893,13 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
               <div className="flex-1">
                 <span>{submitError}</span>
-                {submitError.toLowerCase().includes('temporarily busy') && !isBusy && (
+                {!isBusy && (
                   <div className="mt-2 flex flex-wrap items-center gap-2">
                     <button
                       onClick={handlePayment}
                       className="px-3 py-1.5 rounded-lg bg-red-500/20 border border-red-500/40 text-red-300 hover:bg-red-500/30 font-bold text-[11px] flex items-center gap-1.5 cursor-pointer"
                     >
-                      <RefreshCw className="w-3 h-3" /> Try payment again
+                      <RefreshCw className="w-3 h-3" /> Try booking again
                     </button>
                     <span className="text-gray-400 text-[10px]">Your seats stay held — no need to start over.</span>
                   </div>
@@ -994,18 +909,11 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
           )}
           <div className="flex items-center justify-center gap-2 text-[11px] text-gray-400 text-center">
             <ShieldCheck className="w-4 h-4 text-emerald-400" />
-            <span>Secured Payments • 100% Guaranteed Pass</span>
+            <span>Atomic Seat Confirmation • 100% Guaranteed Pass</span>
           </div>
         </div>
       )}
 
-      {/* Cashfree Gateway Error Notice */}
-      {paymentError && (
-        <div className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-start gap-2">
-          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-          <span>{paymentError}</span>
-        </div>
-      )}
     </div>
   );
 };

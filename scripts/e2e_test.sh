@@ -76,29 +76,27 @@ AD=$(curl -s -X POST "$BASE/api/reservations/$R1_ID/attendee" -H 'Content-Type: 
   -d '{"name":"E2E Tester","email":"e2e@example.com","phone":"9000011122"}')
 check "attendee saved" "e2e@example.com" "$AD"
 
-echo "=== 9. Cashfree create-order binds reservation ==="
-PO=$(curl -s -X POST "$BASE/api/cashfree/create-order" -H 'Content-Type: application/json' -H "X-Session-Id: $S1" \
-  -d "{\"eventId\":\"$EV\",\"tierId\":\"tier_vip\",\"quantity\":1,\"seatIds\":[\"$SEAT3\"],\"customerName\":\"E2E Tester\",\"customerEmail\":\"e2e@example.com\",\"customerPhone\":\"9000011122\",\"reservationId\":\"$R1_ID\",\"orderId\":\"e2e_cf_$RAND1\"}")
-check "cashfree order created" '"success":true' "$PO"
-PO_ID=$(echo "$PO" | python3 -c "import sys,json;print(json.load(sys.stdin)['orderId'])")
-echo "  orderId=$PO_ID"
-
-echo "=== 10. Cashfree verify-payment finalizes (e2e test markers: paymentId pay_cf_e2e_*) ==="
-VERIFY=$(curl -s -X POST "$BASE/api/cashfree/verify-payment" -H 'Content-Type: application/json' \
-  -d "{\"orderId\":\"$PO_ID\",\"paymentId\":\"pay_cf_e2e_$RAND1\",\"signature\":\"sig_cf_e2e\",\"isSandbox\":true,\"eventId\":\"$EV\",\"seatIds\":[\"$SEAT3\"]}")
-check "payment verified+finalized" '"success":true' "$VERIFY"
-check "payment verified flag present" '"verified":true' "$VERIFY"
-TICKET_ID=$(echo "$VERIFY" | python3 -c "import sys,json;print(json.load(sys.stdin).get('ticket',{}).get('id',''))" 2>/dev/null || echo "?")
+echo "=== 9. Direct purchase finalizes the reservation ==="
+PUR=$(curl -s -X POST "$BASE/api/purchase" -H 'Content-Type: application/json' -H "X-Session-Id: $S1" \
+  -d "{\"reservationId\":\"$R1_ID\",\"couponCode\":null}")
+check "purchase succeeded" '"success":true' "$PUR"
+check "purchase has ticket+booking" '"ticket"' "$PUR"
+TICKET_ID=$(echo "$PUR" | python3 -c "import sys,json;print(json.load(sys.stdin).get('ticket',{}).get('id',''))" 2>/dev/null || echo "?")
 echo "  ticketId=$TICKET_ID"
+
+echo "=== 10. Re-purchase same reservation rejected (idempotency) ==="
+P2=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/purchase" -H 'Content-Type: application/json' -H "X-Session-Id: $S1" \
+  -d "{\"reservationId\":\"$R1_ID\",\"couponCode\":null}")
+check "re-purchase idempotent" "409" "$P2"
 
 echo "=== 11. Seat now booked ==="
 SEAT=$(npx tsx scripts/get_seat_status.ts "$EV" "R2-C1" 2>/dev/null || echo "?")
 check "SEAT3 booked" "booked" "$SEAT"
 
-echo "=== 12. Re-verify same payment idempotent ==="
-V2=$(curl -s -X POST "$BASE/api/cashfree/verify-payment" -H 'Content-Type: application/json' \
-  -d "{\"orderId\":\"$PO_ID\",\"paymentId\":\"pay_cf_e2e_$RAND1\",\"signature\":\"sig_cf_e2e\",\"isSandbox\":true,\"eventId\":\"$EV\",\"seatIds\":[\"$SEAT3\"]}")
-check "re-verify idempotent" '"verified":true' "$V2"
+echo "=== 12. Stale reservation after purchase cannot be used again ==="
+V2=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/purchase" -H 'Content-Type: application/json' -H "X-Session-Id: $S1" \
+  -d "{\"reservationId\":\"$R1_ID\",\"couponCode\":null}")
+check "already-booked reservation rejected" "409" "$V2"
 
 echo "=== 13. Session C tries now-booked SEAT3 -> conflict ==="
 C_CODE=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/reservations" -H 'Content-Type: application/json' -H "X-Session-Id: sess-c" \

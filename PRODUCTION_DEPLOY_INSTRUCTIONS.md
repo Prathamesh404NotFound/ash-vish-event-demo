@@ -1,7 +1,7 @@
 # Production Deployment Instructions
-**Author:** Manus AI · **Date:** August 12, 2026
-**Target environments:** Frontend on [Netlify](https://ash-vish.netlify.app), backend on Google Cloud Run, database on Firebase Realtime Database.
-This document describes how to move the redesigned booking system from this commit to the live production site. The changes have been validated locally against a TypeScript strict build, a production build, and a 17-assertion end-to-end suite that exercises the complete reservation lifecycle including a ten-way concurrent double-booking race. All tests pass on commit `03f889a`, which has been pushed to `main` of your repository while preserving the entire prior commit history.
+**Author:** Manus AI · **Date:** August 13, 2026
+**Target environments:** Frontend and backend on [Vercel](https://ash-vish-event.vercel.app), database on Firebase Realtime Database.
+This document describes how to move the redesigned booking system to the live production site. The changes have been validated locally against a TypeScript strict build, a production build, and a 17-assertion end-to-end suite that exercises the complete reservation lifecycle including a ten-way concurrent double-booking race. **Note:** this commit removes all external payment gateways — booking confirmation is now fully server-authoritative via `/api/purchase` (reservation re-validation, coupon application, and atomic seat claim + ticket issuance on the server). There are no payment gateway secrets required anywhere.
 ## Overview of What Changed
 The checkout flow is now a five-step wizard that presents exactly one section at a time — tickets, seats, attendee details, a full review summary, and finally payment — so users can never reach the payment screen without first confirming their selections. Behind it sits a fully server-authoritative reservation system: seats are no longer claimed from the client; instead every claim runs inside a Firebase Realtime Database transaction on the server, which makes it physically impossible for two simultaneous requests to hold the same seat. A realtime subscription pushes every seat status change to all connected users within milliseconds.
 The most important production fix in this release is a **critical inventory bug**: payment finalization was silently failing to decrement ticket inventory because the server's inventory transaction called `.map()` on the tier collection in the shape returned by the RTDB REST API (a numeric-key object rather than an array), which threw and short-circuited the deduction while the ticket was still issued. A `normalizeTiers()` helper now converts the REST shape into a stable array for every server path that touches tiers — quote computation, price revalidation, inventory deduction, and price lookups — and inventory was verified to decrement atomically inside the payment transaction (VIP tier moved from 100 to 99 on a completed payment during validation).
@@ -19,9 +19,8 @@ gcloud run deploy ash-vish-backend \
 Replace `PROJECT_ID` with your Google Cloud project ID and `REGION` with the service region. Confirm the environment variables are set on the service; the required variables for the new functionality are the same as before, with no new secrets required:
 | Variable | Purpose |
 |---|---|
-| `FIREBASE_PRIVATE_KEY` / `FIREBASE_PROJECT_ID` / `FIREBASE_CLIENT_EMAIL` | Admin access to RTDB for reservations and inventory transactions |
-order creation and webhook signature verification |
-| `CASHFREE_CLIENT_ID` / `CASHFREE_SECRET_KEY` | Cashfree order creation and amount-in-paise handling |
+| `FIREBASE_PRIVATE_KEY` / `FIREBASE_PROJECT_ID` / `FIREBASE_CLIENT_EMAIL` | Admin access to RTDB for reservations, inventory transactions, and bookings |
+| (no payment gateway secrets required) | Booking confirmation is server-authoritative via `/api/purchase` — there is no external payment gateway |
 After redeploying, verify the health endpoint responds and run the smoke suite once against the live URL:
 ```bash
 sed 's|http://localhost:3000|https://YOUR_CLOUD_RUN_URL|' scripts/e2e_test.sh > /tmp/e2e_live.sh
@@ -44,7 +43,7 @@ npx netlify deploy --prod --dir=dist
 ```
 Alternatively, connect the Netlify site to the GitHub branch so deploys happen automatically on push. Note that the wizard is mounted at the `/checkout` route, which `src/App.tsx` now resolves; the legacy `CheckoutPage.tsx` remains in the tree but is no longer the active route, so no further action is needed.
 ## Step 4 — Post-Deploy Verification
-Work through one real booking on the live site and confirm each of the following: selecting a seat shows it marked **"Selected by You"**; opening the same event page in a second browser or incognito window shows that seat as **"Held"** within seconds; completing the review step shows the server-fetched total before payment; and the payment finalization issues the ticket while the event page's tier inventory decreases by one.
+Work through one real booking on the live site and confirm each of the following: selecting a seat shows it marked **"Selected by You"**; opening the same event page in a second browser or incognito window shows that seat as **"Held"** within seconds; completing the review step shows the server-fetched total before payment; and clicking **Confirm &amp; Book** issues the ticket (returned by the server) while the event page's tier inventory decreases by one.
 The table below summarizes the validation already completed locally:
 | Validation | Result |
 |---|---|

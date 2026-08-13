@@ -773,7 +773,7 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       totalAmount: totalPaid,
       status: 'confirmed',
       createdAt: new Date().toISOString(),
-      paymentMethod: paymentMethod || 'cashfree',
+      paymentMethod: paymentMethod || 'direct',
       attendeeName: attendeeDetails.name,
       attendeePhone: attendeeDetails.phone,
       attendeeEmail: attendeeDetails.email,
