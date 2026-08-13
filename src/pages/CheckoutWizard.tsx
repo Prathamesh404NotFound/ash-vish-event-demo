@@ -18,8 +18,8 @@ interface CheckoutWizardProps {
  *  1 – Tickets (event + tier + quantity)
  *  2 – Seats (only when event has a seat map)
  *  3 – Attendee details
- *  4 – Review (summary before payment; requires explicit confirmation)
- *  5 – Payment
+ *  4 – Review (final summary before confirmation; requires explicit confirmation)
+ *  5 – Confirm (instant server-side booking; no payment gateway)
  */
 const FIRST_STEP = 1;
 
@@ -387,7 +387,7 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
       return;
     }
     if (bookingStep === paymentStep && reservation?.status === 'active') {
-      // Payment step back -> return to review (reservation keeps the holds alive).
+      // Confirm step back -> return to review (reservation keeps the holds alive).
       setBookingStep(reviewStep);
       return;
     }
@@ -409,9 +409,9 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
   };
 
   // ------------------------------------------------------------------
-  // Payment
+  // Confirm (instant booking, gateway-free)
   // ------------------------------------------------------------------
-  const handlePaymentFailure = async (errMsg?: string) => {
+  const handleConfirmFailure = async (errMsg?: string) => {
     setIsProcessing(false);
     setSubmitError(errMsg || 'Booking failed. Your seats are still held until the timer expires.');
   };
@@ -433,7 +433,7 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
     }
   };
 
-  const handlePayment = async () => {
+  const handleConfirmBooking = async () => {
     setSubmitError('');
 
     // Gate: explicit review confirmation required.
@@ -467,7 +467,7 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
         }),
       });
       if (!res.ok || !res.data?.success) {
-        await handlePaymentFailure(res.data?.error || 'Could not complete booking. Please try again.');
+        await handleConfirmFailure(res.data?.error || 'Could not complete booking. Please try again.');
         return;
       }
       setIsProcessing(true);
@@ -478,7 +478,7 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
       onSuccess();
     } catch (err: any) {
       console.error('Purchase error:', err);
-      await handlePaymentFailure(err?.message || 'Network error while booking. Your seats are still held.');
+      await handleConfirmFailure(err?.message || 'Network error while booking. Your seats are still held.');
     }
   };
 
@@ -735,7 +735,7 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
           <div className="bg-[#141414] border border-[#D4AF37]/30 rounded-3xl p-6 space-y-5">
             <h3 className="font-heading font-bold text-lg text-white flex items-center gap-2">
               <CheckCircle2 className="w-5 h-5 text-emerald-400" />
-              Review Your Selection Before Payment
+              Review Your Selection Before Confirming
             </h3>
 
             <div className="space-y-4 text-sm">
@@ -789,7 +789,7 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
                   <span className="font-heading font-bold text-base text-white">Total Amount</span>
                   <span className="font-heading font-extrabold text-2xl text-[#D4AF37]">{formatINR(serverTotal)}</span>
                 </div>
-                <p className="text-[10px] text-gray-500">Final amount is verified by the payment server at checkout. Coupon {quoteAppliedCoupon ? 'applied on server' : 'not applied'}.</p>
+                <p className="text-[10px] text-gray-500">Final amount is verified by the booking server at checkout. Coupon {quoteAppliedCoupon ? 'applied on server' : 'not applied'}.</p>
               </div>
 
               {/* Coupon entry (still allowed from review) */}
@@ -838,7 +838,7 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
                 <span className="text-xs text-gray-300 leading-relaxed">
                   <span className="font-bold text-white">I confirm my selection.</span> I understand the total amount is{' '}
                   <span className="font-bold text-[#D4AF37]">{formatINR(serverTotal)}</span>, that my seats are held{' '}
-                  <span className="font-bold">{minutesRemaining > 0 ? `${minutesRemaining} min` : 'until'}</span> and will be released if I do not pay, and that this cannot be refunded by the box office after confirmation except as per the event policy.
+                  <span className="font-bold">{minutesRemaining > 0 ? `${minutesRemaining} min` : 'until'}</span> and will be released if I do not confirm, and that this cannot be refunded by the box office after confirmation except as per the event policy.
                 </span>
               </label>
             </div>
@@ -849,22 +849,22 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
             disabled={!reviewConfirmed}
             className="w-full py-4 rounded-2xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] hover:brightness-110 active:scale-[0.99] text-black font-extrabold text-base flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
           >
-            <Lock className="w-5 h-5" /> Continue to Payment <ArrowRight className="w-5 h-5" />
+            <Lock className="w-5 h-5" /> Continue to Confirm <ArrowRight className="w-5 h-5" />
           </button>
           {!reviewConfirmed && (
-            <p className="text-center text-[11px] text-gray-500">Check the confirmation box above to enable payment.</p>
+            <p className="text-center text-[11px] text-gray-500">Check the confirmation box above to continue.</p>
           )}
         </div>
       )}
 
-      {/* ================= STEP 5: Payment ================= */}
+      {/* ================= STEP 5: Confirm ================= */}
       {bookingStep === paymentStep && (
         <div className="space-y-6 animate-in fade-in">
           {/* Sticky mini summary */}
           <div className="bg-[#141414] border border-[#D4AF37]/30 rounded-3xl p-5">
             <div className="flex items-center justify-between flex-wrap gap-2">
               <div>
-                <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Paying for</p>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Booking</p>
                 <p className="font-bold text-white text-sm">{event.title} • {tier.name} • {quantity} ticket(s)</p>
                 {hasSeatMap && reservation && <p className="text-xs text-[#D4AF37] font-bold mt-0.5">Seats: {seatLabelFor(reservation.seatIds)}</p>}
                 <p className="text-xs text-gray-400 mt-0.5">{attendeeName} • {attendeeEmail} • {attendeePhone}</p>
@@ -892,7 +892,7 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
           </div>
 
           <button
-            onClick={handlePayment}
+            onClick={handleConfirmBooking}
             disabled={isBusy || !reviewConfirmed || reservation?.status !== 'active'}
             className="w-full py-4 rounded-2xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] hover:brightness-110 active:scale-[0.99] text-black font-extrabold text-base flex items-center justify-center gap-2 shadow-xl shadow-[#D4AF37]/25 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
           >
@@ -916,7 +916,7 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
                 {!isBusy && (
                   <div className="mt-2 flex flex-wrap items-center gap-2">
                     <button
-                      onClick={handlePayment}
+                      onClick={handleConfirmBooking}
                       className="px-3 py-1.5 rounded-lg bg-red-500/20 border border-red-500/40 text-red-300 hover:bg-red-500/30 font-bold text-[11px] flex items-center gap-1.5 cursor-pointer"
                     >
                       <RefreshCw className="w-3 h-3" /> Try booking again
