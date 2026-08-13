@@ -5,7 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { CountdownTimer } from '../components/CountdownTimer';
 import { formatINR } from '../utils/formatters';
 import { ref, get } from 'firebase/database';
-import { rtdb } from '../lib/firebase';
+import { rtdb, auth } from '../lib/firebase';
 import { SeatMap } from '../components/SeatMap';
 import { safeFetch, getApiUrl } from '../lib/api';
 
@@ -33,6 +33,26 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
     confirmServerPurchasedTicket, selectTicketsForCheckout, releaseHeldSeats, validateCouponServer, resetBookingFlow,
   } = ctx;
   const { user } = useAuth();
+
+  // Reservation identity headers. /api/reservations* and /api/purchase resolve
+  // the caller from (in order) the Firebase Bearer token, the X-Session-Id
+  // header, and only then a legacy IP-based composite. Missing headers let the
+  // server fall back to a DIFFERENT identity — the reservation is then rejected
+  // with "Not your reservation.". Always send both headers on every call.
+  const identityHeaders = async (): Promise<Record<string, string>> => {
+    const headers: Record<string, string> = {
+      'X-Session-Id': getSessionId(),
+    };
+    try {
+      const currentUser = auth.currentUser;
+      if (currentUser) {
+        headers['Authorization'] = `Bearer ${await currentUser.getIdToken()}`;
+      }
+    } catch (e) {
+      console.warn('Could not attach auth header:', e);
+    }
+    return headers;
+  };
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [submitError, setSubmitError] = useState<string>('');
@@ -215,7 +235,7 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
     try {
       const res = await safeFetch<any>(`/api/reservations/${reservation.reservationId}/quote`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Session-Id': getSessionId() },
+        headers: { 'Content-Type': 'application/json', ...(await identityHeaders()) },
         body: JSON.stringify({ couponCode: code }),
       });
       const data = res.data || {};
@@ -247,7 +267,7 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
       try {
         const res = await safeFetch<any>(`/api/reservations/${reservation.reservationId}/quote`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Session-Id': getSessionId() },
+          headers: { 'Content-Type': 'application/json', ...(await identityHeaders()) },
           body: JSON.stringify({ couponCode: '' }),
         });
         const data = res.data || {};
@@ -339,7 +359,7 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
     try {
       const res = await safeFetch<any>(`/api/reservations/${reservation.reservationId}/quote`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Session-Id': getSessionId() },
+        headers: { 'Content-Type': 'application/json', ...(await identityHeaders()) },
         body: JSON.stringify({ refresh: true }),
       });
       const data = res.data || {};
@@ -440,7 +460,7 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
     try {
       const res = await safeFetch('/api/purchase', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(await identityHeaders()) },
         body: JSON.stringify({
           reservationId: reservation.reservationId,
           couponCode: quoteAppliedCoupon?.code || null,
