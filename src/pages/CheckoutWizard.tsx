@@ -37,6 +37,9 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [submitError, setSubmitError] = useState<string>('');
+  // Live progress message shown on the Pay button while the gateway is being
+  // contacted and retried — e.g. "Contacting the payment gateway… (1 of 3)".
+  const [retryMessage, setRetryMessage] = useState<string>('');
 
   // Coupon state (local until payment; server quote is the payment authority)
   const [couponCodeInput, setCouponCodeInput] = useState('');
@@ -90,6 +93,12 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
     processCashfreePayment, resumeAfterRedirect,
     isLoading: isPaymentLoading, error: paymentError,
   } = useCashfree(bookingStep === paymentStep);
+
+  // Show progress while retries are in flight; clear it once the retry loop
+  // settles (success or final failure).
+  useEffect(() => {
+    if (!isPaymentLoading) setRetryMessage('');
+  }, [isPaymentLoading]);
 
   const originalTotalPrice = tier.price * quantity;
   // If the server returned a quote, it is the payment authority (includes coupon).
@@ -500,6 +509,12 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
         userId: user?.id || 'anon_user',
         couponCode: quoteAppliedCoupon?.code || undefined,
         customerDetails: { name: attendeeName, email: attendeeEmail, phone: attendeePhone },
+        onProgress: (attempt, total, message) => {
+          // Keep the message short and human — it renders on the Pay button.
+          setRetryMessage(
+            attempt === 0 ? 'Connecting to the payment gateway…' : `Gateway came back busy — retrying (${attempt} of ${total - 1})…`
+          );
+        },
         onSuccess: async (result) => {
           try {
             setIsProcessing(true);
@@ -947,7 +962,10 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
             className="w-full py-4 rounded-2xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] hover:brightness-110 active:scale-[0.99] text-black font-extrabold text-base flex items-center justify-center gap-2 shadow-xl shadow-[#D4AF37]/25 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
           >
             {isBusy ? (
-              <span className="animate-pulse flex items-center gap-2"><Lock className="w-5 h-5 animate-spin" /> Processing Payment...</span>
+              <span className="animate-pulse flex items-center gap-2">
+                <Lock className="w-5 h-5 animate-spin" />
+                {retryMessage || 'Processing Payment...'}
+              </span>
             ) : (
               <>
                 <Lock className="w-5 h-5" />
@@ -958,7 +976,20 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
           {submitError && (
             <div className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-start gap-2">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-              <span>{submitError}</span>
+              <div className="flex-1">
+                <span>{submitError}</span>
+                {submitError.toLowerCase().includes('temporarily busy') && !isBusy && (
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <button
+                      onClick={handlePayment}
+                      className="px-3 py-1.5 rounded-lg bg-red-500/20 border border-red-500/40 text-red-300 hover:bg-red-500/30 font-bold text-[11px] flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <RefreshCw className="w-3 h-3" /> Try payment again
+                    </button>
+                    <span className="text-gray-400 text-[10px]">Your seats stay held — no need to start over.</span>
+                  </div>
+                )}
+              </div>
             </div>
           )}
           <div className="flex items-center justify-center gap-2 text-[11px] text-gray-400 text-center">

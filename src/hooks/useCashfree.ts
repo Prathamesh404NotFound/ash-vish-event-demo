@@ -32,6 +32,9 @@ export interface CashfreeOptions {
   }) => void;
   onFailure?: (error: string) => void;
   onCancel?: () => void;
+  // Live progress updates shown on the Pay button while the gateway is being
+  // contacted and retried — each call is (attempt, totalAttempts, message).
+  onProgress?: (attempt: number, total: number, message: string) => void;
 }
 
 export const useCashfree = (enabled: boolean = true) => {
@@ -63,6 +66,7 @@ export const useCashfree = (enabled: boolean = true) => {
     async (options: CashfreeOptions) => {
       setIsLoading(true);
       setError(null);
+      options.onProgress?.(0, 3, 'Connecting to the payment gateway…');
 
       try {
         // 1. Server calculates the exact amount and creates the Cashfree order,
@@ -98,7 +102,11 @@ export const useCashfree = (enabled: boolean = true) => {
             lastOrderError = e?.message || 'Network error contacting the payment server';
             orderRes = null;
           }
-          if (attempt < 2) await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
+          if (attempt < 2) {
+            options.onProgress?.(attempt + 1, 3, `Gateway just came back busy — retrying in a moment… (${attempt + 1} of 2)`);
+            await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
+            options.onProgress?.(attempt + 1, 3, 'Contacting the payment gateway again…');
+          }
         }
 
         const backendAvailable = !!orderRes && orderRes.ok && orderRes.data?.success;
