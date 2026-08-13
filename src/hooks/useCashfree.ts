@@ -74,7 +74,7 @@ export const useCashfree = (enabled: boolean = true) => {
         // complete a booking without the buyer actually paying.
         let orderRes: any = null;
         let lastOrderError: string | null = null;
-        for (let attempt = 0; attempt < 2; attempt++) {
+        for (let attempt = 0; attempt < 3; attempt++) {
           try {
             orderRes = await safeFetch('/api/cashfree/create-order', {
               method: 'POST',
@@ -98,7 +98,7 @@ export const useCashfree = (enabled: boolean = true) => {
             lastOrderError = e?.message || 'Network error contacting the payment server';
             orderRes = null;
           }
-          if (attempt === 0) await new Promise(r => setTimeout(r, 1500));
+          if (attempt < 2) await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
         }
 
         const backendAvailable = !!orderRes && orderRes.ok && orderRes.data?.success;

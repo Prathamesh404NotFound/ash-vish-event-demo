@@ -2180,9 +2180,13 @@ export async function createApp() {
           });
         let cfResponse: Response = await cfFetch();
         let cfAttempt = 0;
-        while (!cfResponse.ok && cfAttempt < 2) {
+        // The Cashfree sandbox CDN intermittently blocks serverless regions
+        // (especially from India) with non-OK responses, then clears. Retry
+        // several times with growing backoff before declaring it unavailable —
+        // a transient block almost never survives four spread-out attempts.
+        while (!cfResponse.ok && cfAttempt < 4) {
           cfAttempt += 1;
-          await new Promise((r) => setTimeout(r, 2000 * cfAttempt));
+          await new Promise((r) => setTimeout(r, 2500 * cfAttempt));
           try {
             cfResponse = await cfFetch();
           } catch {
