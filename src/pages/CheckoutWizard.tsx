@@ -8,6 +8,7 @@ import { ref, get } from 'firebase/database';
 import { rtdb, auth } from '../lib/firebase';
 import { SeatMap } from '../components/SeatMap';
 import { safeFetch, getApiUrl } from '../lib/api';
+import { useRazorpay } from '../hooks/useRazorpay';
 
 interface CheckoutWizardProps {
   onBack: () => void;
@@ -56,6 +57,16 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [submitError, setSubmitError] = useState<string>('');
+
+  // Razorpay checkout (test mode): order creation + modal are handled by
+  // useRazorpay; finalization only after server-side payment verification.
+  const {
+    scriptReady: rzpScriptReady,
+    isProcessing: rzpIsProcessing,
+    session: rzpSession,
+    verifyPayment: rzpVerifyPayment,
+    pay: rzpPay,
+  } = useRazorpay();
 
   // Coupon state (local until payment; server quote is the payment authority)
   const [couponCodeInput, setCouponCodeInput] = useState('');
@@ -453,33 +464,54 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
       setSubmitError('Your seats have changed since the last review. Please review your selection again.');
       return;
     }
+    if (rzpIsProcessing) return;
 
-    // Server-authoritative purchase: the server re-validates the reservation,
-    // recomputes the quote (coupon applied on the server), and atomically
-    // finalizes the seat claim + ticket issuance. Nothing local is trusted.
-    try {
-      const res = await safeFetch('/api/purchase', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(await identityHeaders()) },
-        body: JSON.stringify({
-          reservationId: reservation.reservationId,
-          couponCode: quoteAppliedCoupon?.code || null,
-        }),
-      });
-      if (!res.ok || !res.data?.success) {
-        await handleConfirmFailure(res.data?.error || 'Could not complete booking. Please try again.');
-        return;
+    // Razorpay flow (server-authoritative):
+    //  1. Server creates the Razorpay order (re-validates reservation + quote).
+    //  2. The Razorpay modal collects the payment.
+    //  3. On success, the server itself verifies the payment against Razorpay
+    //     and only then atomically finalizes the booking. Nothing local is trusted.
+    await rzpPay(
+      reservation.reservationId,
+      identityHeaders,
+      quoteAppliedCoupon?.code || null,
+      {
+        getDisplayName: () => attendeeName || 'Tickets',
+        getEventTitle: () => event.title || 'Event',
+        onClose: () => {
+          setIsProcessing(false);
+          // Modal closed without payment — seats remain held; user may retry.
+        },
+        onError: async (err: string) => {
+          setIsProcessing(false);
+          setSubmitError(err || 'Payment could not be completed. Your seats are still held — you may retry.');
+        },
+        onSuccess: async (paymentId: string, orderId: string) => {
+          setIsProcessing(true);
+          setSubmitError('');
+          const result = await rzpVerifyPayment(paymentId, orderId, identityHeaders);
+          if (!result.success) {
+            setIsProcessing(false);
+            if (result.paymentStatus === 'created') {
+              setSubmitError(result.error || 'Payment is still pending. Complete the payment in the checkout window.');
+            } else {
+              setSubmitError(result.error || 'Payment verification failed. Your seats are still held — please retry.');
+            }
+            return;
+          }
+          if (!result.ticket || !result.booking) {
+            setIsProcessing(false);
+            setSubmitError('Booking confirmation data is missing. Your payment was received — please check My Tickets.');
+            return;
+          }
+          const confirmedTicket = confirmServerPurchasedTicket(result.ticket, result.booking);
+          await sendConfirmationEmail(confirmedTicket);
+          setIsProcessing(false);
+          resetBookingFlow();
+          onSuccess();
+        },
       }
-      setIsProcessing(true);
-      const confirmedTicket = confirmServerPurchasedTicket(res.data.ticket, res.data.booking);
-      await sendConfirmationEmail(confirmedTicket);
-      setIsProcessing(false);
-      resetBookingFlow();
-      onSuccess();
-    } catch (err: any) {
-      console.error('Purchase error:', err);
-      await handleConfirmFailure(err?.message || 'Network error while booking. Your seats are still held.');
-    }
+    );
   };
 
   // ------------------------------------------------------------------
@@ -885,9 +917,9 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
               Confirm Your Booking
             </h3>
             <p className="text-xs text-gray-400 leading-relaxed">
-              Clicking below confirms your booking immediately. Your seats are held securely and
-              confirmed atomically by the server — another buyer cannot take them while you confirm.
-              Your QR gate pass will be delivered to your email once the booking is finalized.
+              Clicking below opens the secure payment window. Your seats stay held while you pay and are
+              confirmed atomically by the server only after the payment is verified — another buyer cannot
+              take them during checkout. Your QR gate pass will be delivered to your email once payment is confirmed.
             </p>
           </div>
 
@@ -899,15 +931,20 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
             {isBusy ? (
               <span className="animate-pulse flex items-center gap-2">
                 <RefreshCw className="w-5 h-5 animate-spin" />
-                Booking your seats...
+                Opening payment window...
               </span>
             ) : (
               <>
                 <Lock className="w-5 h-5" />
-                <span>Confirm &amp; Book — {formatINR(serverTotal)}</span>
+                <span>Pay Securely — {formatINR(serverTotal)}</span>
               </>
             )}
           </button>
+          {rzpSession?.isTestMode && (
+            <p className="text-center text-[10px] font-bold uppercase tracking-wider text-amber-400/80">
+              Test Mode — no real money is charged
+            </p>
+          )}
           {submitError && (
             <div className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-start gap-2">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />

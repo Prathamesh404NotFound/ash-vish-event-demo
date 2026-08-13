@@ -7,6 +7,14 @@ dotenv.config();
 import { verifyFirebaseIdToken, TokenVerificationError } from "./src/lib/verify-token.js";
 import { rtdbGet, rtdbSet, rtdbUpdate, rtdbDelete, rtdbTransaction } from "./src/lib/rtdb.js";
 import { getFirebaseAdminIdToken } from "./src/lib/identity-admin.js";
+import {
+  isRazorpayConfigured,
+  isTestMode,
+  createRazorpayOrder,
+  fetchRazorpayPayment,
+  verifyWebhookSignature,
+  KEY_ID as razorpayKeyId,
+} from "./src/lib/payment/razorpay.js";
 
 const SERVER_HMAC_SECRET = process.env.SERVER_HMAC_SECRET || "ASH_VISH_SECURE_HMAC_KEY_2026";
 
@@ -1726,6 +1734,268 @@ export async function createApp() {
     } catch (err: any) {
       console.error("[PURCHASE ERROR]", err.message || err);
       return res.status(500).json({ success: false, error: err.message || "Failed to complete purchase." });
+    }
+  });
+
+  // -----------------------------------------------------------
+  // Razorpay payment routes (test-mode-first)
+  // Server-authoritative: order created server-side, fulfillment only after
+  // payment status is verified against the Razorpay API.
+  // -----------------------------------------------------------
+
+  app.post("/api/razorpay/create-order", async (req, res) => {
+    try {
+      const cfg = isRazorpayConfigured();
+      if (!cfg.available) {
+        return res.status(503).json({ success: false, error: cfg.reason || "Payment is not configured." });
+      }
+      const owner = await resolveReservationOwner(req);
+      const { reservationId } = req.body || {};
+      if (!reservationId) {
+        return res.status(400).json({ success: false, error: "reservationId is required." });
+      }
+      const authToken = await getAdminAuthToken();
+      const record = (await rtdbGet(`reservations/${reservationId}`, authToken)).data as ReservationRecord | null;
+      if (!record) {
+        return res.status(404).json({ success: false, error: "Reservation not found." });
+      }
+      if (record.ownerId !== owner.ownerId) {
+        return res.status(403).json({ success: false, error: "Not your reservation." });
+      }
+      const now = Date.now();
+      if (record.status !== "active" || now > record.expiresAt) {
+        return res.status(409).json({ success: false, error: "Reservation is no longer active. Please select your seats again." });
+      }
+      if (record.orderId) {
+        return res.status(409).json({ success: false, error: "This reservation has already been booked." });
+      }
+      if (record.attendee && (!record.attendee.name || !record.attendee.email || !record.attendee.phone)) {
+        return res.status(400).json({ success: false, error: "Attendee details are required before payment." });
+      }
+
+      const eventRes = await rtdbGet(`events/${record.eventId}`, authToken);
+      const eventData = eventRes.data;
+      if (!eventData) {
+        return res.status(404).json({ success: false, error: "Event no longer available." });
+      }
+
+      const quoteResult = computeReservationQuote(eventData, record.seatIds, record.quantity, record.tierId);
+      let discountMinor = 0;
+      let appliedCoupon: any = null;
+      const couponCode = String(req.body?.couponCode || "").trim();
+      if (couponCode) {
+        const codeUpper = couponCode.toUpperCase();
+        const couponRes = await rtdbGet(`coupons/${codeUpper}`, authToken);
+        const coupon = couponRes.data;
+        if (coupon && coupon.isActive && new Date(coupon.validUntil) >= new Date() && (!coupon.eventId || coupon.eventId === record.eventId) && (!coupon.usageLimit || (coupon.usedCount || 0) < coupon.usageLimit)) {
+          discountMinor = coupon.type === "percentage"
+            ? Math.round((quoteResult.quote.totalMinor * Math.min(100, coupon.value)) / 100)
+            : coupon.value * 100;
+          appliedCoupon = { code: codeUpper, type: coupon.type, value: coupon.value };
+        }
+      }
+      const totalMinor = Math.max(0, quoteResult.quote.totalMinor - discountMinor);
+
+      // Our server-authoritative pending order (source of truth for fulfillment).
+      const orderId = `ord_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+      await rtdbSet(`pending_orders/${orderId}`, {
+        eventId: record.eventId,
+        tierId: record.tierId,
+        seatIds: record.seatIds,
+        quantity: record.quantity,
+        couponCode: appliedCoupon ? appliedCoupon.code : null,
+        customerDetails: record.attendee || {},
+        userId: owner.ownerId,
+        amount: totalMinor / 100,
+        amountMinor: totalMinor,
+        reservationId,
+        createdAt: now,
+        paymentMethod: "razorpay",
+        rzpOrderId: null,
+      }, authToken);
+
+      // Create the Razorpay order server-side. Razorpay returns the amount it
+      // accepted; we reconcile against our computed amount.
+      const rzp = await createRazorpayOrder({
+        amountPaise: totalMinor,
+        currency: "INR",
+        receipt: orderId,
+        attendeeName: record.attendee?.name,
+        attendeeEmail: record.attendee?.email,
+      });
+      if (!rzp.ok) {
+        await rtdbDelete(`pending_orders/${orderId}`, authToken);
+        return res.status(502).json({ success: false, error: rzp.error || "Payment gateway is currently unavailable." });
+      }
+      if (rzp.amount !== totalMinor) {
+        await rtdbDelete(`pending_orders/${orderId}`, authToken);
+        console.error(`[RAZORPAY] amount mismatch: ours=${totalMinor} razorpay=${rzp.amount}`);
+        return res.status(500).json({ success: false, error: "Payment gateway amount mismatch. Please try again." });
+      }
+
+      // Persist the Razorpay order id onto our pending order.
+      await rtdbUpdate(`pending_orders/${orderId}`, {
+        rzpOrderId: rzp.id,
+        rzpAmount: rzp.amount,
+        rzpKey: razorpayKeyId,
+        rzpCreatedAt: Date.now(),
+      }, authToken);
+
+      // Extend the reservation hold so the buyer has time to complete payment.
+      await rtdbUpdate(`reservations/${reservationId}`, {
+        expiresAt: Math.max(record.expiresAt, now + RESERVATION_HOLD_TTL_MS),
+        orderId,
+        quote: quoteResult.quote,
+      }, authToken);
+
+      return res.json({
+        success: true,
+        orderId,
+        rzpOrderId: rzp.id,
+        rzpKey: razorpayKeyId,
+        amountMinor: totalMinor,
+        appliedCoupon,
+        isTestMode: isTestMode(),
+        holdUntil: now + RESERVATION_HOLD_TTL_MS,
+      });
+    } catch (err: any) {
+      console.error("[RAZORPAY CREATE-ORDER ERROR]", err.message || err);
+      return res.status(500).json({ success: false, error: err.message || "Failed to create payment order." });
+    }
+  });
+
+  app.post("/api/razorpay/verify-payment", async (req, res) => {
+    try {
+      const cfg = isRazorpayConfigured();
+      if (!cfg.available) {
+        return res.status(503).json({ success: false, error: cfg.reason || "Payment is not configured." });
+      }
+      const owner = await resolveReservationOwner(req);
+      const { orderId, paymentId } = req.body || {};
+      if (!orderId || !paymentId) {
+        return res.status(400).json({ success: false, error: "orderId and paymentId are required." });
+      }
+      const authToken = await getAdminAuthToken();
+
+      // Idempotency: already fulfilled.
+      const processedRes = await rtdbGet(`processed_orders/${orderId}`, authToken);
+      if (processedRes.data) {
+        return res.json({ success: true, ticket: processedRes.data.ticket, booking: processedRes.data.booking, alreadyProcessed: true });
+      }
+
+      const pendingRes = await rtdbGet(`pending_orders/${orderId}`, authToken);
+      const pendingOrder: any = pendingRes.data;
+      if (!pendingOrder) {
+        return res.status(404).json({ success: false, error: "Order not found or expired." });
+      }
+      if (pendingOrder.userId !== owner.ownerId) {
+        return res.status(403).json({ success: false, error: "Not your order." });
+      }
+      if (pendingOrder.paymentMethod !== "razorpay") {
+        return res.status(409).json({ success: false, error: "This order was not created for Razorpay payment." });
+      }
+
+      // Reconcile with Razorpay: fetch the actual payment and match order id + amount.
+      const paymentRes = await fetchRazorpayPayment(paymentId);
+      if (!paymentRes.ok) {
+        return res.status(400).json({ success: false, error: paymentRes.error || "Could not verify payment." });
+      }
+      const payment = paymentRes.payment;
+      if (!payment || !payment.order_id || payment.order_id !== pendingOrder.rzpOrderId) {
+        return res.status(400).json({ success: false, error: "Payment does not belong to this order." });
+      }
+      const captured = payment.amount === pendingOrder.rzpAmount &&
+        (payment.status === "captured" || payment.status === "authorized") &&
+        !payment.refunded;
+      if (!captured) {
+        return res.status(400).json({
+          success: false,
+          error: payment.status === "created"
+            ? "Payment is pending. Please complete the payment in the checkout window."
+            : payment.status === "failed"
+              ? "Payment failed. Your seats are still held — please retry."
+              : `Payment is not complete (status: ${payment.status}).`,
+          paymentStatus: payment.status,
+        });
+      }
+
+      // Re-quote server-side (coupon-aware) as a last sanity check before fulfillment.
+      const eventRes = await rtdbGet(`events/${pendingOrder.eventId}`, authToken);
+      const eventData = eventRes.data;
+      if (!eventData) {
+        return res.status(404).json({ success: false, error: "Event no longer available." });
+      }
+      const quoteResult = computeReservationQuote(eventData, pendingOrder.seatIds, pendingOrder.quantity, pendingOrder.tierId);
+      const expectedMinor = Math.max(0, quoteResult.quote.totalMinor - (pendingOrder.couponDiscountMinor || 0));
+      if (pendingOrder.amountMinor && pendingOrder.amountMinor !== expectedMinor) {
+        return res.status(400).json({ success: false, error: "Quote changed since order creation. Please restart checkout." });
+      }
+
+      const result = await finalizeBookingServerSide(orderId, "razorpay", paymentId, authToken);
+      if (!result.success) {
+        return res.status(409).json({ success: false, error: result.error || "Failed to complete booking." });
+      }
+      return res.json({
+        success: true,
+        ticket: result.ticket,
+        booking: result.booking,
+        paymentMethod: "razorpay",
+        paymentId,
+      });
+    } catch (err: any) {
+      console.error("[RAZORPAY VERIFY-PAYMENT ERROR]", err.message || err);
+      return res.status(500).json({ success: false, error: err.message || "Failed to verify payment." });
+    }
+  });
+
+  /**
+   * Razorpay webhook (supplemental path). Raw-body HMAC-SHA256 verification
+   * with KEY_SECRET; idempotent via processed_orders. Never the primary
+   * fulfillment path — the client-driven verify-payment flow is.
+   */
+  app.post("/api/razorpay/webhook", async (req, res) => {
+    try {
+      const rawBody = typeof req.body === "string" ? req.body : JSON.stringify(req.body);
+      const signature = (req.headers["x-razorpay-signature"] as string) || "";
+      if (!verifyWebhookSignature(rawBody, signature)) {
+        console.warn("[RAZORPAY WEBHOOK] invalid signature");
+        return res.status(401).json({ success: false, error: "Invalid signature." });
+      }
+      let payload: any = {};
+      try { payload = JSON.parse(rawBody); } catch { return res.status(400).json({ success: false, error: "Invalid payload." }); }
+      const event = payload?.event;
+      const entity: any = payload?.payload?.payment?.entity || payload?.payload?.order?.entity || {};
+      const paymentId = entity?.id || "";
+      const rzpOrderId = entity?.order_id || "";
+      const relevantEvents = ["payment.authorized", "payment.captured", "order.paid"];
+      if (!relevantEvents.includes(event)) {
+        return res.json({ success: true, ignored: true });
+      }
+      if (!paymentId || !rzpOrderId) {
+        return res.status(400).json({ success: false, error: "Missing payment/order ids." });
+      }
+      const authToken = await getAdminAuthToken();
+      // Find our pending order by Razorpay order id.
+      const allPending = await rtdbGet("pending_orders", authToken);
+      const pendingEntries = (allPending.data || {}) as Record<string, any>;
+      const pendingOrder = Object.entries(pendingEntries).find(([, v]: any) => v?.rzpOrderId === rzpOrderId);
+      if (!pendingOrder) {
+        console.warn(`[RAZORPAY WEBHOOK] no pending order for rzp order ${rzpOrderId}`);
+        return res.json({ success: true, ignored: true });
+      }
+      const [orderId] = pendingOrder;
+      // Idempotency via processed_orders (finalizeBookingServerSide also guards).
+      if ((await rtdbGet(`processed_orders/${orderId}`, authToken)).data) {
+        return res.json({ success: true });
+      }
+      const result = await finalizeBookingServerSide(orderId, "razorpay", paymentId, authToken);
+      if (!result.success) {
+        console.error(`[RAZORPAY WEBHOOK] fulfillment failed for ${orderId}: ${result.error}`);
+      }
+      return res.json({ success: result.success });
+    } catch (err: any) {
+      console.error("[RAZORPAY WEBHOOK ERROR]", err.message || err);
+      return res.status(500).json({ success: false, error: "Webhook processing failed." });
     }
   });
 
