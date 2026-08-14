@@ -1,120 +1,68 @@
 {
   "rules": {
-    ".read": true,
+    ".read": false,
+    ".write": false,
     "users": {
       "$uid": {
-        ".read": "auth != null && (auth.uid === $uid || root.child('staff').child(auth.uid).child('role').val() === 'admin')",
-        ".write": "auth != null && (auth.uid === $uid || root.child('staff').child(auth.uid).child('role').val() === 'admin')"
-      }
-    },
-    "staff": {
-      ".read": "auth != null && root.child('staff').child(auth.uid).exists()",
-      "$uid": {
-        ".read": "auth != null && (auth.uid === $uid || root.child('staff').child(auth.uid).exists())",
-        ".write": "auth != null && (root.child('staff').child(auth.uid).child('role').val() === 'admin' || auth.uid === $uid)"
-      }
-    },
-    "events": {
-      ".read": true,
-      ".write": false,
-      "$eventId": {
-        ".write": false
-      }
-    },
-    "coupons": {
-      ".read": true,
-      ".write": false,
-      "$code": {
-        ".write": false
-      }
-    },
-    "bookings": {
-      ".read": "auth != null && root.child('staff').child(auth.uid).exists()",
-      ".write": false,
-      "$bookingId": {
-        ".read": "auth != null && (data.child('userId').val() === auth.uid || root.child('staff').child(auth.uid).exists())",
-        ".write": false
-      }
-    },
-    "tickets": {
-      ".read": "auth != null && root.child('staff').child(auth.uid).exists()",
-      ".write": false,
-      "$ticketId": {
-        ".read": "auth != null && (root.child('staff').child(auth.uid).exists() || data.child('ownerId').val() === auth.uid)",
-        ".write": false
-      }
-    },
-    "seats": {
-      ".read": true,
-      ".write": false,
-      "$eventId": {
-        ".read": true,
-        ".write": false,
-        "$seatId": {
-          ".read": true,
-          ".write": false
+        ".read": "auth != null && (auth.uid === $uid || auth.token.admin === true || auth.token.role === 'admin' || root.child('staff').child(auth.uid).child('role').val() === 'admin')",
+        "id": { ".write": "auth != null && (auth.uid === $uid || auth.token.admin === true || auth.token.role === 'admin')" },
+        "name": { ".write": "auth != null && (auth.uid === $uid || auth.token.admin === true || auth.token.role === 'admin')" },
+        "email": { ".write": "auth != null && (auth.uid === $uid || auth.token.admin === true || auth.token.role === 'admin')" },
+        "phone": { ".write": "auth != null && (auth.uid === $uid || auth.token.admin === true || auth.token.role === 'admin')" },
+        "photoUrl": { ".write": "auth != null && (auth.uid === $uid || auth.token.admin === true || auth.token.role === 'admin')" },
+        "authProvider": { ".write": "auth != null && (auth.uid === $uid || auth.token.admin === true || auth.token.role === 'admin')" },
+        "joinedDate": { ".write": "auth != null && (auth.uid === $uid || auth.token.admin === true || auth.token.role === 'admin')" },
+        "createdAt": { ".write": "auth != null && (auth.uid === $uid || auth.token.admin === true || auth.token.role === 'admin')" },
+        "role": { ".write": "auth != null && (auth.token.admin === true || auth.token.role === 'admin')" },
+        "tickets": {
+          ".read": "auth != null && (auth.uid === $uid || auth.token.admin === true || auth.token.role === 'admin' || root.child('staff').child(auth.uid).exists())",
+          ".write": "auth != null && (auth.token.admin === true || auth.token.role === 'admin')"
+        },
+        "bookings": {
+          ".read": "auth != null && (auth.uid === $uid || auth.token.admin === true || auth.token.role === 'admin' || root.child('staff').child(auth.uid).exists())",
+          ".write": "auth != null && (auth.token.admin === true || auth.token.role === 'admin')"
         }
       }
     },
-    "reservations": {
-      ".read": "auth != null",
-      ".write": false,
-      "$reservationId": {
-        ".read": "auth != null",
-        ".write": false
-      }
-    },
-    "reservation_owners": {
-      ".read": false,
-      ".write": false
-    },
-    "reservation_events": {
-      ".read": false,
-      ".write": false
-    },
-    "pending_orders": {
-      ".read": "auth != null && (data.child('userId').val() === auth.uid || root.child('staff').child(auth.uid).exists())",
-      ".write": false,
-      "$orderId": {
-        ".read": "auth != null && (data.child('userId').val() === auth.uid || root.child('staff').child(auth.uid).exists())",
-        ".write": false
-      }
-    },
-    "processed_orders": {
-      ".read": "auth != null",
-      ".write": false,
-      "$orderId": {
-        ".read": "auth != null",
-        ".write": false
-      }
-    },
-    "organizers": {
-      ".read": true,
-      ".write": false,
-      "$organizerId": {
-        ".read": true,
-        ".write": false
-      }
-    },
-    "reviews": {
-      ".read": true,
-      ".write": false,
-      "$reviewId": {
-        ".read": true,
-        ".write": false
-      }
-    },
-    "favorites": {
-      ".read": "auth != null",
-      ".write": false,
+    "staff": {
+      ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || root.child('staff').child(auth.uid).exists())",
       "$uid": {
-        ".read": "auth != null && auth.uid === $uid",
-        ".write": false
+        ".read": "auth != null && (auth.uid === $uid || auth.token.admin === true || auth.token.role === 'admin')",
+        ".write": "auth != null && (auth.token.admin === true || auth.token.role === 'admin')",
+        ".validate": "newData.hasChildren(['email', 'role']) && (newData.child('role').val() === 'admin' || newData.child('role').val() === 'ticket_counter')"
       }
     },
-    "staff_uploads": {
+    "events": { ".read": true, ".write": false },
+    "coupons": {
+      ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || root.child('staff').child(auth.uid).child('role').val() === 'admin')",
+      ".write": "auth != null && (auth.token.admin === true || auth.token.role === 'admin')"
+    },
+    "bookings": {
+      ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || root.child('staff').child(auth.uid).exists())",
       ".write": false,
-      ".read": "auth != null"
+      "$bookingId": { ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || root.child('staff').child(auth.uid).exists() || data.child('userId').val() === auth.uid)" }
+    },
+    "tickets": {
+      ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || root.child('staff').child(auth.uid).exists())",
+      ".write": false,
+      "$ticketId": { ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || root.child('staff').child(auth.uid).exists() || data.child('ownerId').val() === auth.uid)" }
+    },
+    "seats": { ".read": true, ".write": false },
+    "reservations": { ".read": false, ".write": false },
+    "reservation_owners": { ".read": false, ".write": false },
+    "reservation_events": { ".read": false, ".write": false },
+    "pending_orders": { ".read": false, ".write": false },
+    "processed_orders": { ".read": false, ".write": false },
+    "organizers": {
+      ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || root.child('staff').child(auth.uid).exists())",
+      ".write": false,
+      "$organizerId": { ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || root.child('staff').child(auth.uid).exists() || data.child('userId').val() === auth.uid)" }
+    },
+    "reviews": { ".read": true, ".write": false },
+    "favorites": { ".read": false, ".write": false },
+    "staff_uploads": {
+      ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || root.child('staff').child(auth.uid).exists())",
+      ".write": "auth != null && (auth.token.admin === true || auth.token.role === 'admin')"
     }
   }
 }

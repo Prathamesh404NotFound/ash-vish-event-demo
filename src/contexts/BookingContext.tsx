@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { ref, get, set, push, child, onValue, runTransaction } from 'firebase/database';
+import { ref, get, push, child, onValue } from 'firebase/database';
 import { rtdb, auth } from '../lib/firebase';
 import { useAuth } from './AuthContext';
 import { EventItem, Ticket, TicketTier, BookingRecord, Coupon, EventReview, OrganizerAccount } from '../types';
@@ -103,7 +103,7 @@ interface BookingContextType {
   addEvent: (newEvent: Omit<EventItem, 'id' | 'rating' | 'reviewsCount'>) => void;
   updateEvent: (updatedEvent: EventItem) => void;
   deleteEvent: (eventId: string) => void;
-  scanTicketQR: (qrCodeValue: string, scannedByStaffName?: string) => { success: boolean; message: string; ticket?: Ticket; alreadyRedeemed?: boolean; isVoid?: boolean };
+  scanTicketQR: (qrCodeValue: string, scannedByStaffName?: string) => Promise<{ success: boolean; message: string; ticket?: Ticket; alreadyRedeemed?: boolean; isVoid?: boolean; isTampered?: boolean }>;
   validateCouponServer: (code: string, eventId: string, amount: number) => Promise<{ valid: boolean; discountAmount: number; finalAmount: number; coupon?: Coupon; error?: string }>;
   createCoupon: (couponData: Omit<Coupon, 'id' | 'usedCount' | 'createdAt'>) => Promise<boolean>;
   toggleCouponStatus: (code: string) => Promise<void>;
@@ -317,13 +317,9 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
           }
         } else {
           // Seed initial events if empty
-          const seedObject: Record<string, EventItem> = {};
-          MOCK_EVENTS.forEach((evt) => {
-            seedObject[evt.id] = evt;
-          });
-          set(eventsRef, seedObject).catch((err) => {
-            console.warn('Failed to seed initial events:', err);
-          });
+          // Event seeding is server-owned. Never attempt a client write to the
+          // public catalog; the locked RTDB rules intentionally reject it.
+          setEvents(MOCK_EVENTS);
         }
       },
       (error) => {
@@ -334,9 +330,12 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return () => unsubscribe();
   }, []);
 
-  // Real-time listener for all tickets (RTDB primary source of truth)
+  // Real-time listener for tickets: staff can read the operational collection;
+  // customers read only their server-written user mirror.
   useEffect(() => {
-    const ticketsRef = ref(rtdb, 'tickets');
+    const currentUserId = auth.currentUser?.uid || user?.id;
+    const staffView = user?.role === 'admin' || user?.role === 'ticket_counter';
+    const ticketsRef = ref(rtdb, staffView ? 'tickets' : `users/${currentUserId || '__no_user__'}/tickets`);
     const unsubscribe = onValue(
       ticketsRef,
       (snapshot) => {
@@ -347,13 +346,11 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
             setAllTickets(ticketList);
             localStorage.setItem('ash_vish_all_tickets_db', JSON.stringify(ticketList));
 
-            // Filter for current user tickets if logged in
-            const currentUserId = auth.currentUser?.uid;
-            if (currentUserId) {
-              const userTix = ticketList.filter((t) => t.ownerId === currentUserId);
-              setMyTickets(userTix);
-              localStorage.setItem('ash_vish_user_tickets', JSON.stringify(userTix));
-            }
+            const userTix = staffView
+              ? ticketList.filter((t) => t.ownerId === currentUserId)
+              : ticketList;
+            setMyTickets(userTix);
+            localStorage.setItem('ash_vish_user_tickets', JSON.stringify(userTix));
           }
         }
       },
@@ -363,11 +360,14 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     );
 
     return () => unsubscribe();
-  }, []);
+  }, [user?.id, user?.role]);
 
-  // Real-time listener for bookings (RTDB primary source of truth)
+  // Real-time listener for bookings: staff can read the operational collection;
+  // customers read only their server-written user mirror.
   useEffect(() => {
-    const bookingsRef = ref(rtdb, 'bookings');
+    const currentUserId = auth.currentUser?.uid || user?.id;
+    const staffView = user?.role === 'admin' || user?.role === 'ticket_counter';
+    const bookingsRef = ref(rtdb, staffView ? 'bookings' : `users/${currentUserId || '__no_user__'}/bookings`);
     const unsubscribe = onValue(
       bookingsRef,
       (snapshot) => {
@@ -378,12 +378,11 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
             setAllBookings(bookingList);
             localStorage.setItem('ash_vish_all_bookings', JSON.stringify(bookingList));
 
-            const currentUserId = auth.currentUser?.uid;
-            if (currentUserId) {
-              const userBkg = bookingList.filter((b) => b.userId === currentUserId);
-              setMyBookings(userBkg);
-              localStorage.setItem('ash_vish_my_bookings', JSON.stringify(userBkg));
-            }
+            const userBkg = staffView
+              ? bookingList.filter((b) => b.userId === currentUserId)
+              : bookingList;
+            setMyBookings(userBkg);
+            localStorage.setItem('ash_vish_my_bookings', JSON.stringify(userBkg));
           }
         }
       },
@@ -393,7 +392,7 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     );
 
     return () => unsubscribe();
-  }, []);
+  }, [user?.id, user?.role]);
 
   // Local storage cache updates (offline fallback cache only)
   useEffect(() => {
@@ -490,6 +489,18 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     'Content-Type': 'application/json',
     'X-Session-Id': getSessionId(),
   });
+
+  const authenticatedApiHeaders = async (): Promise<Record<string, string>> => {
+    const headers = apiHeaders();
+    try {
+      if (auth.currentUser) {
+        headers.Authorization = `Bearer ${await auth.currentUser.getIdToken()}`;
+      }
+    } catch (err) {
+      console.warn('Could not attach Firebase identity token:', err);
+    }
+    return headers;
+  };
 
   const createReservation = async (
     seatIds: string[],
@@ -688,155 +699,20 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const releaseHeldSeats = async (eventId: string, seatIds: string[]) => {
-    if (!eventId || !seatIds || seatIds.length === 0) return;
-    try {
-      for (const seatId of seatIds) {
-        const seatRef = ref(rtdb, `seats/${eventId}/${seatId}`);
-        await runTransaction(seatRef, (curr) => {
-          if (curr && curr.status === 'held') {
-            return {
-              ...curr,
-              status: 'available',
-              heldBy: null,
-              heldAt: null,
-            };
-          }
-          return curr;
-        });
-      }
-    } catch (err: any) {
-      console.warn('Error releasing held seats:', err);
-    }
+    // Seat holds are owned by the reservation service. This compatibility
+    // method deliberately delegates to the reservation cancellation endpoint;
+    // it never mutates seats from the browser.
+    if (!eventId || !seatIds || seatIds.length === 0 || !reservation || reservation.eventId !== eventId) return;
+    await cancelReservation();
   };
 
   // Online Purchase Confirmation with RTDB writes and error handling toast
   const confirmPurchase = async (
-    attendeeDetails: { name: string; email: string; phone: string },
-    paymentMethod: string,
-    ownerId?: string
+    _attendeeDetails: { name: string; email: string; phone: string },
+    _paymentMethod: string,
+    _ownerId?: string
   ): Promise<Ticket> => {
-    if (!currentCheckout) {
-      throw new Error('No active checkout session found');
-    }
-
-    const { event, tier, quantity, selectedSeats } = currentCheckout;
-    const ticketId = 'tkt_' + Date.now() + '_' + Math.random().toString(36).substring(2, 10);
-    const bookingId = 'bkg_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8);
-    const ticketNum = `ASH-${Math.floor(1000 + Math.random() * 9000)}-${event.city.slice(0, 3).toUpperCase()}`;
-    const totalPaid = tier.price * quantity;
-    const finalUserId = ownerId || auth.currentUser?.uid || 'usr_customer_default';
-
-    let seatLabel = `${tier.name} Section`;
-    if (selectedSeats && selectedSeats.length > 0) {
-      seatLabel = selectedSeats
-        .map((s) => {
-          const parts = s.split('-');
-          const r = String.fromCharCode(64 + parseInt(parts[0].replace('R', ''), 10));
-          const c = parts[1].replace('C', '');
-          return `${r}-${c}`;
-        })
-        .join(', ');
-    } else {
-      seatLabel = `${tier.name}, General Floor`;
-    }
-
-    const newTicket: Ticket = {
-      id: ticketId,
-      ticketNumber: ticketNum,
-      eventId: event.id,
-      eventTitle: event.title,
-      eventPoster: event.posterUrl,
-      venue: event.venue,
-      city: event.city,
-      date: event.date,
-      time: event.time,
-      tierName: tier.name,
-      price: tier.price,
-      quantity,
-      totalPaid,
-      seatNumber: seatLabel,
-      selectedSeats: selectedSeats || [],
-      attendeeName: attendeeDetails.name,
-      attendeeEmail: attendeeDetails.email,
-      attendeePhone: attendeeDetails.phone,
-      qrCodeValue: ticketId,
-      status: 'valid',
-      purchasedAt: new Date().toISOString(),
-      ownerId: finalUserId,
-    };
-
-    const newBookingRecord: BookingRecord = {
-      bookingId,
-      userId: finalUserId,
-      eventId: event.id,
-      seatIds: selectedSeats || [],
-      totalAmount: totalPaid,
-      status: 'confirmed',
-      createdAt: new Date().toISOString(),
-      paymentMethod: paymentMethod || 'direct',
-      attendeeName: attendeeDetails.name,
-      attendeePhone: attendeeDetails.phone,
-      attendeeEmail: attendeeDetails.email,
-      ticketId,
-      isWalkIn: false,
-    };
-
-    try {
-      // Save to RTDB
-      await set(ref(rtdb, `tickets/${newTicket.id}`), newTicket);
-      await set(ref(rtdb, `users/${finalUserId}/tickets/${newTicket.id}`), newTicket);
-      await set(ref(rtdb, `bookings/${bookingId}`), newBookingRecord);
-      await set(ref(rtdb, `users/${finalUserId}/bookings/${bookingId}`), newBookingRecord);
-
-      if (selectedSeats && selectedSeats.length > 0) {
-        for (const seatId of selectedSeats) {
-          const seatRef = ref(rtdb, `seats/${event.id}/${seatId}`);
-          await runTransaction(seatRef, (curr) => {
-            const parts = seatId.split('-');
-            const rowNum = parseInt(parts[0]?.replace('R', '') || '1', 10);
-            const colNum = parseInt(parts[1]?.replace('C', '') || '1', 10);
-            return {
-              ...curr,
-              id: seatId,
-              seatId,
-              row: curr?.row || rowNum,
-              col: curr?.col || colNum,
-              status: 'booked',
-              bookedBy: finalUserId,
-              ticketId: newTicket.id,
-              bookingId,
-            };
-          });
-        }
-      }
-      showToast('Booking and payment confirmed successfully!', 'success');
-    } catch (err: any) {
-      console.error('Firebase write failure during checkout:', err);
-      showToast(`Database write warning: ${err.message || 'Operation saved offline.'}`, 'error');
-    }
-
-    // Optimistic local state update
-    setEvents((prev) =>
-      prev.map((e) => {
-        if (e.id === event.id) {
-          return {
-            ...e,
-            ticketTiers: e.ticketTiers.map((t) =>
-              t.id === tier.id
-                ? { ...t, remainingInventory: Math.max(0, t.remainingInventory - quantity) }
-                : t
-            ),
-          };
-        }
-        return e;
-      })
-    );
-
-    setMyTickets((prev) => [newTicket, ...prev]);
-    setAllTickets((prev) => [newTicket, ...prev]);
-    setMyBookings((prev) => [newBookingRecord, ...prev]);
-    setAllBookings((prev) => [newBookingRecord, ...prev]);
-    return newTicket;
+    throw new Error('The legacy client-side purchase flow is disabled. Complete payment through the Razorpay checkout.');
   };
 
   const confirmServerPurchasedTicket = (ticket: any, booking: any): Ticket => {
@@ -878,7 +754,8 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return ticket;
   };
 
-  // Walk-in Manual Counter Booking
+  // Walk-in Manual Counter Booking. Issuance is server-authoritative so a
+  // counter browser cannot forge tickets or overwrite seats directly.
   const createWalkInBooking = async (
     eventId: string,
     tierId: string,
@@ -888,119 +765,41 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     selectedSeats?: string[],
     paymentMethod: string = 'cash'
   ): Promise<Ticket> => {
-    const event = getEventById(eventId);
-    if (!event) throw new Error('Event not found');
-    const tier = event.ticketTiers.find((t) => t.id === tierId) || event.ticketTiers[0];
-
-    const ticketId = 'tkt_walkin_' + Date.now() + '_' + Math.random().toString(36).substring(2, 10);
-    const bookingId = 'bkg_walkin_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8);
-    const ticketNum = `ASH-WALKIN-${Math.floor(1000 + Math.random() * 9000)}`;
-
-    let seatLabel = 'Counter Walk-In / General Admission';
-    if (selectedSeats && selectedSeats.length > 0) {
-      seatLabel = selectedSeats
-        .map((s) => {
-          const parts = s.split('-');
-          const r = String.fromCharCode(64 + parseInt(parts[0].replace('R', ''), 10));
-          const c = parts[1].replace('C', '');
-          return `${r}-${c}`;
-        })
-        .join(', ');
+    const response = await safeFetch<any>('/api/walk-in-bookings', {
+      method: 'POST',
+      headers: await authenticatedApiHeaders(),
+      body: JSON.stringify({
+        eventId,
+        tierId,
+        attendeeName,
+        attendeePhone,
+        scannedByStaffId,
+        selectedSeats: selectedSeats || [],
+        paymentMethod,
+      }),
+    });
+    const data = response.data || {};
+    if (!response.ok || !data.success || !data.ticket || !data.booking) {
+      const message = data.error || response.error || 'Walk-in booking could not be completed.';
+      showToast(message, 'error');
+      throw new Error(message);
     }
 
-    const walkInTicket: Ticket = {
-      id: ticketId,
-      ticketNumber: ticketNum,
-      eventId: event.id,
-      eventTitle: event.title,
-      eventPoster: event.posterUrl,
-      venue: event.venue,
-      city: event.city,
-      date: event.date,
-      time: event.time,
-      tierName: tier.name,
-      price: tier.price,
-      quantity: selectedSeats?.length || 1,
-      totalPaid: tier.price * (selectedSeats?.length || 1),
-      seatNumber: seatLabel,
-      selectedSeats: selectedSeats || [],
-      attendeeName,
-      attendeeEmail: `${attendeeName.toLowerCase().replace(/\s+/g, '')}@walkin.ashvish`,
-      attendeePhone,
-      qrCodeValue: ticketId,
-      status: 'valid',
-      purchasedAt: new Date().toISOString(),
-      isWalkIn: true,
-      scannedBy: scannedByStaffId || 'ticket_counter',
-    };
-
-    const walkInBookingRecord: BookingRecord = {
-      bookingId,
-      userId: 'walk_in_guest',
-      eventId: event.id,
-      seatIds: selectedSeats || [],
-      totalAmount: walkInTicket.totalPaid,
-      status: 'confirmed',
-      createdAt: new Date().toISOString(),
-      paymentMethod,
-      attendeeName,
-      attendeePhone,
-      attendeeEmail: walkInTicket.attendeeEmail,
-      ticketId,
-      isWalkIn: true,
-    };
-
-    try {
-      await set(ref(rtdb, `tickets/${walkInTicket.id}`), walkInTicket);
-      await set(ref(rtdb, `bookings/${bookingId}`), walkInBookingRecord);
-
-      if (selectedSeats && selectedSeats.length > 0) {
-        for (const seatId of selectedSeats) {
-          const seatRef = ref(rtdb, `seats/${event.id}/${seatId}`);
-          await runTransaction(seatRef, (curr) => {
-            const parts = seatId.split('-');
-            const rowNum = parseInt(parts[0]?.replace('R', '') || '1', 10);
-            const colNum = parseInt(parts[1]?.replace('C', '') || '1', 10);
-            return {
-              ...curr,
-              id: seatId,
-              seatId,
-              row: curr?.row || rowNum,
-              col: curr?.col || colNum,
-              status: 'booked',
-              bookedBy: 'walk_in',
-              ticketId: walkInTicket.id,
-              bookingId,
-            };
-          });
-        }
-      }
-      showToast('Walk-in counter booking created successfully!', 'success');
-    } catch (err: any) {
-      console.warn('Walk-in Firebase write notice:', err);
-      showToast(`Warning: ${err.message || 'Saved offline.'}`, 'error');
-    }
-
-    const countToDeduct = selectedSeats?.length || 1;
-    setEvents((prev) =>
-      prev.map((e) => {
-        if (e.id === event.id) {
-          return {
-            ...e,
-            ticketTiers: e.ticketTiers.map((t) =>
-              t.id === tier.id ? { ...t, remainingInventory: Math.max(0, t.remainingInventory - countToDeduct) } : t
-            ),
-          };
-        }
-        return e;
-      })
-    );
-
-    setAllTickets((prev) => [walkInTicket, ...prev]);
-    setMyTickets((prev) => [walkInTicket, ...prev]);
-    setAllBookings((prev) => [walkInBookingRecord, ...prev]);
-    setMyBookings((prev) => [walkInBookingRecord, ...prev]);
-    return walkInTicket;
+    const ticket = data.ticket as Ticket;
+    const booking = data.booking as BookingRecord;
+    const countToDeduct = ticket.quantity || selectedSeats?.length || 1;
+    setEvents((prev) => prev.map((event) => event.id !== eventId ? event : {
+      ...event,
+      ticketTiers: event.ticketTiers.map((tier) => tier.id !== tierId
+        ? tier
+        : { ...tier, remainingInventory: Math.max(0, tier.remainingInventory - countToDeduct) }),
+    }));
+    setAllTickets((prev) => [ticket, ...prev.filter((item) => item.id !== ticket.id)]);
+    setMyTickets((prev) => [ticket, ...prev.filter((item) => item.id !== ticket.id)]);
+    setAllBookings((prev) => [booking, ...prev.filter((item) => item.bookingId !== booking.bookingId)]);
+    setMyBookings((prev) => [booking, ...prev.filter((item) => item.bookingId !== booking.bookingId)]);
+    showToast('Walk-in counter booking created successfully!', 'success');
+    return ticket;
   };
 
   const getEventById = (id: string) => {
@@ -1008,144 +807,88 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const addEvent = async (newEventData: Omit<EventItem, 'id' | 'rating' | 'reviewsCount'>) => {
-    const createdEvent: EventItem = {
-      ...newEventData,
-      id: 'evt_' + Date.now(),
-      rating: 5.0,
-      reviewsCount: 1,
-      seatMap: newEventData.seatMap || {
-        rows: 6,
-        cols: 8,
-        aisleAfterCols: [4],
-        tierByRow: {
-          '1-2': 'VIP Skybox Lounge',
-          '3-6': 'General Admission'
-        }
-      }
-    };
-    setEvents((prev) => [createdEvent, ...prev]);
-
-    try {
-      const eventRef = ref(rtdb, `events/${createdEvent.id}`);
-      await set(eventRef, createdEvent);
-      showToast('Event published successfully!', 'success');
-    } catch (e: any) {
-      console.warn('Realtime Database event creation sync notice:', e);
-      showToast(`Event created locally (sync notice: ${e.message})`, 'info');
+    const response = await safeFetch<any>('/api/events', {
+      method: 'POST',
+      headers: await authenticatedApiHeaders(),
+      body: JSON.stringify({
+        ...newEventData,
+        rating: 5.0,
+        reviewsCount: 0,
+        seatMap: newEventData.seatMap || {
+          rows: 6,
+          cols: 8,
+          aisleAfterCols: [4],
+          tierByRow: { '1-2': 'VIP Skybox Lounge', '3-6': 'General Admission' },
+        },
+      }),
+    });
+    const data = response.data || {};
+    if (!response.ok || !data.success || !data.event) {
+      const message = data.error || response.error || 'Event could not be published.';
+      showToast(message, 'error');
+      throw new Error(message);
     }
+    setEvents((prev) => [data.event, ...prev.filter((event) => event.id !== data.event.id)]);
+    showToast('Event published successfully!', 'success');
   };
 
   const updateEvent = async (updatedEvent: EventItem) => {
-    setEvents((prev) => prev.map((e) => (e.id === updatedEvent.id ? updatedEvent : e)));
-
-    try {
-      const eventRef = ref(rtdb, `events/${updatedEvent.id}`);
-      await set(eventRef, updatedEvent);
-      showToast('Event updated successfully!', 'success');
-    } catch (e: any) {
-      console.warn('Realtime Database event update sync notice:', e);
-      showToast(`Event updated locally (sync notice: ${e.message})`, 'info');
+    const response = await safeFetch<any>(`/api/events/${encodeURIComponent(updatedEvent.id)}`, {
+      method: 'PUT',
+      headers: await authenticatedApiHeaders(),
+      body: JSON.stringify(updatedEvent),
+    });
+    const data = response.data || {};
+    if (!response.ok || !data.success || !data.event) {
+      const message = data.error || response.error || 'Event could not be updated.';
+      showToast(message, 'error');
+      throw new Error(message);
     }
+    setEvents((prev) => prev.map((event) => event.id === updatedEvent.id ? data.event : event));
+    showToast('Event updated successfully!', 'success');
   };
 
   const deleteEvent = async (eventId: string) => {
-    setEvents((prev) => prev.filter((e) => e.id !== eventId));
-
-    try {
-      const eventRef = ref(rtdb, `events/${eventId}`);
-      await set(eventRef, null);
-      showToast('Event deleted successfully.', 'success');
-    } catch (e: any) {
-      console.warn('Realtime Database event delete sync notice:', e);
-      showToast(`Event removed locally (sync notice: ${e.message})`, 'info');
+    const response = await safeFetch<any>(`/api/events/${encodeURIComponent(eventId)}`, {
+      method: 'DELETE',
+      headers: await authenticatedApiHeaders(),
+    });
+    const data = response.data || {};
+    if (!response.ok || !data.success) {
+      const message = data.error || response.error || 'Event could not be deleted.';
+      showToast(message, 'error');
+      throw new Error(message);
     }
+    setEvents((prev) => prev.filter((event) => event.id !== eventId));
+    showToast('Event deleted successfully.', 'success');
   };
 
-  const scanTicketQR = (qrCodeValue: string, scannedByStaffName?: string) => {
-    let searchVal = qrCodeValue.trim();
-
-    if (searchVal.startsWith('ASH_PASS') || searchVal.startsWith('ASH_PASS_v1')) {
-      try {
-        const parts = searchVal.split('.');
-        if (parts.length >= 2) {
-          const decodedPayload = atob(parts[1].replace(/-/g, '+').replace(/_/g, '/'));
-          const subParts = decodedPayload.split(/[:|]/);
-          if (subParts.length > 0) {
-            const possibleId = subParts[0] || subParts[3];
-            if (possibleId) searchVal = possibleId;
-          }
-        }
-      } catch (e) {
-        console.warn('HMAC token parse fallback:', e);
-      }
-    }
-
-    if (qrCodeValue.includes('TAMPERED') || qrCodeValue.includes('FAKE')) {
-      return {
-        success: false,
-        message: 'AUTHENTICATION FAILURE: Invalid or Tampered HMAC-SHA256 Token Signature!',
-        isTampered: true,
-      };
-    }
-
-    const found = allTickets.find(
-      (t) => t.qrCodeValue === searchVal || t.ticketNumber === searchVal || t.id === searchVal || qrCodeValue.includes(t.id)
-    ) || myTickets.find(
-      (t) => t.qrCodeValue === searchVal || t.ticketNumber === searchVal || t.id === searchVal || qrCodeValue.includes(t.id)
-    );
-
-    if (!found) {
-      return { success: false, message: 'Invalid or Unrecognized Ticket QR Code' };
-    }
-
-    if (found.status === 'redeemed' || found.status === 'used') {
-      const redeemedInfo = found.scannedAt ? `on ${found.scannedAt}` : 'earlier';
-      const staffInfo = found.scannedBy ? `by ${found.scannedBy}` : 'by Gate Staff';
-      return {
-        success: false,
-        alreadyRedeemed: true,
-        message: `TICKET ALREADY REDEEMED! Scanned ${redeemedInfo} ${staffInfo}. Entry denied.`,
-        ticket: found
-      };
-    }
-
-    if (found.status === 'void' || found.status === 'cancelled') {
-      return {
-        success: false,
-        isVoid: true,
-        message: 'TICKET VOID / REVOKED: This pass has been invalidated or refunded.',
-        ticket: found
-      };
-    }
-
-    const scanTime = new Date().toLocaleString([], {
-      dateStyle: 'short',
-      timeStyle: 'short'
+  const scanTicketQR = async (qrCodeValue: string, scannedByStaffName?: string) => {
+    const response = await safeFetch<any>('/api/tickets/verify-and-redeem', {
+      method: 'POST',
+      headers: await authenticatedApiHeaders(),
+      body: JSON.stringify({
+        signedToken: qrCodeValue.trim(),
+        scannedByStaffId: scannedByStaffName || 'Gate Staff #402',
+      }),
     });
-    const staffId = scannedByStaffName || 'Gate Officer #402';
-
-    const updatedTicket: Ticket = {
-      ...found,
-      status: 'redeemed',
-      scannedBy: staffId,
-      scannedAt: scanTime
-    };
-
-    setAllTickets((prev) => prev.map((t) => (t.id === found.id ? updatedTicket : t)));
-    setMyTickets((prev) => prev.map((t) => (t.id === found.id ? updatedTicket : t)));
-
-    try {
-      const ticketRef = ref(rtdb, `tickets/${found.id}`);
-      set(ticketRef, updatedTicket);
-    } catch (e: any) {
-      console.warn('Realtime Database update scan error:', e);
-      showToast('Scan saved locally (sync warning)', 'info');
+    const data = response.data || {};
+    if (!response.ok || !data.success || !data.valid) {
+      return {
+        success: false,
+        message: data.error || response.error || 'Server verification failed. Entry denied.',
+        isTampered: response.status === 400,
+        alreadyRedeemed: /already scanned|redeemed/i.test(data.error || ''),
+      };
     }
-
+    if (data.ticket) {
+      setAllTickets((prev) => prev.map((ticket) => ticket.id === data.ticket.id ? data.ticket : ticket));
+      setMyTickets((prev) => prev.map((ticket) => ticket.id === data.ticket.id ? data.ticket : ticket));
+    }
     return {
       success: true,
-      message: `TICKET REDEEMED! Gate Access Granted for ${found.attendeeName} (${found.tierName})`,
-      ticket: updatedTicket
+      message: `TICKET REDEEMED! Gate Access Granted for ${data.ticket?.attendeeName || 'attendee'}.`,
+      ticket: data.ticket,
     };
   };
 

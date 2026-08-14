@@ -9,7 +9,7 @@ import {
   User as FirebaseUser,
   updateProfile as updateFirebaseProfile
 } from 'firebase/auth';
-import { ref, get, set, child, onValue } from 'firebase/database';
+import { ref, get, update, onValue } from 'firebase/database';
 import { auth, rtdb, googleProvider } from '../lib/firebase';
 import { UserProfile, UserRole } from '../types';
 import { INITIAL_USER } from '../data/mockEvents';
@@ -71,7 +71,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } else {
           // Initialize user document in Realtime Database on first login
           const defaultRole = 'customer';
-          await set(userRef, {
+          await update(userRef, {
             id: fbUser.uid,
             name: fbUser.displayName || fbUser.email?.split('@')[0] || 'Member',
             email: fbUser.email || '',
@@ -328,7 +328,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (firebaseUser) {
       try {
         const userRef = ref(rtdb, `users/${firebaseUser.uid}`);
-        await set(userRef, {
+        await update(userRef, {
           name: updated.name,
           email: updated.email,
           phone: updated.phone,

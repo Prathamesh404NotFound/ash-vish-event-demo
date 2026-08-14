@@ -1033,7 +1033,6 @@ export async function createApp() {
   app.post("/api/auth/verify", async (req, res) => {
     try {
       const authHeader = req.headers.authorization;
-      const roleHeader = req.headers['x-user-role'] as string;
       if (!authHeader || !authHeader.startsWith('Bearer ')) {
         return res.status(401).json({ success: false, error: "Missing authorization token." });
       }
@@ -1045,26 +1044,7 @@ export async function createApp() {
       }
 
       const { uid, email } = verified;
-      let role = await fetchUserRoleFromRTDB(uid, token);
-      const targetRole = roleHeader || role;
-
-      if (targetRole && targetRole !== role) {
-        try {
-          if (targetRole === 'admin' || targetRole === 'ticket_counter') {
-            await rtdbSet(`staff/${uid}`, { email, role: targetRole }, token);
-            await rtdbSet(`users/${uid}/role`, targetRole, token);
-          } else if (targetRole === 'customer') {
-            await rtdbDelete(`staff/${uid}`, token);
-            await rtdbSet(`users/${uid}/role`, 'customer', token);
-          }
-          role = targetRole;
-          roleCache.set(uid, { role: targetRole, expiresAt: Date.now() + 5 * 60 * 1000 });
-        } catch (syncErr: any) {
-          console.error('[AUTH SYNC FAILED]', syncErr.message);
-          return res.status(500).json({ success: false, error: 'Role sync failed: ' + syncErr.message });
-        }
-      }
-
+      const role = await fetchUserRoleFromRTDB(uid, token);
       return res.json({ success: true, uid, email, role });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err.message });
@@ -2008,6 +1988,158 @@ export async function createApp() {
     }
   });
 
+  // Protected event and seat-map mutations. Public clients may read events and seats,
+  // but every mutation is performed here with the server-held Firebase token.
+  const assertEventMutationAccess = async (eventId: string, req: any, adminToken: string | undefined) => {
+    if (req.user?.role === 'admin') return true;
+    const snap = await rtdbGet(`events/${eventId}`, adminToken);
+    return Boolean(snap.data && snap.data.organizerId === req.user?.uid);
+  };
+
+  app.post("/api/events", verifyRole(['admin', 'organizer']), async (req: any, res) => {
+    try {
+      const event = req.body;
+      if (!event || typeof event !== 'object' || !event.title || !event.venue || !event.date || !event.time) {
+        return res.status(400).json({ success: false, error: "Event title, venue, date, and time are required." });
+      }
+
+      const adminToken = await getAdminAuthToken();
+      const eventId = typeof event.id === 'string' && /^evt_[A-Za-z0-9_-]+$/.test(event.id)
+        ? event.id
+        : `evt_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
+      const createdEvent = {
+        ...event,
+        id: eventId,
+        organizerId: req.user.role === 'organizer' ? req.user.uid : (event.organizerId || null),
+        createdBy: req.user.uid,
+        createdAt: event.createdAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      await rtdbSet(`events/${eventId}`, createdEvent, adminToken);
+      return res.status(201).json({ success: true, event: createdEvent });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || "Could not create event." });
+    }
+  });
+
+  app.put("/api/events/:eventId", verifyRole(['admin', 'organizer']), async (req: any, res) => {
+    try {
+      const { eventId } = req.params;
+      const adminToken = await getAdminAuthToken();
+      if (!(await assertEventMutationAccess(eventId, req, adminToken))) {
+        return res.status(403).json({ success: false, error: "You do not own this event." });
+      }
+
+      const existing = (await rtdbGet(`events/${eventId}`, adminToken)).data || {};
+      const updatedEvent = {
+        ...existing,
+        ...(req.body || {}),
+        id: eventId,
+        organizerId: existing.organizerId || (req.user.role === 'organizer' ? req.user.uid : null),
+        updatedAt: new Date().toISOString(),
+      };
+      await rtdbSet(`events/${eventId}`, updatedEvent, adminToken);
+      return res.json({ success: true, event: updatedEvent });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || "Could not update event." });
+    }
+  });
+
+  app.delete("/api/events/:eventId", verifyRole(['admin', 'organizer']), async (req: any, res) => {
+    try {
+      const { eventId } = req.params;
+      const adminToken = await getAdminAuthToken();
+      if (!(await assertEventMutationAccess(eventId, req, adminToken))) {
+        return res.status(403).json({ success: false, error: "You do not own this event." });
+      }
+      await rtdbDelete(`events/${eventId}`, adminToken);
+      return res.json({ success: true, eventId });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || "Could not delete event." });
+    }
+  });
+
+  app.put("/api/events/:eventId/seats", verifyRole(['admin', 'organizer']), async (req: any, res) => {
+    try {
+      const { eventId } = req.params;
+      const { seatNodes, seatMap, totalCapacity } = req.body || {};
+      if (!seatNodes || typeof seatNodes !== 'object' || Array.isArray(seatNodes) || !seatMap) {
+        return res.status(400).json({ success: false, error: "A seat-node map and seat-map configuration are required." });
+      }
+      if (Object.keys(seatNodes).length > 5000) {
+        return res.status(413).json({ success: false, error: "Seat map exceeds the supported size." });
+      }
+
+      const adminToken = await getAdminAuthToken();
+      if (!(await assertEventMutationAccess(eventId, req, adminToken))) {
+        return res.status(403).json({ success: false, error: "You do not own this event." });
+      }
+      await rtdbSet(`seats/${eventId}`, seatNodes, adminToken);
+      await rtdbUpdate(`events/${eventId}`, {
+        seatMap,
+        totalCapacity: Number.isFinite(Number(totalCapacity)) ? Number(totalCapacity) : Object.keys(seatNodes).length,
+        updatedAt: new Date().toISOString(),
+      }, adminToken);
+      return res.json({ success: true, eventId, seatCount: Object.keys(seatNodes).length });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || "Could not deploy seat map." });
+    }
+  });
+
+  app.post("/api/walk-in-bookings", verifyRole(['admin', 'ticket_counter']), async (req: any, res) => {
+    try {
+      const { eventId, tierId, attendeeName, attendeePhone, selectedSeats = [], paymentMethod = 'cash' } = req.body || {};
+      if (!eventId || !tierId || !attendeeName || !attendeePhone) {
+        return res.status(400).json({ success: false, error: "Event, ticket tier, attendee name, and phone are required." });
+      }
+      if (!Array.isArray(selectedSeats) || selectedSeats.length > 100) {
+        return res.status(400).json({ success: false, error: "Invalid seat selection." });
+      }
+
+      const adminToken = await getAdminAuthToken();
+      const eventSnap = await rtdbGet(`events/${eventId}`, adminToken);
+      const event = eventSnap.data as any;
+      const tier = normalizeTiers(event?.ticketTiers).find((candidate: any) => candidate.id === tierId);
+      if (!event || !tier) {
+        return res.status(404).json({ success: false, error: "Event or ticket tier not found." });
+      }
+
+      const quantity = selectedSeats.length || 1;
+      const orderId = `walkin_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+      const customerDetails = {
+        name: String(attendeeName).trim(),
+        email: `${String(attendeeName).toLowerCase().replace(/[^a-z0-9]+/g, '') || 'guest'}@walkin.ashvish`,
+        phone: String(attendeePhone).trim(),
+      };
+      await rtdbSet(`pending_orders/${orderId}`, {
+        orderId,
+        eventId,
+        tierId,
+        seatIds: selectedSeats,
+        quantity,
+        customerDetails,
+        userId: 'walk_in_guest',
+        amount: Number(tier.price) * quantity,
+        createdAt: new Date().toISOString(),
+        paymentMethod: `walkin_${String(paymentMethod).slice(0, 32)}`,
+      }, adminToken);
+
+      const result = await finalizeBookingServerSide(
+        orderId,
+        `walkin_${String(paymentMethod).slice(0, 32)}`,
+        `walkin_payment_${orderId}`,
+        adminToken,
+      );
+      if (!result.success) {
+        return res.status(409).json({ success: false, error: result.error || "Walk-in booking could not be completed." });
+      }
+      return res.status(201).json({ success: true, ticket: result.ticket, booking: result.booking });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || "Could not create walk-in booking." });
+    }
+  });
+
   setInterval(() => {
     sweepExpiredHolds().catch(err => console.error("Error in background sweeper:", err.message));
   }, 30 * 1000);
@@ -2037,7 +2169,7 @@ export async function createApp() {
 
   app.get("/api/admin/reviews", verifyRole(['admin']), async (req: any, res) => {
     try {
-      const token = req.user?.idToken;
+      const token = await getAdminAuthToken();
       const snap = await rtdbGet("reviews", token);
       const allReviews: any[] = snap.data ? Object.values(snap.data) : REVIEWS_DATABASE;
       return res.json({ success: true, reviews: allReviews });
@@ -2050,8 +2182,6 @@ export async function createApp() {
     try {
       const { eventId } = req.params;
       const { userId, userName, userAvatar, rating, comment, isVerifiedBuyer } = req.body;
-      const authHeader = req.headers.authorization;
-      const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : undefined;
 
       if (!rating || !comment) {
         return res.status(400).json({ success: false, error: "Rating and review comment are required." });
@@ -2071,7 +2201,7 @@ export async function createApp() {
         isVerifiedBuyer: isVerifiedBuyer ?? true,
       };
 
-      await rtdbSet(`reviews/${reviewId}`, newReview, token);
+      await rtdbSet(`reviews/${reviewId}`, newReview, await getAdminAuthToken());
       return res.json({ success: true, review: newReview });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err.message });
@@ -2081,7 +2211,7 @@ export async function createApp() {
   app.post("/api/admin/reviews/toggle-visibility", verifyRole(['admin']), async (req: any, res) => {
     try {
       const { reviewId } = req.body;
-      const token = req.user?.idToken;
+      const token = await getAdminAuthToken();
       if (!reviewId) {
         return res.status(400).json({ success: false, error: "Review ID is required." });
       }
@@ -2093,7 +2223,7 @@ export async function createApp() {
 
       const review = snap.data;
       review.status = review.status === "published" ? "hidden" : "published";
-      await rtdbSet(`reviews/${reviewId}`, review, token);
+      await rtdbSet(`reviews/${reviewId}`, review, await getAdminAuthToken());
 
       return res.json({ success: true, review });
     } catch (err: any) {
@@ -2104,9 +2234,9 @@ export async function createApp() {
   const handleDeleteReview = async (req: any, res: any) => {
     try {
       const reviewId = req.params?.reviewId || req.body?.reviewId || req.query?.reviewId;
-      const token = req.user?.idToken;
+      const token = await getAdminAuthToken();
       if (!reviewId) return res.status(400).json({ success: false, error: "reviewId is required." });
-      await rtdbDelete(`reviews/${reviewId}`, token);
+      await rtdbDelete(`reviews/${reviewId}`, await getAdminAuthToken());
       return res.json({ success: true });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err.message });
@@ -2121,7 +2251,7 @@ export async function createApp() {
   // Organizers endpoints
   app.get("/api/organizers", verifyRole(['admin']), async (req: any, res) => {
     try {
-      const token = req.user?.idToken;
+      const token = await getAdminAuthToken();
       const snap = await rtdbGet("organizers", token);
       const organizersList: any[] = snap.data ? Object.values(snap.data) : ORGANIZERS_DATABASE;
       return res.json({ success: true, organizers: organizersList });
@@ -2135,12 +2265,17 @@ export async function createApp() {
       const { userId, name, email, organizationName, phone, description } = req.body;
       const authHeader = req.headers.authorization;
       const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : undefined;
+      const verified = token ? await verifyFirebaseToken(token) : null;
 
       if (!userId || !organizationName || !email) {
         return res.status(400).json({ success: false, error: "User ID, email, and organization name are required." });
       }
 
-      const snap = await rtdbGet("organizers", token);
+      if (!verified || verified.uid !== userId) {
+        return res.status(401).json({ success: false, error: "A valid account token for the organizer is required." });
+      }
+      const adminToken = await getAdminAuthToken();
+      const snap = await rtdbGet("organizers", adminToken);
       const organizersList: any[] = snap.data ? Object.values(snap.data) : ORGANIZERS_DATABASE;
       const existing = organizersList.find((o: any) => o.userId === userId || o.email === email);
       if (existing) {
@@ -2160,7 +2295,7 @@ export async function createApp() {
         appliedAt: new Date().toISOString(),
       };
 
-      await rtdbSet(`organizers/${orgId}`, newOrg, token);
+      await rtdbSet(`organizers/${orgId}`, newOrg, adminToken);
       return res.json({ success: true, organizer: newOrg });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err.message });
@@ -2171,7 +2306,7 @@ export async function createApp() {
     try {
       const organizerId = req.body?.organizerId || req.query?.organizerId || req.body?.id;
       const status = req.body?.status || req.query?.status;
-      const token = req.user?.idToken;
+      const token = await getAdminAuthToken();
 
       if (!organizerId) {
         return res.status(400).json({ success: false, error: "Organizer ID is required." });
@@ -2211,7 +2346,7 @@ export async function createApp() {
           org.approvedAt = new Date().toISOString();
         }
         try {
-          await rtdbSet(`organizers/${org.id || organizerId}`, org, token);
+          await rtdbSet(`organizers/${org.id || organizerId}`, org, await getAdminAuthToken());
         } catch (setErr: any) {
           console.warn(`[ORGANIZER STATUS] RTDB set warning:`, setErr.message);
         }
@@ -2232,7 +2367,7 @@ export async function createApp() {
   app.get("/api/organizers/status", verifyRole(['admin']), async (req: any, res) => {
     try {
       const { organizerId } = req.query;
-      const token = req.user?.idToken;
+      const token = await getAdminAuthToken();
       if (organizerId) {
         const snap = await rtdbGet(`organizers/${organizerId}`, token);
         if (!snap.data) return res.status(404).json({ success: false, error: "Organizer not found" });
@@ -2281,7 +2416,7 @@ export async function createApp() {
   app.post("/api/tickets/verify-and-redeem", verifyRole(['admin', 'ticket_counter']), async (req: any, res) => {
     try {
       const { signedToken, scannedByStaffId } = req.body;
-      const userToken = req.user?.idToken;
+      const userToken = await getAdminAuthToken();
 
       if (!signedToken || typeof signedToken !== "string") {
         return res.status(400).json({ success: false, valid: false, error: "Invalid token payload format" });

@@ -17,7 +17,6 @@ import {
 } from 'lucide-react';
 import { useBooking } from '../contexts/BookingContext';
 import { useAuth } from '../contexts/AuthContext';
-import { safeFetch } from '../lib/api';
 import { Ticket } from '../types';
 
 interface TicketScannerProps {
@@ -51,32 +50,7 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
 
   const handleScanCode = async (code: string) => {
     if (!code.trim()) return;
-
-    // Check server HMAC signature verification if signed token format
-    if (code.startsWith('ASH_PASS') || code.startsWith('ASH_PASS_v1')) {
-      try {
-        const res = await safeFetch('/api/tickets/verify-and-redeem', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            signedToken: code,
-            scannedByStaffId: user?.name || 'Gate Operator #402',
-          }),
-        });
-        if (!res.ok || !res.data?.valid) {
-          setLastResult({
-            success: false,
-            message: res.error || res.data?.error || 'Server Verification Failed: HMAC Signature Invalid or Tampered!',
-            isTampered: true,
-          });
-          return;
-        }
-      } catch (err) {
-        console.warn('Server verify endpoint call notice:', err);
-      }
-    }
-
-    const res = scanTicketQR(code, user?.name || 'Gate Staff #402');
+    const res = await scanTicketQR(code, user?.name || 'Gate Staff #402');
     setLastResult(res);
   };
 

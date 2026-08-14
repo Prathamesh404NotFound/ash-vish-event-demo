@@ -15,11 +15,12 @@ import {
   Settings2,
   ShieldAlert,
 } from 'lucide-react';
-import { ref, set, get } from 'firebase/database';
-import { rtdb } from '../../lib/firebase';
+import { ref, get } from 'firebase/database';
+import { rtdb, auth } from '../../lib/firebase';
 import { useBooking } from '../../contexts/BookingContext';
 import { EventItem, SeatMapConfig, SeatNode, SeatSection } from '../../types';
 import { formatINR } from '../../utils/formatters';
+import { safeFetch } from '../../lib/api';
 
 interface SectionInput {
   id: string;
@@ -329,11 +330,29 @@ export const AdminSeatMapBuilder: React.FC = () => {
         sections: formattedSections,
       };
 
-      // 2. Write seat nodes directly to RTDB under `seats/${eventId}`
-      const seatsRef = ref(rtdb, `seats/${selectedEvent.id}`);
-      await set(seatsRef, seatNodesObject);
+      // 2. Deploy through the authenticated server; the browser has read-only
+      // access to the public seat projection under the locked RTDB rules.
+      let authorization = '';
+      if (auth.currentUser) {
+        authorization = `Bearer ${await auth.currentUser.getIdToken()}`;
+      }
+      const deployResponse = await safeFetch<any>(`/api/events/${encodeURIComponent(selectedEvent.id)}/seats`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(authorization ? { Authorization: authorization } : {}),
+        },
+        body: JSON.stringify({
+          seatNodes: seatNodesObject,
+          seatMap: seatMapConfig,
+          totalCapacity: metrics.totalSeats,
+        }),
+      });
+      if (!deployResponse.ok || !deployResponse.data?.success) {
+        throw new Error(deployResponse.data?.error || deployResponse.error || 'Seat map deployment was rejected.');
+      }
 
-      // 3. Update event object in local state + RTDB
+      // 3. Refresh the local event projection from the protected event API.
       const updatedEvent: EventItem = {
         ...selectedEvent,
         totalCapacity: metrics.totalSeats,

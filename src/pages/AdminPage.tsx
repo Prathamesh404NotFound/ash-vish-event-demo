@@ -84,9 +84,9 @@ export const AdminPage: React.FC = () => {
     alert('Event created successfully!');
   };
 
-  const handleRunScan = () => {
+  const handleRunScan = async () => {
     if (!scanInput) return;
-    const res = scanTicketQR(scanInput);
+    const res = await scanTicketQR(scanInput);
     setScanResult(res);
   };
 
