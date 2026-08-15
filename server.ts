@@ -2187,7 +2187,7 @@ export async function createApp() {
 
   app.get("/api/admin/reviews", verifyRole(['admin']), async (req: any, res) => {
     try {
-      const token = await getAdminAuthToken();
+      const token = req.user?.idToken;
       const snap = await rtdbGet("reviews", token);
       const allReviews: any[] = snap.data ? Object.values(snap.data) : REVIEWS_DATABASE;
       return res.json({ success: true, reviews: allReviews });
@@ -2229,9 +2229,12 @@ export async function createApp() {
   app.post("/api/admin/reviews/toggle-visibility", verifyRole(['admin']), async (req: any, res) => {
     try {
       const { reviewId } = req.body;
-      const token = await getAdminAuthToken();
+      const token = req.user?.idToken;
       if (!reviewId) {
         return res.status(400).json({ success: false, error: "Review ID is required." });
+      }
+      if (!token) {
+        return res.status(401).json({ success: false, error: "A valid administrator session is required." });
       }
 
       const snap = await rtdbGet(`reviews/${reviewId}`, token);
@@ -2241,7 +2244,7 @@ export async function createApp() {
 
       const review = snap.data;
       review.status = review.status === "published" ? "hidden" : "published";
-      await rtdbSet(`reviews/${reviewId}`, review, await getAdminAuthToken());
+      await rtdbSet(`reviews/${reviewId}`, review, token);
 
       return res.json({ success: true, review });
     } catch (err: any) {
@@ -2253,12 +2256,12 @@ export async function createApp() {
     try {
       const rawReviewId = req.params?.reviewId || req.body?.reviewId || req.query?.reviewId;
       const reviewId = typeof rawReviewId === 'string' ? rawReviewId.trim() : '';
-      const token = await getAdminAuthToken();
+      const token = req.user?.idToken;
       if (!reviewId || !/^rev_[A-Za-z0-9_-]{1,128}$/.test(reviewId)) {
         return res.status(400).json({ success: false, error: "A valid reviewId is required." });
       }
       if (!token) {
-        return res.status(503).json({ success: false, error: "Review moderation is unavailable because the server database identity is not configured." });
+        return res.status(401).json({ success: false, error: "A valid administrator session is required." });
       }
 
       const existing = await rtdbGet(`reviews/${reviewId}`, token);
