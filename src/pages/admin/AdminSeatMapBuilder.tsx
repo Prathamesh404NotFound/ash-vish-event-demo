@@ -444,7 +444,7 @@ export const AdminSeatMapBuilder: React.FC = () => {
             {/* Layout Preset Buttons */}
             <div className="pt-2">
               <span className="text-[10px] text-gray-400 uppercase font-bold block mb-2">Quick Presets</span>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-1 min-[420px]:grid-cols-3 gap-2">
                 <button
                   type="button"
                   onClick={() => applyPresetLayout('cinema')}
@@ -488,7 +488,7 @@ export const AdminSeatMapBuilder: React.FC = () => {
             </div>
 
             {/* Aisle configuration */}
-            <div className="flex items-center justify-between p-3 rounded-2xl bg-[#1C1C1C] border border-white/5 text-xs">
+            <div className="flex flex-col min-[420px]:flex-row min-[420px]:items-center justify-between gap-2 p-3 rounded-2xl bg-[#1C1C1C] border border-white/5 text-xs">
               <span className="text-gray-300 font-bold">Center Aisle Gap After Column</span>
               <input
                 type="number"
@@ -528,8 +528,8 @@ export const AdminSeatMapBuilder: React.FC = () => {
                     )}
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3 text-xs">
-                    <div className="col-span-2">
+                  <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-3 text-xs">
+                    <div className="min-[420px]:col-span-2">
                       <label className="text-gray-400 text-[10px] font-bold block mb-1">Section Title</label>
                       <input
                         type="text"
@@ -593,7 +593,7 @@ export const AdminSeatMapBuilder: React.FC = () => {
         {/* Right Column: Live Interactive Seat Map Canvas & Metrics */}
         <div className="lg:col-span-7 space-y-6">
           {/* Layout Summary Bar */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-[#141414] border border-white/10 p-4 rounded-3xl">
+          <div className="grid grid-cols-1 min-[420px]:grid-cols-2 sm:grid-cols-4 gap-3 bg-[#141414] border border-white/10 p-3 sm:p-4 rounded-3xl">
             <div className="p-3 rounded-2xl bg-[#1C1C1C]">
               <span className="text-[10px] text-gray-400 uppercase font-bold block">Total Seats</span>
               <span className="font-heading font-black text-lg text-white">{metrics.totalSeats}</span>
@@ -615,8 +615,8 @@ export const AdminSeatMapBuilder: React.FC = () => {
           </div>
 
           {/* Seat Map Visual Canvas */}
-          <div className="bg-[#121212] border border-[#D4AF37]/20 rounded-3xl p-6 space-y-6 shadow-2xl relative">
-            <div className="flex items-center justify-between border-b border-white/10 pb-4">
+          <div className="bg-[#121212] border border-[#D4AF37]/20 rounded-3xl p-3 sm:p-6 space-y-6 shadow-2xl relative">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/10 pb-4">
               <div>
                 <span className="text-[10px] text-[#D4AF37] font-mono uppercase tracking-widest block">
                   Interactive Live Layout Canvas

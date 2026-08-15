@@ -396,8 +396,8 @@ export const OrganizerDashboard: React.FC = () => {
 
       {/* Create Event Modal */}
       {isEventModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
-          <div className="bg-[#181818] border border-[#D4AF37]/30 rounded-3xl p-6 sm:p-8 max-w-xl w-full space-y-6 shadow-2xl relative max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-stretch sm:items-center justify-center bg-black/80 backdrop-blur-sm p-0 sm:p-4 animate-in fade-in overflow-y-auto">
+          <div className="bg-[#181818] border border-[#D4AF37]/30 rounded-none sm:rounded-3xl p-4 sm:p-6 lg:p-8 max-w-3xl w-full min-h-full sm:min-h-0 space-y-6 shadow-2xl relative sm:max-h-[calc(100dvh-2rem)] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-white/10 pb-4">
               <h3 className="font-heading font-bold text-lg text-white flex items-center gap-2">
                 <Calendar className="w-5 h-5 text-[#D4AF37]" />
@@ -435,7 +435,7 @@ export const OrganizerDashboard: React.FC = () => {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 min-[520px]:grid-cols-2 gap-4">
                 <div>
                   <label className="font-bold text-gray-300 block mb-1">Category</label>
                   <select
@@ -464,7 +464,7 @@ export const OrganizerDashboard: React.FC = () => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 min-[520px]:grid-cols-2 gap-4">
                 <div>
                   <label className="font-bold text-gray-300 block mb-1">Venue Name</label>
                   <input
@@ -490,7 +490,7 @@ export const OrganizerDashboard: React.FC = () => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 min-[520px]:grid-cols-2 gap-4">
                 <div>
                   <label className="font-bold text-gray-300 block mb-1">Date</label>
                   <input
@@ -526,17 +526,17 @@ export const OrganizerDashboard: React.FC = () => {
                 />
               </div>
 
-              <div className="flex justify-end gap-3 pt-4 border-t border-white/10">
+              <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-3 pt-4 border-t border-white/10">
                 <button
                   type="button"
                   onClick={() => setIsEventModalOpen(false)}
-                  className="px-5 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 font-bold"
+                  className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 font-bold"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black font-extrabold cursor-pointer hover:brightness-110"
+                  className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black font-extrabold cursor-pointer hover:brightness-110"
                 >
                   Publish Event
                 </button>

@@ -619,15 +619,20 @@ export const AdminEvents: React.FC = () => {
 
       {/* Create / Edit Event Modal */}
       {showModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in overflow-y-auto">
-          <div className="w-full max-w-3xl bg-[#141414] border border-[#D4AF37]/30 rounded-3xl p-6 sm:p-8 space-y-6 shadow-2xl my-8 relative">
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-stretch sm:items-center justify-center p-0 sm:p-4 lg:p-6 animate-in fade-in overflow-y-auto">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="event-editor-title"
+            className="w-full max-w-6xl min-h-full sm:min-h-0 sm:max-h-[calc(100dvh-2rem)] bg-[#141414] border border-[#D4AF37]/30 rounded-none sm:rounded-3xl p-4 sm:p-6 lg:p-8 space-y-6 shadow-2xl overflow-y-auto relative"
+          >
             {/* Modal Header */}
-            <div className="flex justify-between items-center border-b border-white/10 pb-4">
-              <div>
+            <div className="flex justify-between items-start gap-4 border-b border-white/10 pb-4">
+              <div className="min-w-0">
                 <span className="text-[10px] uppercase font-black tracking-widest text-[#D4AF37] block">
                   {editingEventId ? 'Edit Event Details' : 'New Event Management'}
                 </span>
-                <h3 className="font-heading font-black text-xl text-white">
+                <h3 id="event-editor-title" className="font-heading font-black text-lg sm:text-xl text-white break-words">
                   {editingEventId ? `Editing: ${title || 'Event'}` : 'Publish New Event Listing'}
                 </h3>
               </div>
@@ -795,7 +800,7 @@ export const AdminEvents: React.FC = () => {
 
               {/* Section 3: Event Artwork & Firebase Storage Upload */}
               <div className="space-y-4">
-                <div className="flex justify-between items-center border-b border-white/5 pb-2">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-white/5 pb-2">
                   <h4 className="text-gray-400 uppercase font-black tracking-wider text-[10px]">
                     3. Artwork & Firebase Storage Upload
                   </h4>
@@ -809,15 +814,15 @@ export const AdminEvents: React.FC = () => {
                   </div>
                 )}
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {/* Poster Image Upload */}
-                  <div className="p-4 bg-[#1C1C1C] border border-white/10 rounded-2xl space-y-3">
+                  <div className="p-3 sm:p-4 bg-[#1C1C1C] border border-white/10 rounded-2xl space-y-3">
                     <span className="font-bold text-white block text-xs">Poster Image (Vertical)</span>
-                    <div className="flex items-center gap-3">
+                    <div className="flex flex-col min-[480px]:flex-row min-[480px]:items-center gap-3">
                       <img
                         src={posterUrl}
                         alt="Poster Preview"
-                        className="w-14 h-18 rounded-xl object-cover bg-black border border-white/10 shrink-0"
+                        className="w-16 h-20 rounded-xl object-cover bg-black border border-white/10 shrink-0"
                       />
                       <div className="space-y-2 flex-1 min-w-0">
                         <label className="cursor-pointer py-2 px-3 bg-white/10 hover:bg-white/20 text-white rounded-xl font-bold text-[11px] flex items-center justify-center gap-2 transition-all">
@@ -842,9 +847,9 @@ export const AdminEvents: React.FC = () => {
                   </div>
 
                   {/* Cover Banner Upload */}
-                  <div className="p-4 bg-[#1C1C1C] border border-white/10 rounded-2xl space-y-3">
+                  <div className="p-3 sm:p-4 bg-[#1C1C1C] border border-white/10 rounded-2xl space-y-3">
                     <span className="font-bold text-white block text-xs">Cover Banner (Wide)</span>
-                    <div className="flex items-center gap-3">
+                    <div className="flex flex-col min-[480px]:flex-row min-[480px]:items-center gap-3">
                       <img
                         src={coverUrl}
                         alt="Cover Preview"
@@ -876,14 +881,14 @@ export const AdminEvents: React.FC = () => {
 
               {/* Section 4: Ticket Pricing Tiers & Inventory */}
               <div className="space-y-4">
-                <div className="flex justify-between items-center border-b border-white/5 pb-2">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-white/5 pb-2">
                   <h4 className="text-gray-400 uppercase font-black tracking-wider text-[10px]">
                     4. Ticket Categories & Pricing Tiers (Price ≥ 0, Capacity &gt; 0)
                   </h4>
                   <button
                     type="button"
                     onClick={handleAddTier}
-                    className="py-1.5 px-3 rounded-xl bg-[#D4AF37]/10 hover:bg-[#D4AF37]/20 border border-[#D4AF37]/30 text-[#D4AF37] font-extrabold text-[11px] flex items-center gap-1.5 transition-all cursor-pointer"
+                    className="w-full sm:w-auto justify-center py-2 sm:py-1.5 px-3 rounded-xl bg-[#D4AF37]/10 hover:bg-[#D4AF37]/20 border border-[#D4AF37]/30 text-[#D4AF37] font-extrabold text-[11px] flex items-center gap-1.5 transition-all cursor-pointer"
                   >
                     <Plus className="w-3.5 h-3.5" />
                     <span>Add Pricing Tier</span>
@@ -912,7 +917,7 @@ export const AdminEvents: React.FC = () => {
                         )}
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div className="grid grid-cols-1 min-[520px]:grid-cols-2 xl:grid-cols-3 gap-3">
                         <div>
                           <label className="text-gray-400 text-[10px] font-bold block mb-1">Tier Name *</label>
                           <input
@@ -950,7 +955,7 @@ export const AdminEvents: React.FC = () => {
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 min-[520px]:grid-cols-2 gap-3">
                         <div>
                           <label className="text-gray-400 text-[10px] font-bold block mb-1">Description</label>
                           <input
@@ -978,18 +983,18 @@ export const AdminEvents: React.FC = () => {
               </div>
 
               {/* Submit Buttons */}
-              <div className="pt-4 border-t border-white/10 flex items-center justify-end gap-3">
+              <div className="pt-4 border-t border-white/10 flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-3">
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
-                  className="py-3 px-5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 font-bold text-xs cursor-pointer"
+                  className="w-full sm:w-auto py-3 px-5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 font-bold text-xs cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isUploading}
-                  className="py-3 px-7 rounded-xl bg-gradient-to-r from-[#F3E5AB] via-[#D4AF37] to-[#AA7C11] hover:brightness-110 active:scale-95 text-black font-extrabold text-xs shadow-xl shadow-[#D4AF37]/20 transition-all cursor-pointer disabled:opacity-50"
+                  className="w-full sm:w-auto py-3 px-7 rounded-xl bg-gradient-to-r from-[#F3E5AB] via-[#D4AF37] to-[#AA7C11] hover:brightness-110 active:scale-95 text-black font-extrabold text-xs shadow-xl shadow-[#D4AF37]/20 transition-all cursor-pointer disabled:opacity-50"
                 >
                   {editingEventId ? 'Save & Sync Changes' : 'Publish Event Now'}
                 </button>
