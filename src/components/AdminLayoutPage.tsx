@@ -67,7 +67,7 @@ export const AdminLayoutPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-[#0A0A0A] text-white flex flex-col md:flex-row">
       {/* Admin Persistent Sidebar */}
-      <aside className="w-full md:w-64 bg-[#121212] border-b md:border-b-0 md:border-r border-white/10 flex-shrink-0 p-5 space-y-6">
+      <aside className="w-full lg:w-64 bg-[#121212] border-b lg:border-b-0 lg:border-r border-white/10 flex-shrink-0 p-3 sm:p-5 space-y-3 sm:space-y-6">
         <div className="flex items-center justify-between">
           <Link to="/" className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[#FFF6D6] to-[#D4AF37] flex items-center justify-center text-black font-bold">
@@ -92,7 +92,7 @@ export const AdminLayoutPage: React.FC = () => {
         </div>
 
         {/* User Card */}
-        <div className="p-3.5 rounded-2xl bg-[#1A1A1A] border border-white/10 flex items-center gap-3">
+        <div className="hidden sm:flex p-3.5 rounded-2xl bg-[#1A1A1A] border border-white/10 items-center gap-3">
           <img
             src={user?.photoUrl || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=300'}
             alt={user?.name}
@@ -107,14 +107,14 @@ export const AdminLayoutPage: React.FC = () => {
         </div>
 
         {/* Navigation */}
-        <nav className="space-y-1.5">
+        <nav className="flex lg:block gap-1.5 overflow-x-auto no-scrollbar lg:space-y-1.5 pb-1 lg:pb-0" aria-label="Admin sections">
           {navItems.map((item) => (
             <NavLink
               key={item.path}
               to={item.path}
               end={item.path === '/admin'}
               className={({ isActive }) =>
-                `flex items-center gap-3 p-3 rounded-2xl transition-all text-xs font-bold ${
+                `shrink-0 flex items-center gap-2 lg:gap-3 px-3 py-2.5 lg:p-3 rounded-xl lg:rounded-2xl transition-all text-xs font-bold ${
                   isActive
                     ? 'bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black shadow-lg shadow-[#D4AF37]/20'
                     : 'text-gray-400 hover:text-white hover:bg-[#1C1C1C]'
@@ -122,14 +122,14 @@ export const AdminLayoutPage: React.FC = () => {
               }
             >
               <item.icon className="w-4 h-4 stroke-[2.5]" />
-              <div>
+              <div className="whitespace-nowrap">
                 <span className="block leading-tight">{item.title}</span>
               </div>
             </NavLink>
           ))}
         </nav>
 
-        <div className="pt-4 border-t border-white/10">
+        <div className="hidden lg:block pt-4 border-t border-white/10">
           <button
             onClick={() => navigate('/')}
             className="w-full py-2.5 px-3 rounded-xl bg-[#1C1C1C] hover:bg-[#262626] text-gray-300 hover:text-white text-xs font-semibold flex items-center justify-center gap-2 transition-all border border-white/5"
@@ -141,7 +141,7 @@ export const AdminLayoutPage: React.FC = () => {
       </aside>
 
       {/* Main Content Shell */}
-      <main className="flex-1 p-4 md:p-8 overflow-y-auto">
+      <main className="min-w-0 flex-1 p-3 sm:p-4 lg:p-8 pb-20 lg:pb-8 overflow-y-auto">
         <Outlet />
       </main>
     </div>

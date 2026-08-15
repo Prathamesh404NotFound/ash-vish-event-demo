@@ -18,7 +18,20 @@
     font-family: var(--font-sans);
     background-color: var(--bg-main);
     color: #F3F4F6;
-    overflow-x: hidden;
+    overflow-x: clip;
+  }
+
+  html {
+    min-width: 320px;
+    background-color: var(--bg-main);
+  }
+
+  img, svg, video, canvas {
+    max-width: 100%;
+  }
+
+  button, input, select, textarea {
+    min-width: 0;
   }
 
   h1, h2, h3, h4, h5, h6, .font-heading {
@@ -102,6 +115,36 @@
   scrollbar-width: none;  /* Firefox */
 }
 
+/* Responsive data and interaction primitives. These keep dense operations
+   interfaces usable on touch devices without forcing the whole page to clip. */
+.responsive-table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.responsive-table-scroll > table {
+  min-width: 640px;
+}
+
+.seat-map-viewport {
+  overflow-x: auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 639px) {
+  .responsive-table-scroll > table {
+    min-width: 560px;
+  }
+
+  .card-depth:hover {
+    transform: none;
+  }
+}
+
 /* Ticket Perforation styling */
 .ticket-edge-left {
   position: relative;
@@ -139,4 +182,3 @@
 .glow-gold {
   box-shadow: 0 0 30px rgba(212, 175, 55, 0.35);
 }
-

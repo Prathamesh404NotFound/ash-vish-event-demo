@@ -63,7 +63,7 @@ export const AdminBookings: React.FC = () => {
         </div>
       </div>
 
-      <div className="bg-[#141414] border border-white/10 rounded-3xl overflow-hidden shadow-2xl">
+      <div className="responsive-table-scroll bg-[#141414] border border-white/10 rounded-3xl shadow-2xl">
         <table className="w-full text-left text-xs text-gray-300">
           <thead className="bg-[#1C1C1C] text-gray-400 uppercase font-bold text-[10px]">
             <tr>

@@ -26,7 +26,7 @@ export const AdminOrganizers: React.FC = () => {
           <h2 className="font-heading font-bold text-base text-white">Registered Organizers ({organizers.length})</h2>
         </div>
 
-        <div className="overflow-x-auto">
+        <div className="responsive-table-scroll">
           <table className="w-full text-left text-xs text-gray-300">
             <thead className="bg-[#1C1C1C] text-gray-400 uppercase text-[10px] tracking-wider border-b border-white/10">
               <tr>

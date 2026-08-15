@@ -553,9 +553,9 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
   // Render
   // ------------------------------------------------------------------
   return (
-    <div className="pb-24 pt-20 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8 animate-in fade-in">
+    <div className="pb-28 md:pb-12 pt-20 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6 sm:space-y-8 animate-in fade-in">
       {/* Header with step progress */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-white/10 pb-6">
+      <div className="flex flex-col xl:flex-row items-start xl:items-center justify-between gap-4 border-b border-white/10 pb-5 sm:pb-6">
         <div className="flex items-center gap-3">
           <button
             onClick={handleBack}
@@ -572,7 +572,7 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
         </div>
 
         {/* Step indicator pills */}
-        <div className="flex items-center gap-1.5 flex-wrap">
+        <div className="flex w-full xl:w-auto items-center gap-1.5 flex-wrap">
           {stepsMeta.map((s) => {
             const active = bookingStep === s.n;
             const done = bookingStep > s.n;
@@ -630,8 +630,8 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
       {bookingStep === FIRST_STEP && (
         <div className="bg-[#141414] border border-white/10 rounded-3xl p-6 space-y-6 animate-in fade-in">
           <h3 className="font-heading font-bold text-lg text-white">1. Confirm Your Tickets</h3>
-          <div className="flex gap-4">
-            <img src={event.posterUrl} alt={event.title} className="w-24 h-32 rounded-xl object-cover border border-white/10" />
+          <div className="flex flex-col sm:flex-row gap-4">
+            <img src={event.posterUrl} alt={event.title} className="w-24 h-32 mx-auto sm:mx-0 rounded-xl object-cover border border-white/10" />
             <div className="space-y-1">
               <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#D4AF37]/10 text-[#D4AF37] border border-[#D4AF37]/20">{tier.name}</span>
               <h4 className="font-heading font-bold text-base text-white">{event.title}</h4>
@@ -651,10 +651,10 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
       {/* ================= STEP 2: Seats ================= */}
       {bookingStep === seatSelectionStep && hasSeatMap && (
         <div className="space-y-6 animate-in fade-in">
-          <div className="bg-[#141414] border border-white/10 rounded-3xl p-6 space-y-4">
+          <div className="bg-[#141414] border border-white/10 rounded-3xl p-4 sm:p-6 space-y-4">
             <div className="flex items-center justify-between flex-wrap gap-2">
               <h3 className="font-heading font-bold text-lg text-white">2. Choose Your Seats</h3>
-              <div className="flex items-center gap-2 text-xs text-gray-400">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-400">
                 <span className="inline-block w-3 h-3 rounded bg-emerald-500" /> Available
                 <span className="inline-block w-3 h-3 rounded bg-amber-500" /> Held (others)
                 <span className="inline-block w-3 h-3 rounded bg-[#D4AF37]" /> Yours
@@ -679,13 +679,13 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
               reservationStatus={reservation?.status}
               reservationOwnerId={reservation?.ownerId}
             />
-            <div className="pt-3 border-t border-white/5 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs">
+            <div className="pt-3 border-t border-white/5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs">
               <div className="text-gray-400">
                 Required: <span className="text-white font-bold">{quantity}</span> seat(s) •
                 Selected: <span className="text-white font-bold">{(selectedSeats || []).length}</span>
                 {pendingSeatCount > 0 ? ` • ${pendingSeatCount} awaiting confirmation` : ''}
               </div>
-              <div className="text-right text-[#D4AF37] font-bold">
+              <div className="w-full sm:w-auto text-left sm:text-right text-[#D4AF37] font-bold break-words">
                 {(selectedSeats || []).length > 0 ? seatLabelFor(selectedSeats || []) : 'No seats selected yet'}
               </div>
             </div>
@@ -764,14 +764,14 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
       {/* ================= STEP 4: Review ================= */}
       {bookingStep === reviewStep && (
         <div className="space-y-6 animate-in fade-in">
-          <div className="bg-[#141414] border border-[#D4AF37]/30 rounded-3xl p-6 space-y-5">
+          <div className="bg-[#141414] border border-[#D4AF37]/30 rounded-3xl p-4 sm:p-6 space-y-5">
             <h3 className="font-heading font-bold text-lg text-white flex items-center gap-2">
               <CheckCircle2 className="w-5 h-5 text-emerald-400" />
               Review Your Selection Before Confirming
             </h3>
 
             <div className="space-y-4 text-sm">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="bg-[#1C1C1C] rounded-2xl p-4 space-y-1">
                   <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Event</p>
                   <p className="font-bold text-white">{event.title}</p>

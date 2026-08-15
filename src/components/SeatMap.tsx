@@ -261,7 +261,7 @@ export const SeatMap: React.FC<SeatMapProps> = ({
       </div>
 
       {/* Hovered Seat Tooltip Preview Bar */}
-      <div className="mx-4 sm:mx-8 my-2 px-4 py-2.5 bg-[#161616] border border-[#D4AF37]/20 rounded-xl flex items-center justify-between min-h-[42px] text-xs shadow-inner">
+      <div className="mx-4 sm:mx-8 my-2 px-3 sm:px-4 py-2.5 bg-[#161616] border border-[#D4AF37]/20 rounded-xl flex items-center justify-between min-h-[42px] text-xs shadow-inner overflow-hidden">
         {hoveredSeatId ? (() => {
           const rNum = parseInt(hoveredSeatId.split('-')[0].replace('R', ''), 10);
           const cNum = parseInt(hoveredSeatId.split('-')[1].replace('C', ''), 10);
@@ -272,21 +272,21 @@ export const SeatMap: React.FC<SeatMapProps> = ({
           const statusColor = status === 'booked' ? 'text-red-400' : status === 'held' ? (isMine ? 'text-yellow-300' : 'text-orange-400') : 'text-emerald-400';
 
           return (
-            <div className="flex items-center justify-between w-full animate-in fade-in duration-150">
-              <div className="flex items-center gap-2.5">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5 w-full animate-in fade-in duration-150">
+              <div className="flex items-center gap-2 min-w-0">
                 <span className="w-2 h-2 rounded-full bg-[#D4AF37] animate-pulse"></span>
                 <span className="font-heading font-extrabold text-white text-xs sm:text-sm">Seat {rLab}-{cNum}</span>
                 <span className="text-gray-500">|</span>
                 <span className="text-[#F3E5AB] font-semibold">{category}</span>
               </div>
-              <div className="flex items-center gap-4">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                 <span className="font-mono font-extrabold text-[#D4AF37] text-sm">{flatPrice ? formatINR(flatPrice) : 'Standard'}</span>
                 <span className={`font-bold ${statusColor}`}>● {statusText}</span>
               </div>
             </div>
           );
         })() : (
-          <div className="flex items-center gap-2 text-gray-400 w-full justify-center">
+          <div className="flex items-center gap-2 text-gray-400 w-full justify-center text-center">
             <Info className="w-4 h-4 text-[#D4AF37] shrink-0" />
             <span>Hover over any seat to inspect category, tier pricing, and real-time availability.</span>
           </div>
@@ -294,10 +294,10 @@ export const SeatMap: React.FC<SeatMapProps> = ({
       </div>
 
       {/* Main Cinema Seating Grid */}
-      <div className="relative h-[380px] sm:h-[480px] overflow-hidden overflow-y-auto bg-[#0A0A0A] border-y border-[#D4AF37]/15 select-none flex items-center justify-center">
+      <div className="seat-map-viewport relative h-[360px] sm:h-[480px] bg-[#0A0A0A] border-y border-[#D4AF37]/15 select-none">
         {/* The Seating Grid Board */}
-        <div className="w-full flex flex-col items-center p-4 select-none">
-          <div className="min-w-[480px] max-w-3xl mx-auto flex flex-col items-center space-y-6">
+        <div className="min-w-max w-full flex flex-col items-center p-3 sm:p-4 select-none">
+          <div className="min-w-[480px] max-w-3xl mx-auto flex flex-col items-center space-y-4 sm:space-y-6">
             {Array.from({ length: rows }).map((_, rIdx) => {
               const rowNum = rIdx + 1;
               const rowLabel = String.fromCharCode(64 + rowNum); // A, B, C...

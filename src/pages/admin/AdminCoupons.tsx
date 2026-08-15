@@ -79,7 +79,7 @@ export const AdminCoupons: React.FC = () => {
           <h2 className="font-heading font-bold text-base text-white">Active Promo Codes ({coupons.length})</h2>
         </div>
 
-        <div className="overflow-x-auto">
+        <div className="responsive-table-scroll">
           <table className="w-full text-left text-xs text-gray-300">
             <thead className="bg-[#1C1C1C] text-gray-400 uppercase text-[10px] tracking-wider border-b border-white/10">
               <tr>
@@ -156,7 +156,7 @@ export const AdminCoupons: React.FC = () => {
       {/* Create Coupon Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
-          <div className="bg-[#181818] border border-[#D4AF37]/30 rounded-3xl p-6 sm:p-8 max-w-lg w-full space-y-6 shadow-2xl relative">
+          <div className="bg-[#181818] border border-[#D4AF37]/30 rounded-3xl p-5 sm:p-8 max-w-lg w-full max-h-[calc(100dvh-2rem)] overflow-y-auto space-y-6 shadow-2xl relative">
             <div className="flex items-center justify-between border-b border-white/10 pb-4">
               <h3 className="font-heading font-bold text-lg text-white flex items-center gap-2">
                 <Tag className="w-5 h-5 text-[#D4AF37]" />
@@ -190,7 +190,7 @@ export const AdminCoupons: React.FC = () => {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="font-bold text-gray-300 block mb-1">Discount Type</label>
                   <select
@@ -218,7 +218,7 @@ export const AdminCoupons: React.FC = () => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="font-bold text-gray-300 block mb-1">Expiration Date</label>
                   <input
@@ -258,18 +258,18 @@ export const AdminCoupons: React.FC = () => {
                 </select>
               </div>
 
-              <div className="flex justify-end gap-3 pt-4 border-t border-white/10">
+              <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-3 pt-4 border-t border-white/10">
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="px-5 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 font-bold"
+                  className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 font-bold"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black font-extrabold cursor-pointer disabled:opacity-50"
+                  className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black font-extrabold cursor-pointer disabled:opacity-50"
                 >
                   {isSubmitting ? 'Creating...' : 'Save & Activate Coupon'}
                 </button>

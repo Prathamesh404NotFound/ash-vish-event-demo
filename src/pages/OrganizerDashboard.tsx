@@ -249,10 +249,10 @@ export const OrganizerDashboard: React.FC = () => {
       </div>
 
       {/* Navigation Tabs */}
-      <div className="flex items-center gap-3 border-b border-white/10 pb-4">
+      <div className="flex items-center gap-3 overflow-x-auto no-scrollbar border-b border-white/10 pb-4">
         <button
           onClick={() => setActiveTab('events')}
-          className={`px-5 py-2.5 rounded-xl font-bold text-xs transition-all cursor-pointer flex items-center gap-2 ${
+          className={`shrink-0 px-5 py-2.5 rounded-xl font-bold text-xs transition-all cursor-pointer flex items-center gap-2 ${
             activeTab === 'events'
               ? 'bg-[#D4AF37] text-black shadow-lg shadow-[#D4AF37]/20'
               : 'bg-[#181818] text-gray-300 hover:bg-white/10'
@@ -263,7 +263,7 @@ export const OrganizerDashboard: React.FC = () => {
         </button>
         <button
           onClick={() => setActiveTab('bookings')}
-          className={`px-5 py-2.5 rounded-xl font-bold text-xs transition-all cursor-pointer flex items-center gap-2 ${
+          className={`shrink-0 px-5 py-2.5 rounded-xl font-bold text-xs transition-all cursor-pointer flex items-center gap-2 ${
             activeTab === 'bookings'
               ? 'bg-[#D4AF37] text-black shadow-lg shadow-[#D4AF37]/20'
               : 'bg-[#181818] text-gray-300 hover:bg-white/10'
@@ -274,7 +274,7 @@ export const OrganizerDashboard: React.FC = () => {
         </button>
         <button
           onClick={() => setActiveTab('scan')}
-          className={`px-5 py-2.5 rounded-xl font-bold text-xs transition-all cursor-pointer flex items-center gap-2 ${
+          className={`shrink-0 px-5 py-2.5 rounded-xl font-bold text-xs transition-all cursor-pointer flex items-center gap-2 ${
             activeTab === 'scan'
               ? 'bg-[#D4AF37] text-black shadow-lg shadow-[#D4AF37]/20'
               : 'bg-[#181818] text-gray-300 hover:bg-white/10'
