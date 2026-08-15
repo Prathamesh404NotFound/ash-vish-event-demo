@@ -959,24 +959,42 @@ export async function createApp() {
       return cached.role;
     }
 
-    const authToken = idToken || (await getAdminAuthToken());
-
-    try {
+    const lookupRole = async (authToken?: string): Promise<string | null> => {
       const staffRes = await rtdbGet(`staff/${uid}`, authToken);
       if (staffRes.data && (staffRes.data.role === 'admin' || staffRes.data.role === 'ticket_counter')) {
-        const role = staffRes.data.role;
-        roleCache.set(uid, { role, expiresAt: now + 5 * 60 * 1000 });
-        return role;
+        return staffRes.data.role;
       }
 
       const userRes = await rtdbGet(`users/${uid}`, authToken);
-      if (userRes.data && userRes.data.role) {
-        const role = userRes.data.role;
+      return userRes.data?.role || null;
+    };
+
+    try {
+      const role = await lookupRole(idToken);
+      if (role) {
         roleCache.set(uid, { role, expiresAt: now + 5 * 60 * 1000 });
         return role;
       }
     } catch (err: any) {
-      console.warn(`[ROLE FETCH WARNING] Unable to fetch role for ${uid}:`, err.message);
+      console.warn(`[ROLE FETCH WARNING] User-token lookup failed for ${uid}:`, err.message);
+    }
+
+    // Protected role rules can legitimately prevent an end-user token from
+    // reading staff/user profiles. Retry only with the server identity; browser
+    // callers never receive that identity or direct write capability.
+    if (idToken) {
+      const serverToken = await getAdminAuthToken();
+      if (serverToken && serverToken !== idToken) {
+        try {
+          const role = await lookupRole(serverToken);
+          if (role) {
+            roleCache.set(uid, { role, expiresAt: now + 5 * 60 * 1000 });
+            return role;
+          }
+        } catch (err: any) {
+          console.warn(`[ROLE FETCH WARNING] Server-identity lookup failed for ${uid}:`, err.message);
+        }
+      }
     }
 
     roleCache.set(uid, { role: 'customer', expiresAt: now + 1 * 60 * 1000 });
