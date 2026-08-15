@@ -53,6 +53,21 @@ export interface RazorpaySession {
   isTestMode: boolean;
 }
 
+interface RazorpayPrefill {
+  name?: string;
+  email?: string;
+  contact?: string;
+}
+
+/** Razorpay expects a phone number in international E.164-style format. */
+function normalizeRazorpayContact(contact?: string): string | undefined {
+  const value = String(contact || '').trim();
+  const digits = value.replace(/\D/g, '');
+  if (!digits) return undefined;
+  if (value.startsWith('+')) return `+${digits}`;
+  return digits.length === 10 ? `+91${digits}` : `+${digits}`;
+}
+
 export function useRazorpay() {
   const [scriptReady, setScriptReady] = useState<boolean | null>(null);
   const [session, setSession] = useState<RazorpaySession | null>(null);
@@ -153,6 +168,7 @@ export function useRazorpay() {
       onClose: () => void;
       getDisplayName: () => string;
       getEventTitle: () => string;
+      getPrefill: () => RazorpayPrefill;
     }
   ) => {
     if (!session.orderId || !session.rzpOrderId || !/^rzp_(test|live)_[A-Za-z0-9]+$/.test(session.rzpKey) || !Number.isInteger(session.amountMinor) || session.amountMinor <= 0) {
@@ -170,6 +186,13 @@ export function useRazorpay() {
 
     let options: any;
     try {
+      const suppliedPrefill = handlers.getPrefill();
+      const prefill = {
+        name: String(suppliedPrefill?.name || '').trim(),
+        email: String(suppliedPrefill?.email || '').trim(),
+        contact: normalizeRazorpayContact(suppliedPrefill?.contact),
+      };
+
       options = {
         key: session.rzpKey,
         amount: session.amountMinor,
@@ -191,6 +214,24 @@ export function useRazorpay() {
             if (!errorHandledRef.current) handlers.onClose();
           },
           animation: true,
+        },
+        // Prefilling removes Razorpay's separate mobile-number prompt. UPI can
+        // be preselected only when Checkout receives both contact and email.
+        prefill,
+        method: prefill.email && prefill.contact ? 'upi' : undefined,
+        // Highlight the provider-managed UPI/dynamic-QR path but keep all
+        // other payment methods enabled for the merchant account available.
+        config: {
+          display: {
+            blocks: {
+              upi: {
+                name: 'Pay via UPI or QR',
+                instruments: [{ method: 'upi' }],
+              },
+            },
+            sequence: ['block.upi'],
+            preferences: { show_default_blocks: true },
+          },
         },
         notes: { order_id: session.orderId },
         theme: { color: '#D4AF37' },
@@ -227,6 +268,7 @@ export function useRazorpay() {
       onClose: () => void;
       getDisplayName: () => string;
       getEventTitle: () => string;
+      getPrefill: () => RazorpayPrefill;
     }
   ) => {
     if (isProcessing || retryCountRef.current > maxRetries) return;

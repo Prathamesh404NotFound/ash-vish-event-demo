@@ -478,6 +478,11 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
       {
         getDisplayName: () => attendeeName || 'Tickets',
         getEventTitle: () => event.title || 'Event',
+        getPrefill: () => ({
+          name: attendeeName,
+          email: attendeeEmail,
+          contact: attendeePhone,
+        }),
         onClose: () => {
           setIsProcessing(false);
           // Modal closed without payment — seats remain held; user may retry.
