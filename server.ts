@@ -181,21 +181,14 @@ interface ReservationQuote {
 interface ReservationRecord {
   reservationId: string;
   eventId: string;
-  showtimeId: string;
   tierId: string;
   quantity: number;
   seatIds: string[]; // normalized, sorted
   ownerId: string;
-  idempotencyKeyHash: string;
   status: "active" | "confirmed" | "expired" | "released" | "cancelled";
   createdAt: number;
   expiresAt: number;
-  updatedAt: number;
-  quote: ReservationQuote;
-  seatMapVersion: number;
   attendee?: { name: string; email: string; phone: string };
-  orderId?: string;
-  extensions?: number;
 }
 
 function seatIdLabel(seatId: string): string {
@@ -636,12 +629,13 @@ async function finalizeBookingServerSide(
       return { success: false, error: inventoryError || "Failed to deduct ticket inventory atomically." };
     }
     inventoryDeducted = true;
-    // 5.5 Confirm the attached reservation (locks the hold to this paid booking)
+    // 5.5 Mark the temporary hold as fulfilled. The linked order remains the
+    // fulfillment audit record; the reservation stays intentionally lean.
     if (pendingOrder?.reservationId) {
       try {
         await rtdbTransaction(`reservations/${pendingOrder.reservationId}`, (curr: any) => {
           if (curr && curr.status === "active") {
-            return { ...curr, status: "confirmed", orderId, confirmedAt: Date.now() };
+            return { ...curr, status: "confirmed" };
           }
           return curr; // non-active reservation already swept; continue
         }, authToken);
@@ -1244,7 +1238,7 @@ export async function createApp() {
 
   app.post("/api/reservations", async (req, res) => {
     try {
-      const { eventId, showtimeId, tierId, quantity, seatIds, idempotencyKey } = req.body || {};
+      const { eventId, tierId, quantity, seatIds, idempotencyKey } = req.body || {};
 
       if (!eventId || !tierId || !quantity) {
         return res.status(400).json({ success: false, error: "Missing eventId, tierId, or quantity." });
@@ -1291,7 +1285,6 @@ export async function createApp() {
         return res.status(400).json({ success: false, error: "Number of selected seats must equal the requested quantity." });
       }
 
-      const showtimeIdClean = showtimeId || "main";
       let quoteResult;
       try {
         quoteResult = computeReservationQuote(eventData, normalizedSeats, quantity, tierId);
@@ -1320,23 +1313,16 @@ export async function createApp() {
       const record: ReservationRecord = {
         reservationId,
         eventId,
-        showtimeId: showtimeIdClean,
         tierId,
         quantity,
         seatIds: normalizedSeats,
         ownerId: owner.ownerId,
-        idempotencyKeyHash: idHash,
         status: "active",
         createdAt: now,
         expiresAt: now + RESERVATION_HOLD_TTL_MS,
-        updatedAt: now,
-        quote: quoteResult.quote,
-        seatMapVersion: quoteResult.seatMapVersion,
       };
 
       await rtdbSet(`reservations/${reservationId}`, record, authToken);
-      await rtdbSet(`reservation_owners/${reservationId}`, { ownerId: owner.ownerId, reservationId }, authToken);
-      await rtdbSet(`reservation_events/${eventId}/${reservationId}`, { reservationId, status: "active" }, authToken);
 
       const result = {
         success: true,
@@ -1348,8 +1334,6 @@ export async function createApp() {
         expiresAt: record.expiresAt,
         serverNow: now,
         holdTtlMs: RESERVATION_HOLD_TTL_MS,
-        quote: record.quote,
-        seatMapVersion: record.seatMapVersion,
       };
 
       idempotencyResults.set(idHash, { createdAt: now, result });
@@ -1369,15 +1353,13 @@ export async function createApp() {
       if (!record) {
         return res.status(404).json({ success: false, error: "Reservation not found." });
       }
-      if (record.ownerId !== owner.ownerId) {
+      if (!isReservationOwner(record, owner)) {
         return res.status(403).json({ success: false, error: "This reservation does not belong to you." });
       }
       const now = Date.now();
       if (record.status === "active" && now > record.expiresAt) {
         record.status = "expired";
-        record.updatedAt = now;
-        await rtdbUpdate(`reservations/${record.reservationId}`, { status: "expired", updatedAt: now }, authToken);
-        await rtdbUpdate(`reservation_events/${record.eventId}/${record.reservationId}`, { status: "expired" }, authToken);
+        await rtdbUpdate(`reservations/${record.reservationId}`, { status: "expired" }, authToken);
       }
       return res.json({ success: true, ...record, serverNow: now });
     } catch (err: any) {
@@ -1392,23 +1374,26 @@ export async function createApp() {
       const authToken = await getAdminAuthToken();
       const record = (await rtdbGet(`reservations/${req.params.reservationId}`, authToken)).data as ReservationRecord | null;
       if (!record) return res.status(404).json({ success: false, error: "Reservation not found." });
-      if (record.ownerId !== owner.ownerId) return res.status(403).json({ success: false, error: "Not your reservation." });
+      if (!isReservationOwner(record, owner)) return res.status(403).json({ success: false, error: "Not your reservation." });
       if (record.status !== "active") return res.status(409).json({ success: false, error: `Reservation is ${record.status} and cannot be renewed.` });
       const now = Date.now();
       if (now > record.expiresAt) {
         record.status = "expired";
-        await rtdbUpdate(`reservations/${record.reservationId}`, { status: "expired", updatedAt: now }, authToken);
+        await rtdbUpdate(`reservations/${record.reservationId}`, { status: "expired" }, authToken);
         return res.status(409).json({ success: false, error: "Reservation has expired. Please reselect your seats." });
       }
-      const newExpiresAt = Math.max(now + RESERVATION_HOLD_TTL_MS, record.expiresAt + RESERVATION_HOLD_TTL_MS);
-      const extensions = (record.extensions || 0) + 1;
-      if (extensions > 3) {
+      const maxExpiresAt = record.createdAt + (RESERVATION_HOLD_TTL_MS * 4);
+      const newExpiresAt = Math.min(
+        Math.max(now + RESERVATION_HOLD_TTL_MS, record.expiresAt + RESERVATION_HOLD_TTL_MS),
+        maxExpiresAt
+      );
+      if (newExpiresAt <= record.expiresAt) {
         return res.status(409).json({ success: false, error: "Maximum reservation extensions reached. Please complete payment." });
       }
-      const update: any = { expiresAt: newExpiresAt, updatedAt: now, extensions };
+      const update: any = { expiresAt: newExpiresAt };
       if (record.seatIds.length > 0) {
         for (const seatId of record.seatIds) {
-          rtdbUpdate(`seats/${record.eventId}/${seatId}`, { holdExpiresAt: newExpiresAt, heldBy: owner.ownerId, status: "held", heldAt: now }, authToken).catch(() => {});
+          rtdbUpdate(`seats/${record.eventId}/${seatId}`, { holdExpiresAt: newExpiresAt, heldBy: record.ownerId, status: "held", heldAt: now }, authToken).catch(() => {});
         }
       }
       await rtdbUpdate(`reservations/${record.reservationId}`, update, authToken);
@@ -1425,17 +1410,15 @@ export async function createApp() {
       const authToken = await getAdminAuthToken();
       const record = (await rtdbGet(`reservations/${req.params.reservationId}`, authToken)).data as ReservationRecord | null;
       if (!record) return res.status(404).json({ success: false, error: "Reservation not found." });
-      if (record.ownerId !== owner.ownerId) return res.status(403).json({ success: false, error: "Not your reservation." });
+      if (!isReservationOwner(record, owner)) return res.status(403).json({ success: false, error: "Not your reservation." });
       if (record.status !== "active") return res.json({ success: true, message: `Reservation already ${record.status}.` });
       const now = Date.now();
       record.status = "released";
-      record.updatedAt = now;
-      await rtdbUpdate(`reservations/${record.reservationId}`, { status: "released", updatedAt: now }, authToken);
-      await rtdbUpdate(`reservation_events/${record.eventId}/${record.reservationId}`, { status: "released" }, authToken);
+      await rtdbUpdate(`reservations/${record.reservationId}`, { status: "released" }, authToken);
       if (record.seatIds.length > 0) {
         for (const seatId of record.seatIds) {
           rtdbTransaction(`seats/${record.eventId}/${seatId}`, (seat: any) => {
-            if (seat && seat.status === "held" && seat.heldBy === owner.ownerId && seat.reservationId === record.reservationId) {
+            if (seat && seat.status === "held" && seat.heldBy === record.ownerId && seat.reservationId === record.reservationId) {
               return { ...seat, status: "available", heldBy: null, reservationId: null, heldAt: null, holdExpiresAt: null };
             }
             return seat;
@@ -1458,12 +1441,12 @@ export async function createApp() {
       const authToken = await getAdminAuthToken();
       const record = (await rtdbGet(`reservations/${req.params.reservationId}`, authToken)).data as ReservationRecord | null;
       if (!record) return res.status(404).json({ success: false, error: "Reservation not found." });
-      if (record.ownerId !== owner.ownerId) return res.status(403).json({ success: false, error: "Not your reservation." });
+      if (!isReservationOwner(record, owner)) return res.status(403).json({ success: false, error: "Not your reservation." });
       if (record.status !== "active") return res.status(409).json({ success: false, error: `Reservation is ${record.status} and cannot be adjusted.` });
       const now = Date.now();
       if (now > record.expiresAt) {
         record.status = "expired";
-        await rtdbUpdate(`reservations/${record.reservationId}`, { status: "expired", updatedAt: now }, authToken);
+        await rtdbUpdate(`reservations/${record.reservationId}`, { status: "expired" }, authToken);
         return res.status(409).json({ success: false, error: "Reservation has expired. Please reselect your seats." });
       }
       let { seatIds = [], quantity } = (req.body || {});
@@ -1497,7 +1480,7 @@ export async function createApp() {
         (s) => !record.seatIds.includes(s) && !(s as any).__skip // noop
       );
       if (toClaim.length > 0) {
-        const claim = await claimSeatsAtomically(authToken, record.eventId, toClaim, record.reservationId, owner.ownerId);
+        const claim = await claimSeatsAtomically(authToken, record.eventId, toClaim, record.reservationId, record.ownerId);
         if (!claim.committed) {
           return res.status(409).json({ success: false, error: claim.error || "One or more seats were just taken. Please try again." });
         }
@@ -1507,16 +1490,16 @@ export async function createApp() {
       if (toRelease.length > 0) {
         for (const seatId of toRelease) {
           rtdbTransaction(`seats/${record.eventId}/${seatId}`, (seat: any) => {
-            if (seat && seat.status === "held" && seat.heldBy === owner.ownerId && seat.reservationId === record.reservationId) {
+            if (seat && seat.status === "held" && seat.heldBy === record.ownerId && seat.reservationId === record.reservationId) {
               return { ...seat, status: "available", heldBy: null, reservationId: null, heldAt: null, holdExpiresAt: null };
             }
             return seat;
           }, authToken).catch(() => {});
         }
       }
-      // Refresh expiry
+      // Quotes are always recalculated at quote/payment time, not stored in a hold.
       const newExpiresAt = Math.max(now + RESERVATION_HOLD_TTL_MS, record.expiresAt);
-      const update: any = { seatIds, quantity, expiresAt: newExpiresAt, updatedAt: now, quote: quoteResult.quote, seatMapVersion: quoteResult.seatMapVersion };
+      const update: any = { seatIds, quantity, expiresAt: newExpiresAt };
       await rtdbUpdate(`reservations/${record.reservationId}`, update, authToken);
       console.log(`[RESERVATION] Updated ${record.reservationId} seats=${seatIds.join(",")} released=${toRelease.join(",")}`);
       return res.json({
@@ -1528,8 +1511,6 @@ export async function createApp() {
         expiresAt: newExpiresAt,
         serverNow: now,
         holdTtlMs: RESERVATION_HOLD_TTL_MS,
-        quote: quoteResult.quote,
-        seatMapVersion: quoteResult.seatMapVersion,
       });
     } catch (err: any) {
       console.error("[RESERVATION SELECTION UPDATE ERROR]", err.message || err);
@@ -1551,14 +1532,14 @@ export async function createApp() {
       const authToken = await getAdminAuthToken();
       const record = (await rtdbGet(`reservations/${req.params.reservationId}`, authToken)).data as ReservationRecord | null;
       if (!record) return res.status(404).json({ success: false, error: "Reservation not found." });
-      if (record.ownerId !== owner.ownerId) return res.status(403).json({ success: false, error: "Not your reservation." });
+      if (!isReservationOwner(record, owner)) return res.status(403).json({ success: false, error: "Not your reservation." });
       if (record.status !== "active") return res.status(409).json({ success: false, error: `Reservation is ${record.status}.` });
       const attendee = {
         name: String(name).slice(0, 100),
         email: String(email).slice(0, 150),
         phone: String(phone).slice(0, 20),
       };
-      await rtdbUpdate(`reservations/${record.reservationId}`, { attendee, updatedAt: Date.now() }, authToken);
+      await rtdbUpdate(`reservations/${record.reservationId}`, { attendee }, authToken);
       return res.json({ success: true, attendee });
     } catch (err: any) {
       console.error("[RESERVATION ATTENDEE ERROR]", err.message || err);
@@ -1574,7 +1555,7 @@ export async function createApp() {
       const authToken = await getAdminAuthToken();
       const record = (await rtdbGet(`reservations/${req.params.reservationId}`, authToken)).data as ReservationRecord | null;
       if (!record) return res.status(404).json({ success: false, error: "Reservation not found." });
-      if (record.ownerId !== owner.ownerId) return res.status(403).json({ success: false, error: "Not your reservation." });
+      if (!isReservationOwner(record, owner)) return res.status(403).json({ success: false, error: "Not your reservation." });
       const now = Date.now();
       if (record.status !== "active" || now > record.expiresAt) {
         return res.status(409).json({ success: false, error: "Reservation is no longer active." });
@@ -1622,17 +1603,12 @@ export async function createApp() {
       if (!record) {
         return res.status(404).json({ success: false, error: "Reservation not found." });
       }
-      if (record.ownerId !== owner.ownerId) {
+      if (!isReservationOwner(record, owner)) {
         return res.status(403).json({ success: false, error: "Not your reservation." });
       }
       const now = Date.now();
       if (record.status !== "active" || now > record.expiresAt) {
         return res.status(409).json({ success: false, error: "Reservation is no longer active. Please select your seats again." });
-      }
-
-      // Idempotency: an already-booked reservation must not be purchased twice.
-      if (record.orderId) {
-        return res.status(409).json({ success: false, error: "This reservation has already been booked." });
       }
 
       const eventRes = await rtdbGet(`events/${record.eventId}`, authToken);
@@ -1712,15 +1688,12 @@ export async function createApp() {
       if (!record) {
         return res.status(404).json({ success: false, error: "Reservation not found." });
       }
-      if (record.ownerId !== owner.ownerId) {
+      if (!isReservationOwner(record, owner)) {
         return res.status(403).json({ success: false, error: "Not your reservation." });
       }
       const now = Date.now();
       if (record.status !== "active" || now > record.expiresAt) {
         return res.status(409).json({ success: false, error: "Reservation is no longer active. Please select your seats again." });
-      }
-      if (record.orderId) {
-        return res.status(409).json({ success: false, error: "This reservation has already been booked." });
       }
       if (record.attendee && (!record.attendee.name || !record.attendee.email || !record.attendee.phone)) {
         return res.status(400).json({ success: false, error: "Attendee details are required before payment." });
@@ -1794,12 +1767,9 @@ export async function createApp() {
         rzpCreatedAt: Date.now(),
       }, authToken);
 
-      // Extend the reservation hold so the buyer has time to complete payment.
-      await rtdbUpdate(`reservations/${reservationId}`, {
-        expiresAt: Math.max(record.expiresAt, now + RESERVATION_HOLD_TTL_MS),
-        orderId,
-        quote: quoteResult.quote,
-      }, authToken);
+      // Extend only the hold expiry. Payment state belongs to pending_orders.
+      const holdUntil = Math.max(record.expiresAt, now + RESERVATION_HOLD_TTL_MS);
+      await rtdbUpdate(`reservations/${reservationId}`, { expiresAt: holdUntil }, authToken);
 
       return res.json({
         success: true,
@@ -1809,7 +1779,7 @@ export async function createApp() {
         amountMinor: totalMinor,
         appliedCoupon,
         isTestMode: isTestMode(),
-        holdUntil: now + RESERVATION_HOLD_TTL_MS,
+        holdUntil,
       });
     } catch (err: any) {
       console.error("[RAZORPAY CREATE-ORDER ERROR]", err.message || err);

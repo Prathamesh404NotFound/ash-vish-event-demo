@@ -28,8 +28,6 @@ export interface ReservationState {
   expiresAt: number;
   serverNow: number;
   holdTtlMs: number;
-  quote: { currency: string; subtotalMinor: number; discountMinor: number; feesMinor: number; totalMinor: number };
-  seatMapVersion: number;
   attendee?: { name: string; email: string; phone: string };
 }
 
@@ -39,14 +37,23 @@ export interface QuoteResult {
 }
 
 const SESSION_ID_STORAGE_KEY = 'ash_vish_session_id';
+let inMemorySessionId: string | null = null;
 
 /** Abort reason token used to cancel a superseded in-flight reservation request. */
 const STALE_REQUEST_TOKEN = '__stale_reservation_request__';
 
 export function getSessionId(): string {
-  let sid = localStorage.getItem(SESSION_ID_STORAGE_KEY);
+  let sid: string | null = null;
+  try {
+    sid = localStorage.getItem(SESSION_ID_STORAGE_KEY);
+  } catch {
+    // Storage-disabled and private browsing environments still need one stable
+    // identity for every hold, attendee, quote, and payment request in this tab.
+  }
+  sid ||= inMemorySessionId;
   if (!sid) {
     sid = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    inMemorySessionId = sid;
     try {
       localStorage.setItem(SESSION_ID_STORAGE_KEY, sid);
     } catch (err) {
@@ -571,8 +578,6 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       expiresAt: data.expiresAt,
       serverNow: data.serverNow,
       holdTtlMs: data.holdTtlMs,
-      quote: data.quote,
-      seatMapVersion: data.seatMapVersion,
     };
     setReservation(next);
     // Keep selection in sync
@@ -596,12 +601,10 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         seatIds: data.seatIds,
         status: data.status,
         ownerId: data.ownerId,
-        expiresAt: data.expiresAt,
-        serverNow: data.serverNow,
-        holdTtlMs: data.holdTtlMs,
-        quote: data.quote,
-        seatMapVersion: data.seatMapVersion,
-        attendee: data.attendee,
+      expiresAt: data.expiresAt,
+      serverNow: data.serverNow,
+      holdTtlMs: data.holdTtlMs,
+      attendee: data.attendee,
       };
       setReservation(next);
       return next;

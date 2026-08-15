@@ -24,7 +24,7 @@ for (const [id, rec] of Object.entries<any>(recs)) {
   await fetch(`${DB_HOST}/reservations/${id}.json?auth=${encodeURIComponent(tok)}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ status: "released", updatedAt: Date.now() }),
+    body: JSON.stringify({ status: "released" }),
   });
   deleted++;
 }
