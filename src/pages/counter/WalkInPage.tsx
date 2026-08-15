@@ -1,12 +1,9 @@
 import React, { useState } from 'react';
-import { useEffect } from 'react';
 import { UserPlus, Ticket, CheckCircle2, DollarSign, Phone, User, Calendar, ArrowRight, Printer, Search, CreditCard, QrCode, Armchair } from 'lucide-react';
 import { useBooking } from '../../contexts/BookingContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { Ticket as TicketType } from '../../types';
 import { SeatMap } from '../../components/SeatMap';
-import { QRPlaceholder } from '../../components/QRPlaceholder';
-import { fetchSignedTicketToken } from '../../lib/ticket-token';
 
 export const WalkInPage: React.FC = () => {
   const { events, createWalkInBooking } = useBooking();
@@ -23,8 +20,6 @@ export const WalkInPage: React.FC = () => {
   const [paymentMode, setPaymentMode] = useState<'cash' | 'card' | 'counter_upi'>('cash');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [issuedTicket, setIssuedTicket] = useState<TicketType | null>(null);
-  const [signedToken, setSignedToken] = useState<string | null>(null);
-  const [tokenError, setTokenError] = useState<string | null>(null);
 
   const filteredEvents = events.filter((e) =>
     e.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -33,18 +28,6 @@ export const WalkInPage: React.FC = () => {
 
   const selectedEvent = events.find((e) => e.id === selectedEventId) || events[0];
   const selectedTier = selectedEvent?.ticketTiers.find((t) => t.id === selectedTierId) || selectedEvent?.ticketTiers[0];
-
-  useEffect(() => {
-    let active = true;
-    setSignedToken(null);
-    setTokenError(null);
-    if (issuedTicket) {
-      fetchSignedTicketToken(issuedTicket.id)
-        .then((token) => { if (active) setSignedToken(token); })
-        .catch((err: any) => { if (active) setTokenError(err?.message || 'Secure QR unavailable.'); });
-    }
-    return () => { active = false; };
-  }, [issuedTicket?.id]);
 
   const handleIssueWalkIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -76,8 +59,6 @@ export const WalkInPage: React.FC = () => {
 
   const handleReset = () => {
     setIssuedTicket(null);
-    setSignedToken(null);
-    setTokenError(null);
     setAttendeeName('');
     setAttendeePhone('');
     setSelectedSeats([]);
@@ -136,9 +117,9 @@ export const WalkInPage: React.FC = () => {
               <span>Payment Mode:</span>
               <span className="font-bold text-emerald-400">₹{issuedTicket.totalPaid} ({paymentMode.toUpperCase()})</span>
             </div>
-            <div className="pt-3 border-t border-white/10 flex flex-col items-center gap-2">
-              {signedToken ? <QRPlaceholder value={signedToken} size={150} showScanLine /> : <div className="w-[150px] h-[150px] flex items-center justify-center text-[10px] text-gray-500">Loading secure QR…</div>}
-              <span className="font-mono text-[10px] text-gray-300 truncate max-w-[260px]">{signedToken || tokenError || 'Server-issued token pending'}</span>
+            <div className="flex justify-between text-gray-400 pt-2 border-t border-white/10">
+              <span>QR Security Payload:</span>
+              <span className="font-mono text-[10px] text-gray-300 truncate max-w-[180px]">{issuedTicket.qrCodeValue}</span>
             </div>
           </div>
 

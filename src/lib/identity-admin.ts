@@ -41,9 +41,9 @@ function getServiceAccount(): ServiceAccount | null {
 let cachedAdminIdToken: { token: string; expiresAt: number } | null = null;
 
 /**
- * Obtains a Firebase ID token for the fixed, server-only custom-token identity.
- * RTDB rules authorize `admin-server-bot` explicitly. This token is never sent to
- * a browser and preserves the no-Firebase-Admin-SDK architecture.
+ * Obtains a Firebase Admin ID Token by generating a service-account signed Custom Token
+ * and exchanging it via Identity Toolkit REST API (signInWithCustomToken).
+ * This token passes Realtime Database security rules as an authenticated admin user.
  */
 export async function getFirebaseAdminIdToken(): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
@@ -56,12 +56,14 @@ export async function getFirebaseAdminIdToken(): Promise<string> {
     throw new Error('Service account credentials not configured in environment variables.');
   }
 
-  const alg = 'RS256';
-  const privateKey = await importPKCS8(sa.privateKey, alg);
   const apiKey = process.env.VITE_FIREBASE_API_KEY || process.env.FIREBASE_API_KEY;
   if (!apiKey) {
     throw new Error('VITE_FIREBASE_API_KEY not configured in environment variables.');
   }
+
+  const alg = 'RS256';
+  const privateKey = await importPKCS8(sa.privateKey, alg);
+
   const customToken = await new SignJWT({
     uid: 'admin-server-bot',
     claims: { role: 'admin', admin: true },
@@ -77,7 +79,10 @@ export async function getFirebaseAdminIdToken(): Promise<string> {
   const response = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key=${apiKey}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ token: customToken, returnSecureToken: true }),
+    body: JSON.stringify({
+      token: customToken,
+      returnSecureToken: true,
+    }),
   });
 
   if (!response.ok) {
@@ -86,13 +91,11 @@ export async function getFirebaseAdminIdToken(): Promise<string> {
   }
 
   const data = await response.json();
-  if (!data.idToken) {
-    throw new Error('Identity Toolkit response did not include an ID token.');
-  }
   cachedAdminIdToken = {
     token: data.idToken,
     expiresAt: now + (data.expiresIn ? parseInt(data.expiresIn, 10) : 3600),
   };
 
-  return cachedAdminIdToken.token;
+  return data.idToken;
 }
+

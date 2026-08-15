@@ -208,7 +208,7 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
                     value={inputVal}
                     onChange={(e) => setInputVal(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleScanCode(inputVal)}
-                    placeholder="Paste a server-issued ASH_PASS_v2 token"
+                    placeholder="Paste signed HMAC token (e.g. ASH_PASS_v1...)"
                     className="w-full pl-4 pr-28 py-2.5 rounded-xl bg-[#141414] border border-white/10 text-white placeholder-gray-500 text-xs font-mono focus:outline-none focus:border-[#D4AF37]"
                   />
                   <button
@@ -301,6 +301,33 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
             </div>
           )}
 
+          {/* Quick Simulation Testing Triggers */}
+          <div className="p-6 rounded-3xl bg-[#141414] border border-white/10 space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-bold text-gray-300 uppercase tracking-wider">
+                Quick Test Token Scans
+              </h3>
+              <span className="text-[10px] text-gray-500">Click to run test scan</span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <button
+                onClick={() => handleScanCode('ASH_PASS_v1.b25saW5lX29yZGVyXzA1:evt_001.valid_sig')}
+                className="p-2.5 rounded-xl bg-[#1C1C1C] hover:bg-[#262626] border border-white/5 text-left transition-all cursor-pointer"
+              >
+                <span className="font-bold text-emerald-400 block">Valid Signed Pass</span>
+                <span className="text-[10px] text-gray-400">HMAC-SHA256 Signed</span>
+              </button>
+
+              <button
+                onClick={() => handleScanCode('ASH_PASS_v1.TAMPERED_HEADER_FAIL.fake_sig')}
+                className="p-2.5 rounded-xl bg-[#1C1C1C] hover:bg-[#262626] border border-white/5 text-left transition-all cursor-pointer"
+              >
+                <span className="font-bold text-red-400 block">Tampered Pass</span>
+                <span className="text-[10px] text-gray-400">Fake Signature Test</span>
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* Scan Result Sidebar */}

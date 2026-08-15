@@ -28,14 +28,10 @@ function formatPath(path: string): string {
 function buildUrl(path: string, authToken?: string): string {
   const urlStr = formatPath(path);
   if (!authToken) return urlStr;
-
-  // Server-only OAuth tokens are explicitly tagged to avoid confusing them with
-  // Firebase ID tokens. Legacy raw ya29 access tokens remain supported.
-  const isTaggedOAuth = authToken.startsWith('oauth:');
-  const isLegacyOAuth = authToken.startsWith('ya29.');
-  const param = isTaggedOAuth || isLegacyOAuth ? 'access_token' : 'auth';
-  const token = isTaggedOAuth ? authToken.slice('oauth:'.length) : authToken;
-  return `${urlStr}?${param}=${encodeURIComponent(token)}`;
+  
+  // If authToken starts with 'ya29.', it's a Google OAuth2 access token
+  const param = authToken.startsWith('ya29.') ? 'access_token' : 'auth';
+  return `${urlStr}?${param}=${encodeURIComponent(authToken)}`;
 }
 
 /**

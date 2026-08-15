@@ -5,7 +5,6 @@ import { QRPlaceholder } from './QRPlaceholder';
 import { TicketModal } from './TicketModal';
 import { generateTicketPDF } from '../utils/pdfGenerator';
 import { useBooking } from '../contexts/BookingContext';
-import { fetchSignedTicketToken } from '../lib/ticket-token';
 
 interface TicketCardProps {
   ticket: TicketType;
@@ -18,13 +17,12 @@ export const TicketCard: React.FC<TicketCardProps> = ({ ticket }) => {
 
   const event = getEventById(ticket.eventId);
 
-  const handleDownload = async () => {
+  const handleDownload = () => {
     setIsDownloading(true);
     try {
-      const signedToken = await fetchSignedTicketToken(ticket.id);
-      await generateTicketPDF(ticket, event, signedToken);
+      generateTicketPDF(ticket, event);
     } catch (e) {
-      console.warn('Secure PDF download warning:', e);
+      console.warn('PDF download warning:', e);
     } finally {
       setTimeout(() => setIsDownloading(false), 800);
     }
@@ -122,10 +120,7 @@ export const TicketCard: React.FC<TicketCardProps> = ({ ticket }) => {
               onClick={() => setModalOpen(true)}
               className="cursor-pointer group relative p-2 bg-white rounded-lg transition-transform hover:scale-105"
             >
-              <div className="w-[110px] h-[110px] flex flex-col items-center justify-center gap-2 text-center text-[10px] text-gray-500">
-                <QrCode className="w-7 h-7 text-[#D4AF37]" />
-                <span>Open to load secure QR</span>
-              </div>
+              <QRPlaceholder value={ticket.qrCodeValue} size={110} />
               <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center text-white font-bold text-xs gap-1">
                 <ExternalLink className="w-4 h-4" /> Expand
               </div>
