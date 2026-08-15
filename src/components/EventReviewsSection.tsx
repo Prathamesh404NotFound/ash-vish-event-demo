@@ -1,17 +1,31 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Star, CheckCircle2, MessageSquarePlus, Send, ThumbsUp } from 'lucide-react';
 import { useBooking } from '../contexts/BookingContext';
 import { useAuth } from '../contexts/AuthContext';
+import { safeFetch } from '../lib/api';
 
 interface EventReviewsSectionProps {
   eventId: string;
 }
 
 export const EventReviewsSection: React.FC<EventReviewsSectionProps> = ({ eventId }) => {
-  const { getEventReviews, submitReview } = useBooking();
+  const { submitReview } = useBooking();
   const { user } = useAuth();
+  const [reviews, setReviews] = useState<any[]>([]);
+  const [reviewVersion, setReviewVersion] = useState(0);
 
-  const reviews = getEventReviews(eventId);
+  useEffect(() => {
+    let cancelled = false;
+    const loadPublishedReviews = async () => {
+      const result = await safeFetch<{ success?: boolean; reviews?: any[] }>(`/api/events/${encodeURIComponent(eventId)}/reviews`);
+      if (!cancelled) {
+        setReviews(result.ok && Array.isArray(result.data?.reviews) ? result.data.reviews : []);
+      }
+    };
+    void loadPublishedReviews();
+    return () => { cancelled = true; };
+  }, [eventId, reviewVersion]);
+
   const totalReviews = reviews.length;
   const avgRating = totalReviews > 0
     ? Number((reviews.reduce((acc, r) => acc + r.rating, 0) / totalReviews).toFixed(1))
@@ -47,9 +61,10 @@ export const EventReviewsSection: React.FC<EventReviewsSectionProps> = ({ eventI
     setIsSubmitting(false);
 
     if (ok) {
-      setSuccessMessage('Thank you! Your review has been published.');
+      setSuccessMessage('Thank you! Your verified review has been published.');
       setComment('');
       setShowReviewForm(false);
+      setReviewVersion(version => version + 1);
       setTimeout(() => setSuccessMessage(''), 4000);
     }
   };

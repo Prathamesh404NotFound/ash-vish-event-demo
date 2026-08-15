@@ -1,8 +1,9 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import confetti from 'canvas-confetti';
 import { CheckCircle, Download, Ticket as TicketIcon, Calendar, MapPin, Share2, Sparkles, ArrowRight } from 'lucide-react';
 import { useBooking } from '../contexts/BookingContext';
 import { QRPlaceholder } from '../components/QRPlaceholder';
+import { fetchSignedTicketToken } from '../lib/ticket-token';
 
 interface ConfirmationPageProps {
   onGoToMyTickets: () => void;
@@ -15,6 +16,8 @@ export const ConfirmationPage: React.FC<ConfirmationPageProps> = ({
 }) => {
   const { myTickets } = useBooking();
   const latestTicket = myTickets[0]; // Most recent ticket purchased
+  const [signedToken, setSignedToken] = useState<string | null>(null);
+  const [tokenError, setTokenError] = useState<string | null>(null);
 
   useEffect(() => {
     // Launch celebratory confetti burst
@@ -25,6 +28,18 @@ export const ConfirmationPage: React.FC<ConfirmationPageProps> = ({
       colors: ['#FF6B00', '#FF8A26', '#ffffff', '#22C55E'],
     });
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    setSignedToken(null);
+    setTokenError(null);
+    if (latestTicket) {
+      fetchSignedTicketToken(latestTicket.id)
+        .then((token) => { if (active) setSignedToken(token); })
+        .catch((err: any) => { if (active) setTokenError(err?.message || 'Secure QR unavailable.'); });
+    }
+    return () => { active = false; };
+  }, [latestTicket?.id]);
 
   if (!latestTicket) {
     return (
@@ -130,12 +145,12 @@ export const ConfirmationPage: React.FC<ConfirmationPageProps> = ({
         {/* Bottom Half with QR Code */}
         <div className="p-6 sm:p-8 bg-[#1C1C1C]/60 flex flex-col items-center justify-center text-center space-y-4">
           <div className="p-3 bg-white rounded-2xl shadow-xl border-2 border-[#FF6B00]">
-            <QRPlaceholder value={latestTicket.qrCodeValue} size={180} showScanLine />
+            {signedToken ? <QRPlaceholder value={signedToken} size={180} showScanLine /> : <div className="w-[180px] h-[180px] flex items-center justify-center text-xs text-gray-600">Loading secure QR…</div>}
           </div>
 
           <div className="space-y-1">
             <p className="font-mono text-xs text-[#FF6B00] font-bold">
-              {latestTicket.qrCodeValue}
+              {signedToken || tokenError || 'Server-issued QR token is still loading.'}
             </p>
             <p className="text-[11px] text-gray-400">Scan this barcode at venue entrance gate</p>
           </div>

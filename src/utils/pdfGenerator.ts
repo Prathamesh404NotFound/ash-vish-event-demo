@@ -274,7 +274,7 @@ export const generateTicketPDF = async (
   doc.setTextColor(150, 150, 150);
   doc.setFontSize(6.5);
   doc.setFont('courier', 'normal');
-  const tokenDisplay = signedToken || `HMAC_SHA256_${ticket.id}_${ticket.qrCodeValue}`;
+  const tokenDisplay = signedToken || 'SERVER_TOKEN_UNAVAILABLE';
   doc.text(`SECURE AUTH-TOKEN: ${tokenDisplay.slice(0, 78)}...`, 105, 229, { align: 'center' });
   doc.text(`SIGNATURE HASH: ${tokenDisplay.slice(-40)}`, 105, 232.5, { align: 'center' });
 
@@ -303,4 +303,3 @@ export const generateTicketPDF = async (
   // Save PDF Document
   doc.save(`Ticket_${ticket.ticketNumber}_${ticket.attendeeName.replace(/\s+/g, '_')}.pdf`);
 };
-

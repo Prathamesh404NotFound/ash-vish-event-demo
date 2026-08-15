@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { X, CheckCircle, MapPin, Calendar, User, Download, Share2, Sparkles, Mail, ShieldCheck } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Ticket } from '../types';
@@ -7,6 +7,7 @@ import { generateTicketPDF } from '../utils/pdfGenerator';
 import { useBooking } from '../contexts/BookingContext';
 
 import { safeFetch } from '../lib/api';
+import { fetchSignedTicketToken } from '../lib/ticket-token';
 
 interface TicketModalProps {
   ticket: Ticket;
@@ -18,9 +19,19 @@ export const TicketModal: React.FC<TicketModalProps> = ({ ticket, onClose }) => 
   const [emailSending, setEmailSending] = useState(false);
   const [emailStatus, setEmailStatus] = useState<string | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
-  const [signedToken, setSignedToken] = useState<string>(`ASH_PASS_v1.${Buffer.from(`${ticket.id}:${ticket.eventId}:${ticket.seatNumber}`).toString('base64url')}.hmac_sec_2026`);
+  const [signedToken, setSignedToken] = useState<string | null>(null);
+  const [tokenError, setTokenError] = useState<string | null>(null);
 
   const event = getEventById(ticket.eventId);
+
+  useEffect(() => {
+    let active = true;
+    setTokenError(null);
+    fetchSignedTicketToken(ticket.id)
+      .then((token) => { if (active) setSignedToken(token); })
+      .catch((err: any) => { if (active) setTokenError(err?.message || 'Secure QR unavailable.'); });
+    return () => { active = false; };
+  }, [ticket.id]);
 
   const handleDownloadPDF = async () => {
     if (isDownloading) return;
@@ -28,6 +39,7 @@ export const TicketModal: React.FC<TicketModalProps> = ({ ticket, onClose }) => 
     // Yield to the browser main thread to allow the Framer Motion spinner to mount/spin and the high-res canvas to fully paint.
     await new Promise((resolve) => setTimeout(resolve, 600));
     try {
+      if (!signedToken) throw new Error('Secure QR token is not ready yet.');
       await generateTicketPDF(ticket, event, signedToken);
     } catch (err) {
       console.error('Failed to generate PDF:', err);
@@ -53,10 +65,10 @@ export const TicketModal: React.FC<TicketModalProps> = ({ ticket, onClose }) => 
       if (res.ok && res.data?.success) {
         setEmailStatus(`E-Ticket sent to ${res.data.sentTo}`);
       } else {
-        setEmailStatus('Failed to send email pass.');
+        setEmailStatus(res.data?.error || 'Email delivery is not available. Please download your ticket instead.');
       }
     } catch (err) {
-      setEmailStatus('Email notification dispatched to inbox.');
+      setEmailStatus('Email delivery is not available. Please download your ticket instead.');
     } finally {
       setEmailSending(false);
     }
@@ -94,18 +106,18 @@ export const TicketModal: React.FC<TicketModalProps> = ({ ticket, onClose }) => 
         {/* QR Code Section */}
         <div className="p-6 flex flex-col items-center justify-center bg-[#090909] text-center">
           <div id={`qr-canvas-${ticket.id}`} className="p-4 bg-white rounded-2xl shadow-2xl border-4 border-[#D4AF37]">
-            <QRPlaceholder id={ticket.id} value={signedToken} size={200} showScanLine />
+            {signedToken ? <QRPlaceholder id={ticket.id} value={signedToken} size={200} showScanLine /> : <div className="w-[200px] h-[200px] flex items-center justify-center text-xs text-gray-600">Loading secure QR…</div>}
           </div>
 
           <p className="mt-3 font-mono text-xs text-[#D4AF37] tracking-widest font-bold">
             {ticket.ticketNumber}
           </p>
           <p className="text-[11px] text-gray-400 mt-1 flex items-center gap-1">
-            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" /> HMAC-SHA256 Token Signature Verified
+            <ShieldCheck className={`w-3.5 h-3.5 ${signedToken ? 'text-emerald-400' : 'text-amber-400'}`} /> {signedToken ? 'Server-issued HMAC-SHA256 token' : (tokenError || 'Loading server-issued QR token')}
           </p>
 
           <div className="mt-2 p-2 bg-black/60 rounded-xl border border-white/10 text-[10px] font-mono text-gray-400 max-w-xs truncate">
-            {signedToken}
+            {signedToken || tokenError || 'Token withheld until server verification completes.'}
           </div>
         </div>
 
@@ -174,4 +186,3 @@ export const TicketModal: React.FC<TicketModalProps> = ({ ticket, onClose }) => 
     </div>
   );
 };
-

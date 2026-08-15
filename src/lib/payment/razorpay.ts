@@ -17,6 +17,8 @@ import crypto from "crypto";
 
 const KEY_ID = process.env.RAZORPAY_KEY_ID || "";
 const KEY_SECRET = process.env.RAZORPAY_KEY_SECRET || "";
+const PAYMENT_MODE = String(process.env.RAZORPAY_MODE || "").trim().toLowerCase();
+const LIVE_MODE_CONFIRMED = process.env.RAZORPAY_LIVE_MODE_CONFIRMATION === "true";
 
 const RAZORPAY_BASE = "https://api.razorpay.com/v1";
 
@@ -29,14 +31,23 @@ export function isRazorpayConfigured(): RazorpayAvailability {
   if (!KEY_ID || !KEY_SECRET) {
     return { available: false, reason: "Razorpay credentials are not configured." };
   }
-  if (!KEY_ID.startsWith("rzp_test_") && !KEY_ID.startsWith("rzp_live_")) {
-    return { available: false, reason: "Invalid Razorpay key id format." };
+  if (PAYMENT_MODE !== "test" && PAYMENT_MODE !== "live") {
+    return { available: false, reason: "RAZORPAY_MODE must be explicitly set to test or live." };
+  }
+  if (PAYMENT_MODE === "test" && !KEY_ID.startsWith("rzp_test_")) {
+    return { available: false, reason: "RAZORPAY_MODE=test requires an rzp_test_ key." };
+  }
+  if (PAYMENT_MODE === "live" && !KEY_ID.startsWith("rzp_live_")) {
+    return { available: false, reason: "RAZORPAY_MODE=live requires an rzp_live_ key." };
+  }
+  if (PAYMENT_MODE === "live" && !LIVE_MODE_CONFIRMED) {
+    return { available: false, reason: "Live Razorpay mode requires RAZORPAY_LIVE_MODE_CONFIRMATION=true." };
   }
   return { available: true };
 }
 
 export function isTestMode(): boolean {
-  return KEY_ID.startsWith("rzp_test_");
+  return PAYMENT_MODE === "test";
 }
 
 async function razorpayRequest(
