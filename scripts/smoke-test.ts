@@ -19,7 +19,7 @@ const ENDPOINTS_TO_TEST: TestEndpoint[] = [
   { name: 'Create Coupon (Admin Auth Check)', path: '/api/coupons/create', method: 'POST', body: { code: 'TEST_SMOKE', type: 'percentage', value: 10, validUntil: '2028-12-31', isActive: true }, expectedStatus: [200, 401, 403] },
   { name: 'Admin Fetch Reviews (Admin Auth Check)', path: '/api/admin/reviews', method: 'GET', expectedStatus: [200, 401, 403] },
   { name: 'Fetch Event Reviews', path: '/api/events/evt_001/reviews', method: 'GET', expectedStatus: 200 },
-  { name: 'Toggle Review Visibility', path: '/api/admin/reviews/toggle-visibility', method: 'POST', body: { reviewId: 'rev_101' }, expectedStatus: [200, 401, 403] },
+  { name: 'Toggle Review Visibility', path: '/api/admin/reviews/toggle-visibility', method: 'POST', body: { reviewId: 'review_smoke_test_missing' }, expectedStatus: [200, 401, 403, 404] },
   { name: 'Delete Review Rejects Unauthenticated Caller (DELETE)', path: '/api/admin/reviews/rev_test_smoke', method: 'DELETE', expectedStatus: [401, 403] },
   { name: 'Delete Review Rejects Unauthenticated Caller (POST)', path: '/api/admin/reviews/delete', method: 'POST', body: { reviewId: 'rev_test_smoke' }, expectedStatus: [401, 403] },
   { name: 'Fetch Organizers List', path: '/api/organizers', method: 'GET', expectedStatus: [200, 401, 403] },

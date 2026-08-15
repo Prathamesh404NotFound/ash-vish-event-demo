@@ -1126,101 +1126,19 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
-  // Reviews State
-  const [reviews, setReviews] = useState<EventReview[]>([
-    {
-      id: "rev_101",
-      eventId: "evt_001",
-      userId: "usr_mock_1",
-      userName: "Ananya Sharma",
-      userAvatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&q=80&w=200",
-      rating: 5,
-      comment: "An incredible concert! Sound clarity and stage visual lighting were world-class.",
-      createdAt: "2026-07-20T14:32:00Z",
-      status: "published",
-      isVerifiedBuyer: true,
-    },
-    {
-      id: "rev_102",
-      eventId: "evt_001",
-      userId: "usr_mock_2",
-      userName: "Rahul Verma",
-      userAvatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=200",
-      rating: 5,
-      comment: "Best live performance in Mumbai this year! Gate scanning took less than 10 seconds.",
-      createdAt: "2026-07-21T09:15:00Z",
-      status: "published",
-      isVerifiedBuyer: true,
-    },
-    {
-      id: "rev_103",
-      eventId: "evt_002",
-      userId: "usr_mock_3",
-      userName: "Priya Nair",
-      userAvatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=200",
-      rating: 4,
-      comment: "Hilarious comedy special! Non-stop laughs from start to finish.",
-      createdAt: "2026-07-28T18:40:00Z",
-      status: "published",
-      isVerifiedBuyer: true,
-    }
-  ]);
+  // Review state is populated only from persisted RTDB records.
+  const [reviews, setReviews] = useState<EventReview[]>([]);
 
   const fetchAllReviewsForAdmin = async () => {
     try {
       const snap = await rtdbGet('reviews');
-      if (snap.data && typeof snap.data === 'object') {
-        const reviewsList = Object.values(snap.data) as EventReview[];
-        if (reviewsList.length > 0) {
-          setReviews(reviewsList);
-          return;
-        }
-      }
-      // Seed default reviews into RTDB if empty, so updates persist across refreshes
-      const defaultReviews: EventReview[] = [
-        {
-          id: "rev_101",
-          eventId: "evt_001",
-          userId: "usr_mock_1",
-          userName: "Ananya Sharma",
-          userAvatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&q=80&w=200",
-          rating: 5,
-          comment: "An incredible concert! Sound clarity and stage visual lighting were world-class.",
-          createdAt: "2026-07-20T14:32:00Z",
-          status: "published",
-          isVerifiedBuyer: true,
-        },
-        {
-          id: "rev_102",
-          eventId: "evt_001",
-          userId: "usr_mock_2",
-          userName: "Rahul Verma",
-          userAvatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=200",
-          rating: 5,
-          comment: "Best live performance in Mumbai this year! Gate scanning took less than 10 seconds.",
-          createdAt: "2026-07-21T09:15:00Z",
-          status: "published",
-          isVerifiedBuyer: true,
-        },
-        {
-          id: "rev_103",
-          eventId: "evt_002",
-          userId: "usr_mock_3",
-          userName: "Priya Nair",
-          userAvatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=200",
-          rating: 4,
-          comment: "Hilarious comedy special! Non-stop laughs from start to finish.",
-          createdAt: "2026-07-28T18:40:00Z",
-          status: "published",
-          isVerifiedBuyer: true,
-        }
-      ];
-      for (const rev of defaultReviews) {
-        await rtdbSet(`reviews/${rev.id}`, rev);
-      }
-      setReviews(defaultReviews);
+      const reviewsList = snap.data && typeof snap.data === 'object'
+        ? Object.values(snap.data) as EventReview[]
+        : [];
+      setReviews(reviewsList);
     } catch (err) {
       console.warn('RTDB reviews fetch notice:', err);
+      setReviews([]);
     }
   };
 
