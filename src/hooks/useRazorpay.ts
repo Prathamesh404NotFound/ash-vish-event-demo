@@ -102,11 +102,18 @@ export function useRazorpay() {
         return { session: null, error: res.data?.error || `Could not create payment order (${res.status}).` };
       }
       const data = res.data;
+      const key = String(data.rzpKey || '').trim();
+      if (!data.orderId || !data.rzpOrderId || !/^rzp_(test|live)_[A-Za-z0-9]+$/.test(key) || !Number.isInteger(data.amountMinor) || data.amountMinor <= 0) {
+        return {
+          session: null,
+          error: 'Payment is temporarily unavailable because a valid checkout order was not returned. Your seats remain held; please try again shortly.',
+        };
+      }
       const s: RazorpaySession = {
-        orderId: data.orderId!,
-        rzpOrderId: data.rzpOrderId!,
-        rzpKey: data.rzpKey || '',
-        amountMinor: data.amountMinor || 0,
+        orderId: data.orderId,
+        rzpOrderId: data.rzpOrderId,
+        rzpKey: key,
+        amountMinor: data.amountMinor,
         isTestMode: data.isTestMode === true,
       };
       setSession(s);
@@ -148,6 +155,10 @@ export function useRazorpay() {
       getEventTitle: () => string;
     }
   ) => {
+    if (!session.orderId || !session.rzpOrderId || !/^rzp_(test|live)_[A-Za-z0-9]+$/.test(session.rzpKey) || !Number.isInteger(session.amountMinor) || session.amountMinor <= 0) {
+      handlers.onError('Payment is temporarily unavailable because a valid checkout order was not returned. Your seats remain held.');
+      return;
+    }
     if (!window.Razorpay) {
       handlers.onError('Checkout could not be loaded. Please refresh and try again.');
       return;

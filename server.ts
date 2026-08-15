@@ -1197,7 +1197,11 @@ export async function createApp() {
   /** Identify the owner for reservation endpoints: logged-in uid or a guest session id. */
   async function resolveReservationOwner(
     req: express.Request
-  ): Promise<{ ownerId: string; authenticated: boolean; uid?: string; role?: string }> {
+  ): Promise<{ ownerId: string; authenticated: boolean; uid?: string; role?: string; guestOwnerId?: string }> {
+    const headerSession = (req.headers["x-session-id"] as string)?.slice(0, 64) || "";
+    const sessionIdGuest = headerSession
+      ? "guest_" + crypto.createHash("sha256").update(headerSession).digest("hex").slice(0, 16)
+      : "";
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith("Bearer ")) {
       const token = authHeader.split(" ")[1];
@@ -1216,20 +1220,26 @@ export async function createApp() {
       })();
       if (verified) {
         const role = await fetchUserRoleFromRTDB(verified.uid, token);
-        return { ownerId: verified.uid, authenticated: true, uid: verified.uid, role };
+        return { ownerId: verified.uid, authenticated: true, uid: verified.uid, role, guestOwnerId: sessionIdGuest || undefined };
       }
     }
     // Guest session identity: based on the stable X-Session-Id header. The old
     // composite scheme (IP|UA|sessionId) was flaky behind Vercel's edge proxy
     // because req.ip varies between requests — it is kept as a legacy candidate
     // so reservations created under the old scheme still resolve during use.
-    const headerSession = (req.headers["x-session-id"] as string)?.slice(0, 64) || "";
-    const sessionIdGuest = headerSession
-      ? "guest_" + crypto.createHash("sha256").update(headerSession).digest("hex").slice(0, 16)
-      : "";
     const raw = `${req.ip || req.socket?.remoteAddress || "unknown"}|${req.headers["user-agent"] || "unknown"}|${headerSession}`;
     const legacyCompositeGuest = "guest_" + crypto.createHash("sha256").update(raw).digest("hex").slice(0, 16);
     return { ownerId: sessionIdGuest || legacyCompositeGuest, authenticated: false };
+  }
+
+  /**
+   * A guest reservation may be created just before Firebase login completes.
+   * Preserve access only when that same browser also proves knowledge of the
+   * original opaque session id; do not accept an arbitrary owner id from the
+   * client. This prevents a valid sign-in from orphaning its in-progress hold.
+   */
+  function isReservationOwner(record: ReservationRecord, owner: { ownerId: string; guestOwnerId?: string }): boolean {
+    return record.ownerId === owner.ownerId || Boolean(owner.guestOwnerId && record.ownerId === owner.guestOwnerId);
   }
 
   app.post("/api/reservations", async (req, res) => {
