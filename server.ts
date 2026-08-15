@@ -2233,11 +2233,27 @@ export async function createApp() {
 
   const handleDeleteReview = async (req: any, res: any) => {
     try {
-      const reviewId = req.params?.reviewId || req.body?.reviewId || req.query?.reviewId;
+      const rawReviewId = req.params?.reviewId || req.body?.reviewId || req.query?.reviewId;
+      const reviewId = typeof rawReviewId === 'string' ? rawReviewId.trim() : '';
       const token = await getAdminAuthToken();
-      if (!reviewId) return res.status(400).json({ success: false, error: "reviewId is required." });
-      await rtdbDelete(`reviews/${reviewId}`, await getAdminAuthToken());
-      return res.json({ success: true });
+      if (!reviewId || !/^rev_[A-Za-z0-9_-]{1,128}$/.test(reviewId)) {
+        return res.status(400).json({ success: false, error: "A valid reviewId is required." });
+      }
+      if (!token) {
+        return res.status(503).json({ success: false, error: "Review moderation is unavailable because the server database identity is not configured." });
+      }
+
+      const existing = await rtdbGet(`reviews/${reviewId}`, token);
+      if (!existing.data) {
+        return res.status(404).json({ success: false, error: "Review not found." });
+      }
+
+      await rtdbDelete(`reviews/${reviewId}`, token);
+      const verification = await rtdbGet(`reviews/${reviewId}`, token);
+      if (verification.data) {
+        return res.status(502).json({ success: false, error: "The review could not be removed from the database." });
+      }
+      return res.json({ success: true, reviewId });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err.message });
     }

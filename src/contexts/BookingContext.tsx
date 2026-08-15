@@ -1265,33 +1265,47 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const toggleReviewVisibility = async (reviewId: string) => {
     const target = reviews.find(r => r.id === reviewId);
-    const newStatus = target && target.status === 'published' ? 'hidden' : 'published';
-    // Optimistic update
-    setReviews(prev => prev.map(r => r.id === reviewId ? { ...r, status: newStatus as 'published' | 'hidden' } : r));
+    if (!target) {
+      showToast('Review not found. Refresh the moderation list and try again.', 'error');
+      return;
+    }
     try {
-      if (target) {
-        await rtdbSet(`reviews/${reviewId}`, { ...target, status: newStatus });
-        showToast(`Review ${newStatus === 'hidden' ? 'hidden' : 'published'}.`, 'success');
+      const response = await safeFetch<any>('/api/admin/reviews/toggle-visibility', {
+        method: 'POST',
+        headers: await authenticatedApiHeaders(),
+        body: JSON.stringify({ reviewId }),
+      });
+      const data = response.data || {};
+      if (!response.ok || !data.success || !data.review) {
+        showToast(data.error || response.error || 'Review visibility could not be updated.', 'error');
+        return;
       }
+      setReviews(prev => prev.map(r => r.id === reviewId ? data.review as EventReview : r));
+      showToast(`Review ${data.review.status === 'hidden' ? 'hidden' : 'published'}.`, 'success');
     } catch (e) {
-      console.warn('RTDB review visibility update warning:', e);
-      // Revert on failure
-      setReviews(prev => prev.map(r => r.id === reviewId ? { ...r, status: target?.status || 'published' } : r));
+      console.warn('Review visibility API request failed:', e);
+      showToast('Review visibility could not be updated. Please try again.', 'error');
     }
   };
 
   const deleteReview = async (reviewId: string) => {
-    const snapshot = reviews.find(r => r.id === reviewId);
-    // Optimistic remove from UI
-    setReviews(prev => prev.filter(r => r.id !== reviewId));
     try {
-      await rtdbDelete(`reviews/${reviewId}`);
-      showToast('Review removed.', 'info');
+      const response = await safeFetch<any>(`/api/admin/reviews/${encodeURIComponent(reviewId)}`, {
+        method: 'DELETE',
+        headers: await authenticatedApiHeaders(),
+      });
+      const data = response.data || {};
+      if (!response.ok || !data.success || data.reviewId !== reviewId) {
+        showToast(data.error || response.error || 'The review was not deleted. Please try again.', 'error');
+        return;
+      }
+      // Update the interface only after the protected server confirms that the
+      // Realtime Database record has been removed.
+      setReviews(prev => prev.filter(r => r.id !== reviewId));
+      showToast('Review permanently removed.', 'success');
     } catch (e: any) {
-      console.warn('RTDB delete review warning:', e);
-      // Restore if delete failed
-      if (snapshot) setReviews(prev => [snapshot, ...prev]);
-      showToast('Failed to delete review. Please try again.', 'error');
+      console.warn('Review deletion API request failed:', e);
+      showToast('The review was not deleted. Please try again.', 'error');
     }
   };
 
