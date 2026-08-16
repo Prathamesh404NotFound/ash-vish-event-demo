@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { ref, onValue, runTransaction, onDisconnect } from 'firebase/database';
 import { rtdb } from '../lib/firebase';
 import { SeatMapConfig, SeatNode, TicketTier } from '../types';
 import { formatINR } from '../utils/formatters';
 import { Armchair, CheckCircle, AlertCircle, Sparkles, Clock, Ticket, ShieldCheck, Tag, Info } from 'lucide-react';
+import { chooseSeatSelection, findContiguousSeatBlock } from '../lib/contiguousSeatSelection';
 
 interface SeatMapProps {
   eventId: string;
@@ -103,14 +104,17 @@ export const SeatMap: React.FC<SeatMapProps> = ({
         const labels = taken.join(', ');
         setErrorMsg(`Seat(s) ${labels} were just taken by another buyer.`);
         onReservationError?.(`Seat(s) ${labels} were just taken by another buyer. Please re-select.`);
-        const updated = prev.filter((id) => !projectionHeld.has(id));
+        // A multi-ticket party must remain an unbroken block. If live updates
+        // invalidate one of its seats, clear the group rather than retaining a
+        // broken partial selection.
+        const updated = requiredQuantity > 1 ? [] : prev.filter((id) => !projectionHeld.has(id));
         onSeatsSelected(updated);
         return updated;
       }
       return prev;
     });
     setDbSeats({}); // projection supersedes the legacy DB snapshot
-  }, [seatProjection, currentUserId, onReservationError, onSeatsSelected]);
+  }, [seatProjection, currentUserId, onReservationError, onSeatsSelected, requiredQuantity]);
 
   const getSeatStatus = (seatId: string): { status: 'available' | 'held' | 'booked'; isMine: boolean } => {
     // Server projection is authoritative. A projection entry overrides dbSeats.
@@ -154,6 +158,34 @@ export const SeatMap: React.FC<SeatMapProps> = ({
     return { status: node.status, isMine: false };
   };
 
+  // When a buyer is replacing an unfinished group, their own temporary seats
+  // remain eligible for the next candidate block. Other buyers' seats never do.
+  const isSeatAvailableForBlock = (seatId: string) => {
+    const status = getSeatStatus(seatId);
+    return status.status === 'available' || (status.status === 'held' && status.isMine);
+  };
+
+  const validGroupAnchors = useMemo(() => {
+    const valid = new Set<string>();
+    if (requiredQuantity <= 1) return valid;
+    for (let row = 1; row <= rows; row += 1) {
+      for (let column = 1; column <= cols; column += 1) {
+        const seatId = `R${row}-C${column}`;
+        if (findContiguousSeatBlock({
+          row,
+          anchorColumn: column,
+          quantity: requiredQuantity,
+          columns: cols,
+          aisleAfterCols,
+          isSeatAvailable: isSeatAvailableForBlock,
+        })) valid.add(seatId);
+      }
+    }
+    return valid;
+    // getSeatStatus intentionally reads the live projection and current local
+    // selection so anchors update immediately when either changes.
+  }, [rows, cols, aisleAfterCols, requiredQuantity, seatProjection, dbSeats, localHeldSeats, currentUserId, reservationOwnerId]);
+
   const handleSeatClick = async (seatId: string) => {
     setErrorMsg('');
     const current = getSeatStatus(seatId);
@@ -169,6 +201,36 @@ export const SeatMap: React.FC<SeatMapProps> = ({
     }
 
     const isAlreadySelected = localHeldSeats.includes(seatId);
+    if (requiredQuantity > 1) {
+      const selection = chooseSeatSelection({
+        anchorSeatId: seatId,
+        currentSeatIds: localHeldSeats,
+        row: 0,
+        anchorColumn: 0,
+        quantity: requiredQuantity,
+        columns: cols,
+        aisleAfterCols,
+        isSeatAvailable: isSeatAvailableForBlock,
+      });
+      if (selection.error) {
+        setErrorMsg(selection.error);
+        return;
+      }
+      if (claimingRef.current.length > 0) {
+        setErrorMsg('Another seat selection is being updated, please wait a moment.');
+        return;
+      }
+      claimingRef.current = selection.seatIds;
+      try {
+        setLocalHeldSeats(selection.seatIds);
+        onSeatsSelected(selection.seatIds);
+        setHoldTimeLeft(600);
+      } finally {
+        claimingRef.current = [];
+      }
+      return;
+    }
+
     if (isAlreadySelected) {
       // Deselect locally — the wizard persists (or releases) the reservation
       // when the buyer confirms or leaves the flow. Nothing is written to RTDB
@@ -326,6 +388,7 @@ export const SeatMap: React.FC<SeatMapProps> = ({
                         const seatId = `R${rowNum}-C${colNum}`;
                         const { status, isMine } = getSeatStatus(seatId);
                         const isAisle = aisleAfterCols.includes(colNum);
+                        const isInvalidGroupAnchor = requiredQuantity > 1 && status === 'available' && !validGroupAnchors.has(seatId);
 
                         // Cinema Seat Box Styling based on state:
                         // Available: Gold border with number
@@ -345,6 +408,9 @@ export const SeatMap: React.FC<SeatMapProps> = ({
                             btnClasses =
                               'w-7 h-7 sm:w-8 sm:h-8 rounded-md bg-yellow-950/20 border border-yellow-900/30 text-yellow-700 text-xs cursor-not-allowed flex items-center justify-center';
                           }
+                        } else if (isInvalidGroupAnchor) {
+                          btnClasses =
+                            'w-7 h-7 sm:w-8 sm:h-8 rounded-md bg-[#141414] border border-[#2A2A2A] text-gray-600 text-xs cursor-not-allowed opacity-70 flex items-center justify-center';
                         }
 
                         return (
@@ -355,8 +421,10 @@ export const SeatMap: React.FC<SeatMapProps> = ({
                               onClick={() => handleSeatClick(seatId)}
                               onMouseEnter={() => setHoveredSeatId(seatId)}
                               onMouseLeave={() => setHoveredSeatId(null)}
-                              disabled={status === 'booked' || (status === 'held' && !isMine)}
-                              title={`Seat ${rowLabel}-${colNum} | ${getSeatCategory(rowNum)} | ${flatPrice ? formatINR(flatPrice) : 'Standard'} | ${status}`}
+                              disabled={status === 'booked' || (status === 'held' && !isMine) || isInvalidGroupAnchor}
+                              title={isInvalidGroupAnchor
+                                ? `Seat ${rowLabel}-${colNum} cannot fit ${requiredQuantity} seats together`
+                                : `Seat ${rowLabel}-${colNum} | ${getSeatCategory(rowNum)} | ${flatPrice ? formatINR(flatPrice) : 'Standard'} | ${status}`}
                             >
                               <span>{colNum}</span>
                             </button>
