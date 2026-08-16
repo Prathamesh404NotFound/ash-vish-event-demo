@@ -2657,7 +2657,7 @@ export async function createApp() {
 
   app.post("/api/walk-in-bookings", verifyRole(['admin', 'ticket_counter']), async (req: any, res) => {
     try {
-      const { eventId, tierId, attendeeName, attendeePhone, attendeeEmail, selectedSeats = [], paymentMethod = 'cash', couponCode: rawCouponCode } = req.body || {};
+      const { eventId, tierId, attendeeName, attendeePhone, attendeeEmail, selectedSeats = [], paymentMethod = 'cash', couponCode: rawCouponCode, payments: rawPayments, discountOverride: rawOverride, shiftId } = req.body || {};
       if (!eventId || !tierId || !attendeeName || !attendeePhone) {
         return res.status(400).json({ success: false, error: "Event, ticket tier, attendee name, and phone are required." });
       }
@@ -2666,6 +2666,22 @@ export async function createApp() {
       }
       if (rawCouponCode && typeof rawCouponCode !== "string") {
         return res.status(400).json({ success: false, error: "Invalid coupon code." });
+      }
+      // Split payments (Item 2): an optional breakdown of amounts by method.
+      // Each entry must carry a positive amount, and the sum must equal the
+      // final order total (after discounts). The lead paymentMethod remains
+      // the canonical primary method for the booking record.
+      let splitPayments: { method: string; amount: number }[] = [];
+      if (rawPayments !== undefined) {
+        if (!Array.isArray(rawPayments) || rawPayments.length === 0 || rawPayments.length > 5) {
+          return res.status(400).json({ success: false, error: "Split payments must list between 1 and 5 entries." });
+        }
+        splitPayments = rawPayments
+          .map((p: any) => ({ method: String(p?.method || "").slice(0, 32) || "other", amount: Number(p?.amount) }))
+          .filter((p: any) => Number.isFinite(p.amount) && p.amount > 0);
+        if (splitPayments.length !== rawPayments.length) {
+          return res.status(400).json({ success: false, error: "Every split payment must carry a positive amount." });
+        }
       }
       // Server-side validation (Item 6): quantity is a positive integer (seat
       // count), and the walk-in may never exceed tier capacity or the platform
@@ -2729,6 +2745,30 @@ export async function createApp() {
         phone: String(attendeePhone).trim(),
       };
       const lineAmount = Number(tier.price) * quantity;
+      // Manager-gated discount override (Item 6): the frontend posts a
+      // manager-approved override; only manager-level RBAC roles may supply
+      // one, and it must never exceed 50% of the order amount.
+      let overrideDiscount = 0;
+      let discountOverrideRecord: any = null;
+      if (rawOverride && typeof rawOverride === "object") {
+        const actorRbac = (req.user.rbacRole as string) || "";
+        if (actorRbac !== "super_admin" && actorRbac !== "event_manager") {
+          return res.status(403).json({ success: false, error: "Access Denied: Discount overrides require manager approval." });
+        }
+        const rawD = Number(rawOverride.discountAmount);
+        if (!Number.isFinite(rawD) || rawD < 0 || rawD > lineAmount / 2) {
+          return res.status(400).json({ success: false, error: "Override discount must be between 0 and 50% of the order amount." });
+        }
+        overrideDiscount = Math.round(rawD);
+        discountOverrideRecord = {
+          discountAmount: overrideDiscount,
+          reason: String(rawOverride.reason || "").slice(0, 200) || "Manager discount override",
+          approvedBy: String(rawOverride.actorId || req.user.uid).slice(0, 64),
+          approvedAt: new Date().toISOString(),
+        };
+        discountAmount += overrideDiscount;
+      }
+      const shiftCode = String(shiftId || "").slice(0, 64);
       await rtdbSet(`pending_orders/${orderId}`, {
         orderId,
         eventId,
@@ -2742,6 +2782,9 @@ export async function createApp() {
         couponCode: couponCodeUpper,
         createdAt: new Date().toISOString(),
         paymentMethod: `walkin_${String(paymentMethod).slice(0, 32)}`,
+        ...(splitPayments.length > 0 ? { payments: splitPayments, totalPaid: lineAmount - discountAmount } : {}),
+        ...(discountOverrideRecord ? { discountOverride: discountOverrideRecord } : {}),
+        ...(shiftCode ? { shiftId: shiftCode, staffShiftId: shiftCode } : {}),
       }, adminToken);
 
       const result = await finalizeBookingServerSide(
@@ -2760,7 +2803,14 @@ export async function createApp() {
         action: "order.created.walk_in",
         entityType: "order",
         entityId: orderId,
-        afterState: { eventId, tierId, quantity, attendee: customerDetails.name, paymentMethod, couponCode: couponCodeUpper, discount: discountAmount },
+        afterState: {
+          eventId, tierId, quantity, attendee: customerDetails.name, paymentMethod,
+          couponCode: couponCodeUpper,
+          discount: discountAmount,
+          ...(splitPayments.length > 0 ? { payments: splitPayments } : {}),
+          ...(discountOverrideRecord ? { discountOverride: discountOverrideRecord } : {}),
+          ...(shiftCode ? { shiftId: shiftCode } : {}),
+        },
       });
       return res.status(201).json({ success: true, ticket: result.ticket, booking: result.booking });
     } catch (err: any) {
@@ -3872,6 +3922,450 @@ export async function createApp() {
       return res.status(500).json({ success: false, error: err.message });
     }
   });
+// ============================================================
+// TICKET COUNTER PANEL (Prompt C) — shifts, reprint, void,
+// exchange, discount override, and seat-availability snapshot.
+// All endpoints are gated by the RBAC guard (requireRole) and
+// attribute every action to the logged-in staff member in the
+// append-only audit log.
+// ============================================================
+
+// --- Shift management helpers ---
+async function fetchCounterShifts(authToken: string | undefined, staffUid?: string, allForAdmin?: boolean): Promise<Record<string, any>> {
+  const snap = await rtdbGet("counter_shifts", authToken);
+  const shifts: Record<string, any> = {};
+  const data = snap.data as Record<string, any> | null;
+  if (!data) return shifts;
+  for (const [shiftId, shift] of Object.entries(data)) {
+    const s = (shift || {}) as any;
+    if (allForAdmin || s.staffId === staffUid) {
+      shifts[shiftId] = s;
+    }
+  }
+  return shifts;
+}
+
+// Sum of cash collected by a staff member within a shift's open window.
+// Walk-in sales carry `staffShiftId` on the pending order, so finalized
+// orders inherit it through processed_orders; we attribute via the
+// canonical orders record (channel === 'counter') keyed by createdBy and
+// fall back to the pending_orders carry-over while the order is open.
+async function computeShiftCashTotals(
+  authToken: string | undefined,
+  shift: any
+): Promise<{ expectedCash: number; cashSalesCount: number; totalSales: number; byMethod: Record<string, number> }> {
+  const byMethod: Record<string, number> = {};
+  let expectedCash = 0;
+  let cashSalesCount = 0;
+  let totalSales = 0;
+  const startMs = new Date(shift.startTime).getTime();
+  const endMs = shift.endTime ? new Date(shift.endTime).getTime() : Date.now();
+
+  const addSale = (order: any) => {
+    const amount = Number(order.amount) || 0;
+    const discount = Number(order.discount) || 0;
+    const collected = Math.max(0, amount - discount);
+    totalSales += collected;
+    const method = String(order.paymentMethod || "").replace(/^(walkin_|manual_|counter_)/, "") || "other";
+    const cleanMethod = ["cash", "card", "upi", "counter_upi", "other"].includes(method) ? (method === "counter_upi" ? "upi" : method) : "other";
+    byMethod[cleanMethod] = (byMethod[cleanMethod] || 0) + collected;
+    if (cleanMethod === "cash") {
+      expectedCash += collected;
+      cashSalesCount += 1;
+    }
+  };
+
+  // Canonical orders attributed to this staff inside the shift window.
+  const ordersSnap = await rtdbGet("orders", authToken).catch(() => ({ data: null }));
+  if (ordersSnap.data) {
+    for (const order of Object.values(ordersSnap.data as Record<string, any>)) {
+      const o = (order || {}) as any;
+      if (
+        o.createdBy === shift.staffId &&
+        (o.channel === "counter" || String(o.paymentMethod || "").startsWith("walkin")) &&
+        o.createdAt &&
+        new Date(o.createdAt).getTime() >= startMs &&
+        new Date(o.createdAt).getTime() <= endMs &&
+        o.status === "confirmed" &&
+        (o.shiftId === shift.shiftId || o.staffShiftId === shift.shiftId)
+      ) {
+        addSale(o);
+      }
+    }
+  }
+  // Pending orders carry the shift id while the sale is in flight.
+  const pendingSnap = await rtdbGet("pending_orders", authToken).catch(() => ({ data: null }));
+  if (pendingSnap.data) {
+    for (const order of Object.values(pendingSnap.data as Record<string, any>)) {
+      const o = (order || {}) as any;
+      if (o.shiftId === shift.shiftId) {
+        addSale(o);
+      }
+    }
+  }
+  return { expectedCash, cashSalesCount, totalSales, byMethod };
+}
+
+// --- Counter endpoints ---
+
+// Start a shift: requires staff (counter_staff and up).
+app.post("/api/counter/shifts/start", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
+  try {
+    const { startingCash } = req.body || {};
+    const staffUid = req.user.uid;
+    const rbacRole = (req.user.rbacRole as string) || "counter_staff";
+    // Validate starting cash: non-negative number.
+    const startCash = Number(startingCash);
+    if (!Number.isFinite(startCash) || startCash < 0) {
+      return res.status(400).json({ success: false, error: "Starting cash must be a non-negative number." });
+    }
+    const error = validateNonNegativePrice(startCash);
+    if (error) return res.status(400).json({ success: false, error });
+    // Prevent two concurrent open shifts for the same staff member.
+    const existing = await fetchCounterShifts(await getAdminAuthToken(), staffUid);
+    const openShift = Object.values(existing).find((s: any) => s.status === "open");
+    if (openShift) {
+      return res.status(409).json({ success: false, error: "You already have an open shift. End it before starting a new one." });
+    }
+    const staffSnap = await rtdbGet(`staff/${staffUid}`, req.user.idToken);
+    const staffName = (staffSnap?.data as any)?.name || req.user.email || staffUid;
+    const shiftId = `shf_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const shiftRecord = {
+      shiftId,
+      staffId: staffUid,
+      staffName,
+      staffRole: rbacRole,
+      startTime: new Date().toISOString(),
+      startingCash: startCash,
+      status: "open",
+    };
+    await rtdbSet(`counter_shifts/${shiftId}`, shiftRecord, await getAdminAuthToken());
+    await writeAuditEntry({
+      actorId: staffUid,
+      actorRole: rbacRole,
+      action: "shift.started",
+      entityType: "shift",
+      entityId: shiftId,
+      afterState: { staffName, startingCash: startCash, startTime: shiftRecord.startTime },
+    });
+    return res.status(201).json({ success: true, shift: shiftRecord });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || "Could not start shift." });
+  }
+});
+
+// End a shift: owner or admin; counted cash entered; server computes expected cash.
+app.post("/api/counter/shifts/:shiftId/end", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
+  try {
+    const { shiftId } = req.params;
+    const { countedCash } = req.body || {};
+    const actorUid = req.user.uid;
+    const rbacRole = (req.user.rbacRole as string) || "counter_staff";
+    const snap = await rtdbGet(`counter_shifts/${shiftId}`, await getAdminAuthToken());
+    const shift = snap.data as any;
+    if (!shift) return res.status(404).json({ success: false, error: "Shift not found." });
+    // Only admin/manager levels may end someone else's shift.
+    if (shift.staffId !== actorUid && rbacRole !== "super_admin" && rbacRole !== "event_manager") {
+      return res.status(403).json({ success: false, error: "Access Denied: You can only end your own shift." });
+    }
+    if (shift.status !== "open") {
+      return res.status(409).json({ success: false, error: "This shift has already been closed." });
+    }
+    const counted = Number(countedCash);
+    if (!Number.isFinite(counted) || counted < 0) {
+      return res.status(400).json({ success: false, error: "Counted cash must be a non-negative number." });
+    }
+    const totals = await computeShiftCashTotals(await getAdminAuthToken(), { ...shift, shiftId });
+    const expectedCash = totals.expectedCash;
+    const discrepancy = Math.round((counted - (Number(shift.startingCash) + expectedCash)) * 100) / 100;
+    const update: Record<string, any> = {
+      status: "closed",
+      endTime: new Date().toISOString(),
+      countedCash: counted,
+      expectedCash,
+      discrepancy,
+      cashSalesCount: totals.cashSalesCount,
+      totalSales: totals.totalSales,
+      byMethod: totals.byMethod,
+      closedBy: actorUid,
+    };
+    await rtdbUpdate(`counter_shifts/${shiftId}`, update, await getAdminAuthToken());
+    await writeAuditEntry({
+      actorId: actorUid,
+      actorRole: rbacRole,
+      action: "shift.closed",
+      entityType: "shift",
+      entityId: shiftId,
+      beforeState: { startingCash: shift.startingCash, expectedCash },
+      afterState: { countedCash: counted, discrepancy, totalSales: totals.totalSales, byMethod: totals.byMethod },
+    });
+    return res.status(200).json({
+      success: true,
+      shift: { ...shift, ...update },
+      totals,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || "Could not end shift." });
+  }
+});
+
+// List shifts: staff see their own; admins see all.
+app.get("/api/counter/shifts", requireRole(["counter_staff", "auditor", "event_manager", "super_admin"]), async (req: any, res) => {
+  try {
+    const rbacRole = (req.user.rbacRole as string) || "counter_staff";
+    const isAdmin = rbacRole === "super_admin" || rbacRole === "event_manager";
+    const shifts = await fetchCounterShifts(await getAdminAuthToken(), req.user.uid, isAdmin);
+    return res.status(200).json({ success: true, shifts: Object.values(shifts) });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || "Could not list shifts." });
+  }
+});
+
+// Reprint ticket — reason field is mandatory; audited with reason in after_state.
+app.post("/api/counter/tickets/:ticketId/reprint", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
+  try {
+    const { ticketId } = req.params;
+    const { reason } = req.body || {};
+    const actorUid = req.user.uid;
+    const rbacRole = (req.user.rbacRole as string) || "counter_staff";
+    const trimmedReason = String(reason || "").trim();
+    if (!trimmedReason) {
+      return res.status(400).json({ success: false, error: "A reprint reason is required (e.g. 'lost', 'printer jam')." });
+    }
+    const snap = await rtdbGet(`tickets/${ticketId}`, await getAdminAuthToken());
+    const ticket = snap.data as any;
+    if (!ticket) return res.status(404).json({ success: false, error: "Ticket not found." });
+    await writeAuditEntry({
+      actorId: actorUid,
+      actorRole: rbacRole,
+      action: "ticket.reprinted",
+      entityType: "ticket",
+      entityId: ticketId,
+      afterState: { ticketNumber: ticket.ticketNumber, attendee: ticket.attendeeName, reason: trimmedReason },
+    });
+    return res.status(200).json({ success: true, ticket });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || "Could not reprint ticket." });
+  }
+});
+
+// Void sale — only while the order is still pending (not finalized).
+app.post("/api/counter/sales/:orderId/void", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
+  try {
+    const { orderId } = req.params;
+    const actorUid = req.user.uid;
+    const rbacRole = (req.user.rbacRole as string) || "counter_staff";
+    const pendingSnap = await rtdbGet(`pending_orders/${orderId}`, await getAdminAuthToken());
+    const pending = pendingSnap.data as any;
+    if (!pending) {
+      return res.status(409).json({ success: false, error: "This sale has already been finalized and cannot be voided. Use the refund action instead." });
+    }
+    const beforeState = { orderId, eventId: pending.eventId, tierId: pending.tierId, quantity: pending.quantity, amount: pending.amount, paymentMethod: pending.paymentMethod };
+    // Release any seats claimed for this pending order.
+    if (Array.isArray(pending.seatIds) && pending.seatIds.length > 0 && pending.eventId) {
+      for (const seatId of pending.seatIds) {
+        await releaseSeat(await getAdminAuthToken(), pending.eventId, seatId, { reservationId: pending.reservationId }).catch(() => {});
+      }
+    }
+    await rtdbDelete(`pending_orders/${orderId}`, await getAdminAuthToken());
+    await writeAuditEntry({
+      actorId: actorUid,
+      actorRole: rbacRole,
+      action: "order.voided.counter",
+      entityType: "order",
+      entityId: orderId,
+      beforeState,
+      afterState: { voided: true, voidedBy: actorUid, reason: "Voided before finalization at counter." },
+    });
+    return res.status(200).json({ success: true, message: "Sale voided before finalization." });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || "Could not void sale." });
+  }
+});
+
+// Exchange seat — release old seat, atomically claim the new one; honors the
+// event-level exchangesAllowedUntil window when set.
+app.post("/api/counter/orders/:orderId/exchange", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
+  try {
+    const { orderId } = req.params;
+    const { oldSeatId, newSeats } = req.body || {};
+    const actorUid = req.user.uid;
+    const rbacRole = (req.user.rbacRole as string) || "counter_staff";
+    const adminToken = await getAdminAuthToken();
+    const processedSnap = await rtdbGet(`processed_orders/${orderId}`, adminToken);
+    const processed = (processedSnap.data as any) || {};
+    const ticket = processed.ticket as any;
+    if (!ticket || !processed.booking) {
+      return res.status(404).json({ success: false, error: "Confirmed order not found." });
+    }
+    if (!oldSeatId || !Array.isArray(newSeats) || newSeats.length === 0) {
+      return res.status(400).json({ success: false, error: "oldSeatId and at least one new seat are required." });
+    }
+    const currentSeats: string[] = processed.booking.seatIds || ticket.selectedSeats || [];
+    if (!currentSeats.includes(oldSeatId)) {
+      return res.status(400).json({ success: false, error: "The old seat is not part of this order." });
+    }
+    // Exchange window check (event-level setting, optional).
+    const eventSnap = await rtdbGet(`events/${ticket.eventId}`, adminToken);
+    const event = (eventSnap.data as any) || {};
+    if (event.exchangesAllowedUntil) {
+      if (new Date(event.exchangesAllowedUntil).getTime() < Date.now()) {
+        return res.status(409).json({ success: false, error: "The exchange window for this event has closed." });
+      }
+    }
+    // Guard against duplicate new seats.
+    const uniqueNew = Array.from(new Set(String(newSeats).split(",").map((s: string) => String(s).trim()).filter(Boolean)));
+    const overlap = uniqueNew.filter((s: string) => currentSeats.includes(s));
+    if (overlap.length > 0) {
+      return res.status(400).json({ success: false, error: `New seat(s) already belong to this order: ${overlap.join(", ")}.` });
+    }
+    const ownerId = String(ticket.ownerId || "walk_in_guest");
+    // Release the old seat (must still be held/booked by this order).
+    const release = await releaseSeat(adminToken, ticket.eventId, oldSeatId, {});
+    if (release.committed) {
+      await rtdbTransaction(`seats/${ticket.eventId}/${oldSeatId}`, (seat: any) => {
+        if (!seat) return undefined;
+        if (seat.status === "booked" && seat.orderId === orderId) {
+          return { ...seat, status: "available", bookedBy: null, bookedAt: null, orderId: null, ticketId: null, bookingId: null, statusChangedAt: Date.now(), statusChangedBy: "exchange" };
+        }
+        if (seat.status === "available" || (seat.status === "held" && seat.heldBy !== ownerId)) {
+          return seat; // someone else took it; let the claim step validate
+        }
+        return undefined;
+      }, adminToken).catch(() => {});
+    }
+    // Claim the new seats atomically under the order identity.
+    const claim = await claimSeatsAtomically(adminToken, ticket.eventId, uniqueNew, orderId, ownerId);
+    if (!claim.committed) {
+      // Best-effort restore of the old seat (already bookable again).
+      return res.status(409).json({ success: false, error: claim.error || "The selected replacement seat is no longer available." });
+    }
+    // Transition new seats to booked (fulfillment) and update ticket/booking linkage.
+    for (const seatId of uniqueNew) {
+      await bookSeat(adminToken, ticket.eventId, seatId, ownerId, orderId, ticket.id, processed.booking.bookingId).catch(() => {});
+    }
+    const exchangeEntry = {
+      oldSeatId,
+      newSeats: uniqueNew,
+      actorId: actorUid,
+      at: new Date().toISOString(),
+    };
+    const exchangeHistory = [...((processed.booking as any).exchangeHistory || []), exchangeEntry];
+    await rtdbUpdate(`bookings/${processed.booking.bookingId}`, { exchangeHistory, seatIds: currentSeats.filter((s: string) => s !== oldSeatId).concat(uniqueNew) }, adminToken).catch(() => {});
+    await writeAuditEntry({
+      actorId: actorUid,
+      actorRole: rbacRole,
+      action: "order.seat_exchanged",
+      entityType: "order",
+      entityId: orderId,
+      beforeState: { seats: currentSeats },
+      afterState: { seats: currentSeats.filter((s: string) => s !== oldSeatId).concat(uniqueNew), oldSeatId, newSeats: uniqueNew },
+    });
+    const seatLabel = [...currentSeats.filter((s: string) => s !== oldSeatId), ...uniqueNew]
+      .map((s: string) => {
+        const parts = s.split("-");
+        const r = String.fromCharCode(64 + parseInt(parts[0].replace("R", ""), 10));
+        const c = parts[1].replace("C", "");
+        return `${r}-${c}`;
+      })
+      .join(", ");
+    const updatedTicket = { ...ticket, seatNumber: seatLabel, selectedSeats: currentSeats.filter((s: string) => s !== oldSeatId).concat(uniqueNew) };
+    await rtdbSet(`tickets/${ticket.id}`, updatedTicket, adminToken).catch(() => {});
+    await rtdbSet(`users/${ownerId}/tickets/${ticket.id}`, updatedTicket, adminToken).catch(() => {});
+    return res.status(200).json({ success: true, ticket: updatedTicket });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || "Could not exchange seat." });
+  }
+});
+
+// Manager-gated discount override: only super_admin/event_manager may approve.
+app.post("/api/counter/discount-override", requireRole(["event_manager", "super_admin"]), async (req: any, res) => {
+  try {
+    const actorUid = req.user.uid;
+    const rbacRole = (req.user.rbacRole as string) || "event_manager";
+    const { eventId, orderAmount, discountPercent, discountAmount: rawDiscountAmount, reason } = req.body || {};
+    if (!eventId || !orderAmount) {
+      return res.status(400).json({ success: false, error: "eventId and orderAmount are required." });
+    }
+    const amount = Number(orderAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return res.status(400).json({ success: false, error: "orderAmount must be a positive number." });
+    }
+    let discountAmount = 0;
+    if (discountPercent !== undefined && discountPercent !== null) {
+      const pct = Number(discountPercent);
+      if (!Number.isFinite(pct) || pct < 0 || pct > 50) {
+        return res.status(400).json({ success: false, error: "Discount percent must be between 0 and 50." });
+      }
+      discountAmount = Math.round((amount * pct) / 100);
+    } else {
+      const d = Number(rawDiscountAmount);
+      if (!Number.isFinite(d) || d < 0 || d > amount) {
+        return res.status(400).json({ success: false, error: "Discount amount must be between 0 and the order total." });
+      }
+      discountAmount = Math.round(d);
+    }
+    const staffSnap = await rtdbGet(`staff/${actorUid}`, req.user.idToken);
+    const staffName = (staffSnap?.data as any)?.name || req.user.email || actorUid;
+    const overrideId = `dov_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    await writeAuditEntry({
+      actorId: actorUid,
+      actorRole: rbacRole,
+      action: "discount.override",
+      entityType: "event",
+      entityId: String(eventId),
+      afterState: {
+        overrideId,
+        eventId,
+        orderAmount: amount,
+        discountAmount,
+        approvedBy: actorUid,
+        approvedByName: staffName,
+        reason: String(reason || "").trim() || "Manager discount override",
+      },
+    });
+    return res.status(200).json({
+      success: true,
+      discountOverride: { overrideId, discountAmount, actorId: actorUid, actorName: staffName, amount },
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || "Could not approve discount override." });
+  }
+});
+
+// Seat-availability snapshot for the counter seat map (real-time refresh).
+app.get("/api/counter/events/:eventId/seats", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
+  try {
+    const { eventId } = req.params;
+    const adminToken = await getAdminAuthToken();
+    const eventSnap = await rtdbGet(`events/${eventId}`, adminToken);
+    const event = (eventSnap.data as any) || {};
+    const seatsSnap = await rtdbGet(`seats/${eventId}`, adminToken).catch(() => ({ data: null }));
+    const seats = (seatsSnap.data as Record<string, any>) || {};
+    const now = Date.now();
+    const seatsSnapshot: Record<string, { status: string; heldBy?: string; expiresAt?: number; bookedAt?: number }> = {};
+    for (const [seatId, node] of Object.entries(seats)) {
+      const n = (node || {}) as any;
+      const expiresAt = n.holdExpiresAt || (n.heldAt ? n.heldAt + 10 * 60 * 1000 : 0);
+      let status = n.status || "available";
+      if (status === "held" && expiresAt && now > expiresAt) status = "available";
+      seatsSnapshot[seatId] = {
+        status,
+        heldBy: status === "held" ? n.heldBy : undefined,
+        expiresAt: status === "held" ? expiresAt : undefined,
+        bookedAt: status === "booked" ? n.bookedAt : undefined,
+      };
+    }
+    return res.status(200).json({
+      success: true,
+      event: { id: eventId, title: event.title, seatMap: event.seatMap || null, ticketTiers: event.ticketTiers || [], exchangesAllowedUntil: event.exchangesAllowedUntil || null },
+      seats: seatsSnapshot,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || "Could not load seat availability." });
+  }
+});
+
   if (process.env.NODE_ENV !== "production") {
     // Lazy import: the `vite` package must NOT be resolved in the Vercel
     // serverless module graph (it fails under @vercel/node and crashes the
