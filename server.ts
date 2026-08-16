@@ -5,7 +5,7 @@ import dotenv from "dotenv";
 dotenv.config();
 
 import { verifyFirebaseIdToken, TokenVerificationError } from "./src/lib/verify-token.js";
-import { rtdbGet, rtdbSet, rtdbUpdate, rtdbDelete, rtdbTransaction } from "./src/lib/rtdb.js";
+import { rtdbGet, rtdbSet, rtdbUpdate, rtdbDelete, rtdbTransaction, rtdbPush } from "./src/lib/rtdb.js";
 import { getFirebaseAdminIdToken } from "./src/lib/identity-admin.js";
 import {
   isRazorpayConfigured,
@@ -49,7 +49,13 @@ let COUPONS_DATABASE: Record<string, {
 // Server-authoritative seat holds with atomic all-or-nothing claims,
 // explicit expiration, owner identity, and idempotency keys.
 // ============================================================
-const RESERVATION_HOLD_TTL_MS = 5 * 60 * 1000; // 5 minutes; single server-controlled TTL
+// Named constant for the seat hold duration. A seat that moves to "held" must
+// carry heldUntil = now + SEAT_HOLD_DURATION_MS; once that timestamp passes and
+// no payment completed, the seat must be released back to "available".
+const SEAT_HOLD_DURATION_MS = 10 * 60 * 1000; // 10 minutes
+// Backwards-compatible alias used by the reservation service (existing records
+// and clients reference RESERVATION_HOLD_TTL_MS).
+const RESERVATION_HOLD_TTL_MS = SEAT_HOLD_DURATION_MS;
 const MAX_TICKETS_PER_RESERVATION = 10;
 const RESERVATION_IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000; // 24h idempotency window
 
@@ -156,6 +162,160 @@ function computeReservationQuote(
   return { quote: { currency: "INR", subtotalMinor, discountMinor: 0, feesMinor: 0, totalMinor: subtotalMinor }, seatMapVersion: 0, tier };
 }
 
+// ============================================================
+// SHARED SEAT LOCKING SERVICE
+// The single seat state-transition service used by BOTH the online booking
+// flow (reservations) and the counter panel flow (walk-in bookings). Every
+// transition (available -> held -> booked, or release back to available)
+// runs inside an RTDB transaction (ETag-based conditional write with retry),
+// which is the closest equivalent Firebase Realtime Database offers to
+// SELECT ... FOR UPDATE. Two concurrent requests — online customer, counter
+// staff, or two counter terminals — can never both succeed on the same seat,
+// because only one conditional write can commit against the same ETag.
+// ============================================================
+
+/** A seat transition action applied by the shared locking service. */
+interface SeatLockResult {
+  seatId: string;
+  committed: boolean;
+  /** The seat status as observed at the time the transaction aborted, if known. */
+  observedStatus?: string;
+}
+
+/**
+ * Compute the hold expiry for a seat, tolerant of legacy records that stored
+ * only heldAt (derived expiry) or records with no expiry at all.
+ */
+function seatHoldExpiresAt(seat: any, now: number): number {
+  const expiresAt = seat?.holdExpiresAt || (seat?.heldAt ? seat.heldAt + SEAT_HOLD_DURATION_MS : 0);
+  return typeof expiresAt === "number" ? expiresAt : 0;
+}
+
+/**
+ * Lazy expiry: if a seat node carries a held status whose hold already expired,
+ * release it back to available inside the transaction. Called by every seat read
+ * path (see applySeatLock) so availability is never returned stale.
+ */
+async function releaseExpiredHoldIfAny(
+  path: string,
+  authToken: string | undefined,
+): Promise<boolean> {
+  const now = Date.now();
+  const res = await rtdbTransaction(path, (seat: any) => {
+    if (!seat) return undefined;
+    if (seat.status !== "held") return undefined;
+    const expiresAt = seatHoldExpiresAt(seat, now);
+    if (expiresAt > 0 && now > expiresAt) {
+      return {
+        ...seat,
+        status: "available",
+        heldBy: null,
+        reservationId: null,
+        heldAt: null,
+        holdExpiresAt: null,
+        statusChangedAt: now,
+        statusChangedBy: "hold_expiry",
+      };
+    }
+    return undefined; // hold still valid or not held
+  }, authToken);
+  return res.committed;
+}
+
+/**
+ * Release a seat back to "available" — the single shared release routine used
+ * by reservation cancellation, payment failure cleanup, and hold expiry.
+ * Conditional on the caller still owning the hold, so a seat that was already
+ * booked or re-held by someone else is never overwritten.
+ */
+async function releaseSeat(
+  authToken: string | undefined,
+  eventId: string,
+  seatId: string,
+  options: { ownedBy?: string; reservationId?: string } = {},
+): Promise<SeatLockResult> {
+  const path = `seats/${eventId}/${seatId}`;
+  const res = await rtdbTransaction(path, (seat: any) => {
+    if (!seat) return undefined;
+    const isHeldByCaller =
+      seat.status === "held" &&
+      (options.ownedBy === undefined || seat.heldBy === options.ownedBy) &&
+      (options.reservationId === undefined || seat.reservationId === options.reservationId);
+    if (isHeldByCaller) {
+      return {
+        ...seat,
+        status: "available",
+        heldBy: null,
+        reservationId: null,
+        heldAt: null,
+        holdExpiresAt: null,
+        statusChangedAt: Date.now(),
+        statusChangedBy: "release",
+      };
+    }
+    return undefined; // not held by the caller; someone else owns it or it is booked
+  }, authToken);
+  return { seatId, committed: res.committed, observedStatus: undefined };
+}
+
+/**
+ * Mark a seat as booked (held -> booked). The seat must currently be held by
+ * the given owner (or expired, for walk-in claims that skip the hold step).
+ * Uses the shared transactional path; the payment is the only state that may
+ * follow this write (see payment-ticket integrity rules).
+ */
+async function bookSeat(
+  authToken: string | undefined,
+  eventId: string,
+  seatId: string,
+  userId: string,
+  orderId: string,
+  ticketId?: string,
+  bookingId?: string,
+): Promise<SeatLockResult> {
+  const path = `seats/${eventId}/${seatId}`;
+  const now = Date.now();
+  const res = await rtdbTransaction(path, (seat: any) => {
+    if (!seat) {
+      return {
+        id: seatId,
+        seatId,
+        row: parseInt(seatId.split("-")[0].replace("R", ""), 10) || 1,
+        col: parseInt(seatId.split("-")[1].replace("C", ""), 10) || 1,
+        status: "booked",
+        bookedBy: userId,
+        bookedAt: now,
+        orderId,
+        statusChangedAt: now,
+        statusChangedBy: "booking",
+      };
+    }
+    const expiresAt = seatHoldExpiresAt(seat, now);
+    const isHoldExpired = expiresAt > 0 && now > expiresAt;
+    const isHeldByUser =
+      seat.status === "held" &&
+      (seat.heldBy === userId || seat.ownerId === userId);
+    const eligible =
+      seat.status === "available" ||
+      (seat.status === "held" && (isHeldByUser || isHoldExpired));
+    if (!eligible) return undefined; // abort: seat held by another active hold or already booked
+    return {
+      ...seat,
+      status: "booked",
+      bookedBy: userId,
+      bookedAt: now,
+      orderId,
+      ticketId: ticketId || seat.ticketId,
+      bookingId: bookingId || seat.bookingId,
+      heldAt: seat.heldAt,
+      holdExpiresAt: seat.holdExpiresAt,
+      statusChangedAt: now,
+      statusChangedBy: "booking",
+    };
+  }, authToken);
+  return { seatId, committed: res.committed, observedStatus: undefined };
+}
+
 /**
  * Claim seats atomically. All requested seats must be available (or held/expired by ANYONE),
  * the whole batch succeeds or fails. Returns committed true only when every seat is held.
@@ -173,7 +333,7 @@ async function claimSeatsAtomically(
     const res = await rtdbTransaction(path, (seat: any) => {
       lastStatus = seat?.status;
       const now = Date.now();
-      const expiresAt = seat?.holdExpiresAt || (seat?.heldAt ? seat.heldAt + RESERVATION_HOLD_TTL_MS : 0);
+      const expiresAt = seatHoldExpiresAt(seat, now);
       const isExpired = expiresAt > 0 && now > expiresAt;
       // Same buyer holding this seat in ANOTHER active reservation (e.g. a stale
       // attempt) gets auto-migrated to the current reservation instead of failing.
@@ -216,19 +376,7 @@ async function claimSeatsAtomically(
       // Roll back seats already claimed by this reservation in this batch (all-or-nothing)
       const already = seatIds.slice(0, seatIds.indexOf(seatId));
       for (const rolledId of already) {
-        rtdbTransaction(`seats/${eventId}/${rolledId}`, (seat: any) => {
-          if (seat && seat.status === "held" && seat.reservationId === reservationId) {
-            return {
-              ...seat,
-              status: "available",
-              heldBy: null,
-              reservationId: null,
-              heldAt: null,
-              holdExpiresAt: null,
-            };
-          }
-          return seat;
-        }, authToken).catch(() => {});
+        releaseSeat(authToken, eventId, rolledId, { reservationId }).catch(() => {});
       }
       // Give the user a precise reason instead of the generic catch-all.
       const label = seatIdLabel(seatId);
@@ -339,53 +487,16 @@ async function finalizeBookingServerSide(
       return { success: false, error: "Invalid order amount. Fulfillment aborted." };
     }
 
-    // 3. Seat reservation check
+    // 3. Seat reservation check — uses the SHARED seat locking service (bookSeat),
+    // the same function the online reservation flow uses. Payment-to-ticket
+    // integrity: a seat is only marked booked here, inside fulfillment, which is
+    // only invoked after server-side payment verification.
     if (seatIds && seatIds.length > 0) {
-      const holdExpiryMs = 5 * 60 * 1000;
       let seatClaimError: string | null = null;
 
       for (const seatId of seatIds) {
-        const path = `seats/${eventId}/${seatId}`;
-        const txResult = await rtdbTransaction(path, (currentSeat: any) => {
-          if (!currentSeat) {
-            return {
-              id: seatId,
-              seatId,
-              row: parseInt(seatId.split('-')[0].replace('R', ''), 10) || 1,
-              col: parseInt(seatId.split('-')[1].replace('C', ''), 10) || 1,
-              status: 'booked',
-              bookedBy: userId,
-              orderId,
-            };
-          }
-
-          const expiresAt = currentSeat.holdExpiresAt || (currentSeat.heldAt ? currentSeat.heldAt + holdExpiryMs : 0);
-          const isHoldExpired = expiresAt > 0 && now > expiresAt;
-          // Legacy holds use heldBy === userId (anon_user or uid); new reservation holds use
-          // heldBy === ownerId (guest hash or uid) together with reservationId, so accept
-          // both and allow anyone with a non-expired confirmed-path reservation to claim
-          // if the reservation itself is active/confirmed for the same seats.
-          const isOwnedByUser =
-            currentSeat.heldBy === userId ||
-            currentSeat.ownerId === userId ||
-            (currentSeat.reservationId && currentSeat.reservationId === pendingOrder?.reservationId);
-          const isEligible =
-            currentSeat.status === 'available' ||
-            (currentSeat.status === 'held' && (isOwnedByUser || isHoldExpired));
-
-          if (isEligible) {
-            return {
-              ...currentSeat,
-              status: 'booked',
-              bookedBy: userId,
-              bookedAt: now,
-              orderId,
-            };
-          }
-          return undefined; // abort
-        }, authToken);
-
-        if (txResult.committed) {
+        const result = await bookSeat(authToken, eventId, seatId, userId, orderId);
+        if (result.committed) {
           claimedSeats.push(seatId);
         } else {
           seatClaimError = `Seat ${seatId.replace('R', 'Row ').replace('C', ' Col ')} is no longer available.`;
@@ -394,21 +505,10 @@ async function finalizeBookingServerSide(
       }
 
       if (seatClaimError) {
+        // Payment did not succeed: release all seats we just claimed back to
+        // available using the shared release logic.
         for (const rolledSeatId of claimedSeats) {
-          await rtdbTransaction(`seats/${eventId}/${rolledSeatId}`, (currentSeat: any) => {
-            if (currentSeat && currentSeat.orderId === orderId) {
-              return {
-                ...currentSeat,
-                status: 'held',
-                heldBy: userId,
-                heldAt: now,
-                orderId: null,
-                bookedBy: null,
-                bookedAt: null,
-              };
-            }
-            return currentSeat;
-          }, authToken);
+          await releaseSeat(authToken, eventId, rolledSeatId, {});
         }
         return { success: false, error: seatClaimError };
       }
@@ -441,21 +541,10 @@ async function finalizeBookingServerSide(
       }, authToken);
 
       if (!couponTxResult.committed) {
+        // Payment did not succeed: release all claimed seats via the shared
+        // release service rather than leaving them stuck in a held state.
         for (const rolledSeatId of claimedSeats) {
-          await rtdbTransaction(`seats/${eventId}/${rolledSeatId}`, (currentSeat: any) => {
-            if (currentSeat && currentSeat.orderId === orderId) {
-              return {
-                ...currentSeat,
-                status: 'held',
-                heldBy: userId,
-                heldAt: now,
-                orderId: null,
-                bookedBy: null,
-                bookedAt: null,
-              };
-            }
-            return currentSeat;
-          }, authToken);
+          await releaseSeat(authToken, eventId, rolledSeatId, {});
         }
         return { success: false, error: couponError || "Failed to redeem coupon atomically." };
       }
@@ -501,21 +590,10 @@ async function finalizeBookingServerSide(
           return curr;
         }, authToken);
       }
+      // Payment did not succeed: release all claimed seats via the shared
+      // release service rather than leaving them stuck in a held state.
       for (const rolledSeatId of claimedSeats) {
-        await rtdbTransaction(`seats/${eventId}/${rolledSeatId}`, (currentSeat: any) => {
-          if (currentSeat && currentSeat.orderId === orderId) {
-            return {
-              ...currentSeat,
-              status: 'held',
-              heldBy: userId,
-              heldAt: now,
-              orderId: null,
-              bookedBy: null,
-              bookedAt: null,
-            };
-          }
-          return currentSeat;
-        }, authToken);
+        await releaseSeat(authToken, eventId, rolledSeatId, {});
       }
       return { success: false, error: inventoryError || "Failed to deduct ticket inventory atomically." };
     }
@@ -620,17 +698,19 @@ async function finalizeBookingServerSide(
     await rtdbSet(`bookings/${bookingId}`, newBookingRecord, authToken);
     await rtdbSet(`users/${userId}/bookings/${bookingId}`, newBookingRecord, authToken);
 
+    // The seats were already transitioned to 'booked' in step 3; persist the
+    // ticket/booking linkage (idempotent: the book transaction sets ticketId/
+    // bookingId when provided). This step never re-attempts payment or moves a
+    // seat out of 'booked' — ticket generation failures must not invalidate a
+    // confirmed payment.
     if (seatIds && seatIds.length > 0) {
       for (const seatId of seatIds) {
         await rtdbTransaction(`seats/${eventId}/${seatId}`, (seat: any) => {
-          if (seat) {
+          if (seat && seat.status === 'booked' && seat.orderId === orderId) {
             return {
               ...seat,
-              status: 'booked',
-              bookedBy: userId,
-              ticketId,
-              bookingId,
-              orderId,
+              ticketId: ticketId || seat.ticketId,
+              bookingId: bookingId || seat.bookingId,
             };
           }
           return seat;
@@ -665,7 +745,6 @@ async function sweepExpiredHolds() {
 
     const allEventsSeats = snapshot.data;
     const now = Date.now();
-    const holdExpiryMs = 5 * 60 * 1000;
 
     for (const [eventId, eventSeats] of Object.entries(allEventsSeats)) {
       if (!eventSeats || typeof eventSeats !== "object") continue;
@@ -673,24 +752,11 @@ async function sweepExpiredHolds() {
       for (const [seatId, seatData] of Object.entries(eventSeats as Record<string, any>)) {
         if (!seatData) continue;
         if (seatData.status === "held") {
-          const expiresAt = seatData.holdExpiresAt || (seatData.heldAt ? seatData.heldAt + holdExpiryMs : 0);
+          const expiresAt = seatData.holdExpiresAt || (seatData.heldAt ? seatData.heldAt + SEAT_HOLD_DURATION_MS : 0);
           if (expiresAt > 0 && now > expiresAt) {
-            await rtdbTransaction(`seats/${eventId}/${seatId}`, (seat: any) => {
-              if (seat && seat.status === "held") {
-                const innerExpiresAt = seat.holdExpiresAt || (seat.heldAt ? seat.heldAt + holdExpiryMs : 0);
-                if (now > innerExpiresAt) {
-                  return {
-                    ...seat,
-                    status: "available",
-                    heldBy: null,
-                    heldAt: null,
-                    holdExpiresAt: null,
-                    orderId: null,
-                  };
-                }
-              }
-              return seat;
-            }, authToken);
+            // Use the shared release service so the sweep, reservation
+            // cancellation, and payment-failure cleanup all run the same logic.
+            await releaseSeat(authToken, eventId, seatId, {});
           }
         }
       }
@@ -814,6 +880,122 @@ export async function createApp() {
     return 'customer';
   };
 
+  // ============================================================
+  // RBAC (Item 4): role hierarchy for super_admin, event_manager,
+  // counter_staff, and auditor (read-only). Existing Firebase roles are
+  // normalized into this hierarchy below.
+  // ============================================================
+
+  const RBAC_ROLES = ["super_admin", "event_manager", "counter_staff", "auditor"] as const;
+  type RbacRole = (typeof RBAC_ROLES)[number];
+
+  /** Map legacy Firebase roles to the RBAC hierarchy. */
+  function toRbacRole(firebaseRole: string): RbacRole | null {
+    switch (firebaseRole) {
+      case "admin":
+        return "super_admin";
+      case "organizer":
+        return "event_manager";
+      case "ticket_counter":
+        return "counter_staff";
+      case "auditor":
+        return "auditor";
+      default:
+        return null;
+    }
+  }
+
+  /** Role hierarchy: a role grants its own level and everything above it. */
+  const RBAC_LEVEL: Record<RbacRole, number> = {
+    super_admin: 4,
+    event_manager: 3,
+    counter_staff: 2,
+    auditor: 1,
+  };
+
+  function rbacAllows(actor: RbacRole, required: RbacRole): boolean {
+    return RBAC_LEVEL[actor] >= RBAC_LEVEL[required];
+  }
+
+  // ============================================================
+  // Audit log (Item 5): every state-changing action in the admin and
+  // counter panels writes to the `audit_log` node. actor_id is always the
+  // specific staff member — never a generic "system" actor.
+  // ============================================================
+  async function writeAuditEntry(params: {
+    actorId: string;
+    actorRole: string;
+    action: string;
+    entityType: string;
+    entityId?: string;
+    beforeState?: any;
+    afterState?: any;
+  }): Promise<void> {
+    try {
+      const authToken = await getAdminAuthToken();
+      if (!authToken) return;
+      const entry = {
+        id: `aud_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        actor_id: params.actorId,
+        actor_role: params.actorRole,
+        action: params.action,
+        entity_type: params.entityType,
+        entity_id: params.entityId ?? null,
+        before_state: params.beforeState ?? null,
+        after_state: params.afterState ?? null,
+        timestamp: new Date().toISOString(),
+      };
+      await rtdbPush(`audit_log`, entry, authToken).catch(() => {});
+    } catch (err: any) {
+      // Audit writes must never fail the primary action; log and continue.
+      console.error("[AUDIT] Failed to write audit entry:", err.message);
+    }
+  }
+
+  /**
+   * requireRole: server-side guard that applies the RBAC hierarchy. Use on
+   * every admin/counter endpoint. Example: requireRole('event_manager')
+   * allows super_admin and event_manager; counter_staff is rejected with 403.
+   */
+  const requireRole = (required: RbacRole | RbacRole[]) => {
+    const requiredRoles = Array.isArray(required) ? required : [required];
+    return async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+      try {
+        const authHeader = req.headers.authorization;
+        if (!authHeader || !authHeader.startsWith("Bearer ")) {
+          return res.status(403).json({ success: false, error: "Access Denied: Missing or invalid authentication token." });
+        }
+        const token = authHeader.split(" ")[1];
+        const verified = await verifyFirebaseToken(token);
+        if (!verified) {
+          return res.status(403).json({ success: false, error: "Access Denied: Missing or invalid authentication token." });
+        }
+        const firebaseRole = await fetchUserRoleFromRTDB(verified.uid, token);
+        const rbacRole = toRbacRole(firebaseRole);
+        if (!rbacRole) {
+          return res.status(403).json({ success: false, error: "Access Denied: Insufficient role." });
+        }
+        // Organizer approval check for event_manager level (kept from verifyRole)
+        if (rbacRole === "event_manager") {
+          const orgsSnap = await rtdbGet("organizers", token);
+          const orgsList: any[] = Object.values(orgsSnap.data || {});
+          const org = orgsList.find((o: any) => o.userId === verified.uid);
+          if (!org || org.status !== "approved") {
+            return res.status(403).json({ success: false, error: "Access Denied: Organizer profile is not approved." });
+          }
+        }
+        const allowed = requiredRoles.some((r) => rbacAllows(rbacRole, r));
+        if (!allowed) {
+          return res.status(403).json({ success: false, error: `Access Denied: Role '${rbacRole}' insufficient.` });
+        }
+        (req as any).user = { ...(req as any).user, uid: verified.uid, email: verified.email, role: firebaseRole, rbacRole, idToken: token };
+        return next();
+      } catch (err: any) {
+        return res.status(401).json({ success: false, error: "Authentication failed: " + err.message });
+      }
+    };
+  };
+
   const verifyRole = (allowedRoles: string[]) => {
     return async (req: express.Request, res: express.Response, next: express.NextFunction) => {
       try {
@@ -841,7 +1023,8 @@ export async function createApp() {
             }
 
             if (allowedRoles.includes(serverRole)) {
-              (req as any).user = { uid: verified.uid, email: verified.email, role: serverRole, idToken: token };
+              const rbacRole = toRbacRole(serverRole);
+              (req as any).user = { uid: verified.uid, email: verified.email, role: serverRole, rbacRole, idToken: token };
               return next();
             }
             return res.status(403).json({ success: false, error: `Access Denied: Role '${serverRole}' insufficient.` });
@@ -992,6 +1175,24 @@ export async function createApp() {
       if (!code || !type || value === undefined) {
         return res.status(400).json({ success: false, error: "Code, type, and value are required." });
       }
+      // Server-side validation (Item 6): discount percentage capped at 0–100,
+      // fixed-amount discounts must be non-negative numbers.
+      if (type === "percentage") {
+        const pctError = validateDiscountPercent(value);
+        if (pctError) return res.status(400).json({ success: false, error: pctError });
+      } else {
+        const fixedError = validateNonNegativePrice(value);
+        if (fixedError) return res.status(400).json({ success: false, error: fixedError });
+      }
+      if (usageLimit !== undefined && usageLimit !== null) {
+        const limitError = validatePositiveInteger(usageLimit);
+        if (limitError) return res.status(400).json({ success: false, error: limitError });
+      }
+      if (validUntil) {
+        if (Number.isNaN(Date.parse(String(validUntil)))) {
+          return res.status(400).json({ success: false, error: "validUntil is not a valid date." });
+        }
+      }
 
       const upperCode = code.trim().toUpperCase();
       const existing = await getCouponByCode(upperCode, req.user?.idToken);
@@ -1013,6 +1214,14 @@ export async function createApp() {
       };
 
       await saveCouponToDB(upperCode, newCoupon, req.user?.idToken);
+      await writeAuditEntry({
+        actorId: req.user.uid,
+        actorRole: req.user.rbacRole,
+        action: "coupon.created",
+        entityType: "coupon",
+        entityId: upperCode,
+        afterState: newCoupon,
+      });
       return res.json({ success: true, coupon: newCoupon });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err.message });
@@ -1031,8 +1240,18 @@ export async function createApp() {
         return res.status(404).json({ success: false, error: "Coupon not found" });
       }
 
+      const beforeState = { ...coupon };
       coupon.isActive = !coupon.isActive;
       await saveCouponToDB(upper, coupon, req.user?.idToken);
+      await writeAuditEntry({
+        actorId: req.user.uid,
+        actorRole: req.user.rbacRole,
+        action: "coupon.toggled",
+        entityType: "coupon",
+        entityId: upper,
+        beforeState,
+        afterState: coupon,
+      });
       return res.json({ success: true, coupon });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err.message });
@@ -1046,7 +1265,16 @@ export async function createApp() {
       if (!coupon) {
         return res.status(404).json({ success: false, error: "Coupon not found" });
       }
+      const beforeState = { ...coupon };
       await saveCouponToDB(code, null, req.user?.idToken);
+      await writeAuditEntry({
+        actorId: req.user.uid,
+        actorRole: req.user.rbacRole,
+        action: "coupon.deleted",
+        entityType: "coupon",
+        entityId: code,
+        beforeState,
+      });
       return res.json({ success: true });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err.message });
@@ -1791,9 +2019,15 @@ export async function createApp() {
     }
   });
 
-  app.post("/api/seats/sweep-holds", async (req, res) => {
+  app.post("/api/seats/sweep-holds", requireRole(["super_admin", "event_manager"]), async (req: any, res) => {
     try {
       await sweepExpiredHolds();
+      await writeAuditEntry({
+        actorId: req.user.uid,
+        actorRole: req.user.rbacRole,
+        action: "seats.sweep",
+        entityType: "seats",
+      });
       return res.json({ success: true, message: "Expired holds swept successfully." });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err.message });
@@ -1808,11 +2042,60 @@ export async function createApp() {
     return Boolean(snap.data && snap.data.organizerId === req.user?.uid);
   };
 
+  // ============================================================
+  // Server-side input validation (Item 6): shared validators used by both
+  // admin and counter endpoints.
+  // ============================================================
+  const validateNonNegativePrice = (value: any): string | null => {
+    const n = Number(value);
+    if (!Number.isFinite(n) || n < 0) return "Price must be a number greater than or equal to 0.";
+    return null;
+  };
+  const validatePositiveInteger = (value: any, max?: number): string | null => {
+    const n = Number(value);
+    if (!Number.isInteger(n) || n < 1) return "Quantity must be a positive integer.";
+    if (max !== undefined && n > max) return `Quantity must not exceed ${max}.`;
+    return null;
+  };
+  const validateDiscountPercent = (value: any): string | null => {
+    const n = Number(value);
+    if (!Number.isFinite(n) || n < 0 || n > 100) return "Discount percentage must be between 0 and 100 inclusive.";
+    return null;
+  };
+  const validateEventDates = (startDate: any, endDate: any): string | null => {
+    const startMs = Date.parse(String(startDate || ""));
+    if (Number.isNaN(startMs)) return "The event start date is not a valid date.";
+    if (endDate) {
+      const endMs = Date.parse(String(endDate));
+      if (Number.isNaN(endMs)) return "The event end date is not a valid date.";
+      if (endMs <= startMs) return "The event end date must be after the start date.";
+    }
+    return null;
+  };
+
   app.post("/api/events", verifyRole(['admin', 'organizer']), async (req: any, res) => {
     try {
       const event = req.body;
       if (!event || typeof event !== 'object' || !event.title || !event.venue || !event.date || !event.time) {
         return res.status(400).json({ success: false, error: "Event title, venue, date, and time are required." });
+      }
+      const dateError = validateEventDates(event.date, event.endDate);
+      if (dateError) return res.status(400).json({ success: false, error: dateError });
+      if (event.minPrice !== undefined) {
+        const priceError = validateNonNegativePrice(event.minPrice);
+        if (priceError) return res.status(400).json({ success: false, error: priceError });
+      }
+      if (Array.isArray(event.ticketTiers)) {
+        for (const tier of event.ticketTiers) {
+          if (tier) {
+            const tierPriceError = validateNonNegativePrice(tier.price);
+            if (tierPriceError) return res.status(400).json({ success: false, error: `Ticket tier '${tier.name || tier.id}': ${tierPriceError}` });
+            if (tier.capacity !== undefined) {
+              const capError = validatePositiveInteger(tier.capacity);
+              if (capError) return res.status(400).json({ success: false, error: `Ticket tier '${tier.name || tier.id}': ${capError}` });
+            }
+          }
+        }
       }
 
       const adminToken = await getAdminAuthToken();
@@ -1829,6 +2112,14 @@ export async function createApp() {
       };
 
       await rtdbSet(`events/${eventId}`, createdEvent, adminToken);
+      await writeAuditEntry({
+        actorId: req.user.uid,
+        actorRole: req.user.rbacRole,
+        action: "event.created",
+        entityType: "event",
+        entityId: eventId,
+        afterState: createdEvent,
+      });
       return res.status(201).json({ success: true, event: createdEvent });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err.message || "Could not create event." });
@@ -1842,16 +2133,44 @@ export async function createApp() {
       if (!(await assertEventMutationAccess(eventId, req, adminToken))) {
         return res.status(403).json({ success: false, error: "You do not own this event." });
       }
+      const body = req.body || {};
+      const dateError = validateEventDates(body.date, body.endDate);
+      if (dateError) return res.status(400).json({ success: false, error: dateError });
+      if (body.minPrice !== undefined) {
+        const priceError = validateNonNegativePrice(body.minPrice);
+        if (priceError) return res.status(400).json({ success: false, error: priceError });
+      }
+      if (Array.isArray(body.ticketTiers)) {
+        for (const tier of body.ticketTiers) {
+          if (tier) {
+            const tierPriceError = validateNonNegativePrice(tier.price);
+            if (tierPriceError) return res.status(400).json({ success: false, error: `Ticket tier '${tier.name || tier.id}': ${tierPriceError}` });
+            if (tier.capacity !== undefined) {
+              const capError = validatePositiveInteger(tier.capacity);
+              if (capError) return res.status(400).json({ success: false, error: `Ticket tier '${tier.name || tier.id}': ${capError}` });
+            }
+          }
+        }
+      }
 
       const existing = (await rtdbGet(`events/${eventId}`, adminToken)).data || {};
       const updatedEvent = {
         ...existing,
-        ...(req.body || {}),
+        ...body,
         id: eventId,
         organizerId: existing.organizerId || (req.user.role === 'organizer' ? req.user.uid : null),
         updatedAt: new Date().toISOString(),
       };
       await rtdbSet(`events/${eventId}`, updatedEvent, adminToken);
+      await writeAuditEntry({
+        actorId: req.user.uid,
+        actorRole: req.user.rbacRole,
+        action: "event.updated",
+        entityType: "event",
+        entityId: eventId,
+        beforeState: existing,
+        afterState: updatedEvent,
+      });
       return res.json({ success: true, event: updatedEvent });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err.message || "Could not update event." });
@@ -1865,7 +2184,16 @@ export async function createApp() {
       if (!(await assertEventMutationAccess(eventId, req, adminToken))) {
         return res.status(403).json({ success: false, error: "You do not own this event." });
       }
+      const existing = (await rtdbGet(`events/${eventId}`, adminToken)).data;
       await rtdbDelete(`events/${eventId}`, adminToken);
+      await writeAuditEntry({
+        actorId: req.user.uid,
+        actorRole: req.user.rbacRole,
+        action: "event.deleted",
+        entityType: "event",
+        entityId: eventId,
+        beforeState: existing,
+      });
       return res.json({ success: true, eventId });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err.message || "Could not delete event." });
@@ -1887,12 +2215,22 @@ export async function createApp() {
       if (!(await assertEventMutationAccess(eventId, req, adminToken))) {
         return res.status(403).json({ success: false, error: "You do not own this event." });
       }
+      const beforeState = (await rtdbGet(`events/${eventId}`, adminToken)).data;
       await rtdbSet(`seats/${eventId}`, seatNodes, adminToken);
       await rtdbUpdate(`events/${eventId}`, {
         seatMap,
         totalCapacity: Number.isFinite(Number(totalCapacity)) ? Number(totalCapacity) : Object.keys(seatNodes).length,
         updatedAt: new Date().toISOString(),
       }, adminToken);
+      await writeAuditEntry({
+        actorId: req.user.uid,
+        actorRole: req.user.rbacRole,
+        action: "event.seats.updated",
+        entityType: "event",
+        entityId: eventId,
+        beforeState: { seatNodes: beforeState },
+        afterState: { seatMap, seatCount: Object.keys(seatNodes).length },
+      });
       return res.json({ success: true, eventId, seatCount: Object.keys(seatNodes).length });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err.message || "Could not deploy seat map." });
@@ -1908,6 +2246,15 @@ export async function createApp() {
       if (!Array.isArray(selectedSeats) || selectedSeats.length > 100) {
         return res.status(400).json({ success: false, error: "Invalid seat selection." });
       }
+      // Server-side validation (Item 6): quantity is a positive integer (seat
+      // count), and the walk-in may never exceed tier capacity or the platform
+      // ceiling of 100 walk-in tickets per counter transaction.
+      const quantity = selectedSeats.length || 1;
+      const quantityError = validatePositiveInteger(quantity, 100);
+      if (quantityError) return res.status(400).json({ success: false, error: quantityError });
+      if (!String(attendeeName).trim() || !/^[0-9+\s()-]{7,20}$/.test(String(attendeePhone).trim())) {
+        return res.status(400).json({ success: false, error: "Attendee name and a valid phone number are required." });
+      }
 
       const adminToken = await getAdminAuthToken();
       const eventSnap = await rtdbGet(`events/${eventId}`, adminToken);
@@ -1916,8 +2263,15 @@ export async function createApp() {
       if (!event || !tier) {
         return res.status(404).json({ success: false, error: "Event or ticket tier not found." });
       }
+      // Server-side validation: the tier price rechecked live from the event
+      // record; tier capacity is checked against remaining inventory before
+      // the transaction that also deducts inventory (double-checked there).
+      const priceError = validateNonNegativePrice(tier.price);
+      if (priceError) return res.status(400).json({ success: false, error: `Ticket tier '${tier.name || tier.id}': ${priceError}` });
+      if (tier.capacity !== undefined && quantity > Number(tier.capacity)) {
+        return res.status(400).json({ success: false, error: `Quantity exceeds the tier capacity of ${tier.capacity}.` });
+      }
 
-      const quantity = selectedSeats.length || 1;
       const orderId = `walkin_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
       const customerDetails = {
         name: String(attendeeName).trim(),
@@ -1946,6 +2300,14 @@ export async function createApp() {
       if (!result.success) {
         return res.status(409).json({ success: false, error: result.error || "Walk-in booking could not be completed." });
       }
+      await writeAuditEntry({
+        actorId: req.user.uid,
+        actorRole: req.user.rbacRole,
+        action: "order.created.walk_in",
+        entityType: "order",
+        entityId: orderId,
+        afterState: { eventId, tierId, quantity, attendee: customerDetails.name, paymentMethod },
+      });
       return res.status(201).json({ success: true, ticket: result.ticket, booking: result.booking });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err.message || "Could not create walk-in booking." });
@@ -2210,9 +2572,112 @@ export async function createApp() {
   app.put("/api/organizers/status", verifyRole(['admin']), handleUpdateOrganizerStatus);
   app.post("/api/admin/organizers/status", verifyRole(['admin']), handleUpdateOrganizerStatus);
 
+  // ============================================================
+  // Staff account management (Item 4): only super_admin may create or
+  // modify staff roles. The staff record is keyed by a Firebase Auth uid
+  // (a Firebase user must exist first; the record grants the role).
+  // ============================================================
+  app.get("/api/staff", requireRole(["super_admin", "auditor"]), async (req: any, res) => {
+    try {
+      const snap = await rtdbGet("staff", req.user.idToken);
+      const staffList = Object.entries(snap.data || {}).map(([uid, data]: [string, any]) => ({ uid, ...data }));
+      return res.json({ success: true, staff: staffList });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  app.post("/api/staff", requireRole(["super_admin"]), async (req: any, res) => {
+    try {
+      const { uid, email, role } = req.body || {};
+      if (!uid || typeof uid !== "string" || uid.length < 10) {
+        return res.status(400).json({ success: false, error: "A valid Firebase Auth uid is required." });
+      }
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email))) {
+        return res.status(400).json({ success: false, error: "A valid email is required." });
+      }
+      const allowedRoles = ["admin", "ticket_counter", "auditor"];
+      if (!role || !allowedRoles.includes(String(role))) {
+        return res.status(400).json({ success: false, error: `Role must be one of: ${allowedRoles.join(", ")}.` });
+      }
+      const existing = (await rtdbGet(`staff/${uid}`, req.user.idToken)).data;
+      if (existing) {
+        return res.status(409).json({ success: false, error: "A staff record for this uid already exists." });
+      }
+      const record = { id: uid, email: String(email), role: String(role), status: "active", createdBy: req.user.uid, createdAt: new Date().toISOString() };
+      await rtdbSet(`staff/${uid}`, record, req.user.idToken);
+      await writeAuditEntry({
+        actorId: req.user.uid,
+        actorRole: req.user.rbacRole,
+        action: "staff.created",
+        entityType: "staff",
+        entityId: uid,
+        afterState: record,
+      });
+      return res.status(201).json({ success: true, staff: record });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || "Could not create staff record." });
+    }
+  });
+
+  app.patch("/api/staff/:uid", requireRole(["super_admin"]), async (req: any, res) => {
+    try {
+      const { uid } = req.params;
+      const adminToken = req.user.idToken;
+      const existing = (await rtdbGet(`staff/${uid}`, adminToken)).data as any;
+      if (!existing) {
+        return res.status(404).json({ success: false, error: "Staff record not found." });
+      }
+      const { role, status } = req.body || {};
+      if (status !== undefined && !["active", "suspended"].includes(String(status))) {
+        return res.status(400).json({ success: false, error: "Status must be 'active' or 'suspended'." });
+      }
+      const allowedRoles = ["admin", "ticket_counter", "auditor"];
+      if (role !== undefined && !allowedRoles.includes(String(role))) {
+        return res.status(400).json({ success: false, error: `Role must be one of: ${allowedRoles.join(", ")}.` });
+      }
+      const updated = {
+        ...existing,
+        ...(role !== undefined ? { role: String(role) } : {}),
+        ...(status !== undefined ? { status: String(status), suspendedAt: status === "suspended" ? new Date().toISOString() : undefined } : {}),
+        updatedAt: new Date().toISOString(),
+      };
+      await rtdbSet(`staff/${uid}`, updated, adminToken);
+      await writeAuditEntry({
+        actorId: req.user.uid,
+        actorRole: req.user.rbacRole,
+        action: "staff.updated",
+        entityType: "staff",
+        entityId: uid,
+        beforeState: existing,
+        afterState: updated,
+      });
+      return res.json({ success: true, staff: updated });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || "Could not update staff record." });
+    }
+  });
+
+  // Read-only audit log endpoint (Item 5). Auditors may read the full log;
+  // no write path exists here — writes only occur inside writeAuditEntry.
+  app.get("/api/audit-log", requireRole(["super_admin", "event_manager", "auditor"]), async (req: any, res) => {
+    try {
+      const token = req.user.idToken;
+      const snap = await rtdbGet("audit_log", token);
+      const entries: any[] = snap.data ? Object.values(snap.data) : [];
+      entries.sort((a, b) => String(b.timestamp || "").localeCompare(String(a.timestamp || "")));
+      const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 100));
+      const actorId = typeof req.query.actor_id === "string" ? req.query.actor_id : undefined;
+      const filtered = actorId ? entries.filter((e: any) => e.actor_id === actorId) : entries;
+      return res.json({ success: true, audit_log: filtered.slice(0, limit), count: filtered.length });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
 
   // Ticket Token Generation & Verification
-  app.post("/api/tickets/generate-token", async (req, res) => {
+  app.post("/api/tickets/generate-token", requireRole(["super_admin", "event_manager", "counter_staff"]), async (req: any, res) => {
     try {
       const { bookingId, eventId, seatId, ticketId } = req.body;
       const issuedAt = new Date().toISOString();
@@ -2351,7 +2816,7 @@ export async function createApp() {
     }
   });
 
-  app.post("/api/tickets/send-email", async (req, res) => {
+  app.post("/api/tickets/send-email", requireRole(["super_admin", "event_manager", "counter_staff"]), async (req: any, res) => {
     try {
       const { attendeeEmail } = req.body;
       return res.json({
