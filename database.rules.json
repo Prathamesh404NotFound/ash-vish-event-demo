@@ -29,14 +29,16 @@
       "$uid": {
         ".read": "auth != null && (auth.uid === $uid || auth.token.admin === true || auth.token.role === 'admin')",
         ".write": "auth != null && (auth.token.admin === true || auth.token.role === 'admin')",
-        ".validate": "newData.hasChildren(['email', 'role']) && (newData.child('role').val() === 'admin' || newData.child('role').val() === 'ticket_counter')"
+        ".validate": "newData.hasChildren(['email', 'role']) && (newData.child('role').val() === 'super_admin' || newData.child('role').val() === 'event_manager' || newData.child('role').val() === 'counter_staff' || newData.child('role').val() === 'auditor' || newData.child('role').val() === 'admin' || newData.child('role').val() === 'ticket_counter')"
       }
     },
     "events": { ".read": true, ".write": false },
     "coupons": {
-      ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || root.child('staff').child(auth.uid).child('role').val() === 'admin')",
-      ".write": "auth != null && (auth.token.admin === true || auth.token.role === 'admin')"
+      ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || root.child('staff').child(auth.uid).exists())",
+      ".write": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || root.child('staff').child(auth.uid).child('role').val() === 'event_manager')"
     },
+    "orders": { ".read": false, ".write": false },
+    "notifications": { ".read": false, ".write": false },
     "bookings": {
       ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || root.child('staff').child(auth.uid).exists())",
       ".write": false,

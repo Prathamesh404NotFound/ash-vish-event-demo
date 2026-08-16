@@ -29,6 +29,7 @@ import { AdminBookings } from './pages/admin/AdminBookings';
 import { AdminSettings } from './pages/admin/AdminSettings';
 import { AdminSeatMapBuilder } from './pages/admin/AdminSeatMapBuilder';
 import { AdminCoupons } from './pages/admin/AdminCoupons';
+import { AdminReports } from './pages/admin/AdminReports';
 import { AdminReviews } from './pages/admin/AdminReviews';
 import { AdminOrganizers } from './pages/admin/AdminOrganizers';
 import { OrganizerDashboard } from './pages/OrganizerDashboard';
@@ -225,6 +226,7 @@ export default function App() {
               <Route path="seatmap" element={<AdminSeatMapBuilder />} />
               <Route path="bookings" element={<AdminBookings />} />
               <Route path="coupons" element={<AdminCoupons />} />
+              <Route path="reports" element={<AdminReports />} />
               <Route path="reviews" element={<AdminReviews />} />
               <Route path="scan" element={<QRScanner />} />
               <Route path="settings" element={<AdminSettings />} />

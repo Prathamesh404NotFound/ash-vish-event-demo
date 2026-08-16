@@ -18,7 +18,7 @@ import {
 import { ref, get } from 'firebase/database';
 import { rtdb, auth } from '../../lib/firebase';
 import { useBooking } from '../../contexts/BookingContext';
-import { EventItem, SeatMapConfig, SeatNode, SeatSection } from '../../types';
+import { EventItem, SeatMapConfig, SeatNode, SeatSection, SeatType } from '../../types';
 import { formatINR } from '../../utils/formatters';
 import { safeFetch } from '../../lib/api';
 
@@ -29,6 +29,8 @@ interface SectionInput {
   rowsCount: number;
   seatsPerRow: number;
   color: string;
+  seatType: SeatType; // Prompt B: seat type (regular/premium/accessible/obstructed-view)
+  pricingTierId: string; // Prompt B: link section to an event pricing tier
 }
 
 export const AdminSeatMapBuilder: React.FC = () => {
@@ -46,6 +48,8 @@ export const AdminSeatMapBuilder: React.FC = () => {
       rowsCount: 2,
       seatsPerRow: 8,
       color: '#D4AF37', // Gold
+      seatType: 'premium',
+      pricingTierId: '',
     },
     {
       id: 'sec_gen',
@@ -54,6 +58,8 @@ export const AdminSeatMapBuilder: React.FC = () => {
       rowsCount: 4,
       seatsPerRow: 10,
       color: '#3B82F6', // Blue
+      seatType: 'regular',
+      pricingTierId: '',
     },
   ]);
 
@@ -133,6 +139,8 @@ export const AdminSeatMapBuilder: React.FC = () => {
         rowsCount: 3,
         seatsPerRow: 8,
         color: randomColor,
+        seatType: 'regular',
+        pricingTierId: '',
       },
     ]);
   };
@@ -162,6 +170,8 @@ export const AdminSeatMapBuilder: React.FC = () => {
           rowsCount: 2,
           seatsPerRow: 8,
           color: '#D4AF37',
+          seatType: 'premium',
+          pricingTierId: '',
         },
         {
           id: 'sec_prime',
@@ -170,6 +180,8 @@ export const AdminSeatMapBuilder: React.FC = () => {
           rowsCount: 4,
           seatsPerRow: 10,
           color: '#10B981',
+          seatType: 'regular',
+          pricingTierId: '',
         },
         {
           id: 'sec_classic',
@@ -178,6 +190,8 @@ export const AdminSeatMapBuilder: React.FC = () => {
           rowsCount: 3,
           seatsPerRow: 10,
           color: '#3B82F6',
+          seatType: 'regular',
+          pricingTierId: '',
         },
       ]);
       setAisleAfterCol(5);
@@ -190,6 +204,8 @@ export const AdminSeatMapBuilder: React.FC = () => {
           rowsCount: 3,
           seatsPerRow: 12,
           color: '#8B5CF6',
+          seatType: 'premium',
+          pricingTierId: '',
         },
         {
           id: 'sec_gold',
@@ -198,6 +214,8 @@ export const AdminSeatMapBuilder: React.FC = () => {
           rowsCount: 5,
           seatsPerRow: 12,
           color: '#F59E0B',
+          seatType: 'premium',
+          pricingTierId: '',
         },
         {
           id: 'sec_silver',
@@ -206,6 +224,8 @@ export const AdminSeatMapBuilder: React.FC = () => {
           rowsCount: 6,
           seatsPerRow: 12,
           color: '#64748B',
+          seatType: 'regular',
+          pricingTierId: '',
         },
       ]);
       setAisleAfterCol(6);
@@ -218,6 +238,8 @@ export const AdminSeatMapBuilder: React.FC = () => {
           rowsCount: 2,
           seatsPerRow: 6,
           color: '#EC4899',
+          seatType: 'premium',
+          pricingTierId: '',
         },
         {
           id: 'sec_main',
@@ -226,6 +248,8 @@ export const AdminSeatMapBuilder: React.FC = () => {
           rowsCount: 4,
           seatsPerRow: 8,
           color: '#3B82F6',
+          seatType: 'regular',
+          pricingTierId: '',
         },
       ]);
       setAisleAfterCol(4);
@@ -273,6 +297,11 @@ export const AdminSeatMapBuilder: React.FC = () => {
       const tierByRow: Record<string, string> = {};
       const seatNodesObject: Record<string, SeatNode> = {};
 
+      // Row labels must be unique across the whole venue so that a seat can be
+      // unambiguously identified when booked (Prompt B validation).
+      const usedLabels = new Set<string>();
+
+
       let currentRowIndex = 1;
 
       const formattedSections: SeatSection[] = sections.map((sec) => {
@@ -288,7 +317,7 @@ export const AdminSeatMapBuilder: React.FC = () => {
         // Generate individual seat nodes for this section
         for (let r = 0; r < sec.rowsCount; r++) {
           const rowNum = currentRowIndex + r;
-          const rowLabel = String.fromCharCode(64 + rowNum);
+          const rowLabel = String.fromCharCode(64 + ((rowNum - 1) % 26) + 1);
 
           for (let c = 1; c <= sec.seatsPerRow; c++) {
             const seatId = `R${rowNum}-C${c}`;
@@ -304,7 +333,13 @@ export const AdminSeatMapBuilder: React.FC = () => {
               number: c,
               price,
               status: isBlocked ? 'booked' : 'available',
+              seatType: sec.seatType,
+              pricingTierId: sec.pricingTierId || undefined,
             };
+            if (usedLabels.has(rowLabel)) {
+              throw new Error(`Row label "${rowLabel}" appears in multiple sections; each row across the venue must have a unique label.`);
+            }
+            usedLabels.add(rowLabel);
           }
         }
 
@@ -583,6 +618,34 @@ export const AdminSeatMapBuilder: React.FC = () => {
                         className="w-full bg-[#121212] border border-white/10 rounded-lg px-2.5 py-1.5 text-white"
                       />
                     </div>
+                    <div>
+                      <label className="text-gray-400 text-[10px] font-bold block mb-1">Seat Type</label>
+                      <select
+                        value={sec.seatType}
+                        onChange={(e) => handleUpdateSection(sec.id, 'seatType', e.target.value)}
+                        className="w-full bg-[#121212] border border-white/10 rounded-lg px-2.5 py-1.5 text-white capitalize"
+                      >
+                        <option value="regular" className="bg-[#121212]">Regular</option>
+                        <option value="premium" className="bg-[#121212]">Premium</option>
+                        <option value="accessible" className="bg-[#121212]">Accessible</option>
+                        <option value="obstructed-view" className="bg-[#121212]">Obstructed View</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-gray-400 text-[10px] font-bold block mb-1">Pricing Tier</label>
+                      <select
+                        value={sec.pricingTierId}
+                        onChange={(e) => handleUpdateSection(sec.id, 'pricingTierId', e.target.value)}
+                        className="w-full bg-[#121212] border border-white/10 rounded-lg px-2.5 py-1.5 text-white"
+                      >
+                        <option value="" className="bg-[#121212]">None (per-seat price only)</option>
+                        {(selectedEvent?.ticketTiers || []).map((t) => (
+                          <option key={t.id} value={t.id} className="bg-[#121212]">
+                            {t.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -680,17 +743,18 @@ export const AdminSeatMapBuilder: React.FC = () => {
                                   const isBlocked = blockedSeats.includes(seatId);
                                   const isAisle = colNum === aisleAfterCol;
 
+                                  const seatType = sec.seatType || 'regular';
                                   return (
                                     <React.Fragment key={seatId}>
                                       <button
                                         type="button"
                                         onClick={() => handleToggleSeatBlock(seatId)}
-                                        title={`Row ${rowLabel}, Seat ${colNum} (${isBlocked ? 'Blocked' : 'Available'})`}
+                                        title={`Row ${rowLabel}, Seat ${colNum} — ${seatType.replace('-', ' ')} (${isBlocked ? 'Blocked' : 'Available'})`}
                                         className={`w-6 h-6 sm:w-7 sm:h-7 rounded-md text-[10px] font-bold flex items-center justify-center transition-all cursor-pointer ${
                                           isBlocked
                                             ? 'bg-red-500/20 border border-red-500/40 text-red-400 line-through'
                                             : 'border bg-[#181818] text-white hover:scale-110'
-                                        }`}
+                                        } ${seatType === 'accessible' ? 'bg-sky-500/10' : seatType === 'obstructed-view' ? 'bg-amber-500/10' : ''}`}
                                         style={{
                                           borderColor: isBlocked ? undefined : `${sec.color}60`,
                                         }}
@@ -725,6 +789,14 @@ export const AdminSeatMapBuilder: React.FC = () => {
               <div className="flex items-center gap-2">
                 <div className="w-4 h-4 rounded bg-red-500/20 border border-red-500/40" />
                 <span>Blocked / Unavailable</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 rounded bg-sky-500/10 border border-white/10" />
+                <span>Accessible</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 rounded bg-amber-500/10 border border-white/10" />
+                <span>Obstructed View</span>
               </div>
             </div>
           </div>

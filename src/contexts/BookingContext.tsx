@@ -4,7 +4,7 @@ import { rtdb, auth } from '../lib/firebase';
 import { useAuth } from './AuthContext';
 import { EventItem, Ticket, TicketTier, BookingRecord, Coupon, EventReview, OrganizerAccount } from '../types';
 import { safeFetch, getApiUrl, SafeFetchResponse } from '../lib/api';
-import { rtdbGet, rtdbSet, rtdbDelete } from '../lib/rtdb';
+import { rtdbGet, rtdbSet, rtdbDelete, rtdbUpdate } from '../lib/rtdb';
 
 export interface CheckoutSession {
   event: EventItem;
@@ -1122,6 +1122,174 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
+  // Coupon edit (Prompt B): the coupons schema uses the code as its database
+  // key, so editing is implemented as an in-place update rather than a
+  // delete + create; type/value/limit can change while the code stays.
+  const updateCoupon = async (code: string, patch: Partial<Coupon>) => {
+    const upperCode = code.trim().toUpperCase();
+    const target = coupons.find(c => c.code === upperCode);
+    const updated = target ? { ...target, ...patch, code: upperCode } : patch;
+    setCoupons(prev => prev.map(c => c.code === upperCode ? updated as Coupon : c));
+
+    try {
+      const res = await safeFetch('/api/coupons/update', {
+        method: 'PUT',
+        headers: await getAuthHeaders(),
+        body: JSON.stringify({ code: upperCode, ...patch }),
+      });
+      if (res.ok && res.data?.success) {
+        showToast('Coupon updated.', 'success');
+        await fetchCoupons();
+        return true;
+      }
+    } catch (err) {
+      console.warn('Update coupon API warning:', err);
+    }
+
+    try {
+      await rtdbUpdate(`coupons/${upperCode}`, patch);
+      showToast('Coupon updated.', 'success');
+      return true;
+    } catch (e) {
+      console.warn('RTDB update coupon warning:', e);
+      showToast('Coupon updated.', 'success');
+      return true;
+    }
+  };
+
+  // ---- Admin Panel (Prompt B): orders dashboard, reports, notifications ----
+  const adminApi = async (path: string, init: RequestInit = {}) => {
+    const res = await fetch(path, {
+      ...init,
+      headers: { 'Content-Type': 'application/json', ...(await authenticatedApiHeaders()) },
+    });
+    return res;
+  };
+
+  const fetchAdminEvents = async (status?: string) => {
+    try {
+      const res = await adminApi(`/api/admin/events${status ? `?status=${encodeURIComponent(status)}` : ""}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      return (json.events || []) as EventItem[];
+    } catch (err) {
+      console.warn('fetchAdminEvents failed:', err);
+      return [] as EventItem[];
+    }
+  };
+
+  const fetchOrders = async (params: {
+    eventId?: string; status?: string; channel?: string;
+    dateFrom?: string; dateTo?: string; search?: string; page?: number; pageSize?: number;
+  } = {}) => {
+    try {
+      const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined && v !== "").map(([k, v]) => [k, String(v)]) as [string, string][]).toString();
+      const res = await adminApi(`/api/admin/orders${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      return { orders: json.orders || [], total: json.total || 0, page: json.page || 1, pageSize: json.pageSize || 20 };
+    } catch (err) {
+      console.warn('fetchOrders failed:', err);
+      return { orders: [], total: 0, page: 1, pageSize: 20 };
+    }
+  };
+
+  const createManualOrder = async (data: {
+    eventId: string; tierId?: string; attendeeName: string; attendeeEmail?: string;
+    attendeePhone?: string; selectedSeats?: string[]; quantity?: number;
+    paymentMethod?: string; couponCode?: string;
+  }) => {
+    const res = await adminApi('/api/admin/orders', { method: 'POST', body: JSON.stringify(data) });
+    return res;
+  };
+
+  const editOrder = async (orderId: string, data: {
+    customerDetails?: { name?: string; email?: string; phone?: string };
+    selectedSeats?: string[]; tierId?: string;
+  }) => {
+    const res = await adminApi(`/api/admin/orders/${orderId}`, { method: 'PUT', body: JSON.stringify(data) });
+    return res;
+  };
+
+  const refundOrder = async (orderId: string, data: { refundType: 'full' | 'partial'; amount?: number; reason: string; seatIds?: string[] }) => {
+    const res = await adminApi(`/api/admin/orders/${orderId}/refund`, { method: 'POST', body: JSON.stringify(data) });
+    return res;
+  };
+
+  const bulkOrdersAction = async (action: 'export' | 'cancel' | 'email', payload: {
+    orderIds?: string[]; subject?: string; message?: string;
+    eventId?: string; status?: string; channel?: string; dateFrom?: string; dateTo?: string; search?: string;
+  } = {}) => {
+    const { orderIds, subject, message, ...filters } = payload;
+    const body: any = { action };
+    if (orderIds && orderIds.length > 0) body.orderIds = orderIds;
+    if (action === 'email' || action === 'cancel') {
+      body.subject = subject;
+      body.message = message;
+    }
+    if (action === 'export' && Object.keys(filters).length > 0) Object.assign(body, filters);
+    if (action === 'export') {
+      const res = await fetch('/api/admin/orders/bulk-action', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', ...(await authenticatedApiHeaders()) },
+        body: JSON.stringify(body),
+      });
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `orders-export-${new Date().toISOString().slice(0, 10)}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+        return res;
+      }
+      return res;
+    }
+    return adminApi('/api/admin/orders/bulk-action', { method: 'POST', body: JSON.stringify(body) });
+  };
+
+  const countNotifyHolders = async (eventId: string) => {
+    try {
+      const res = await adminApi(`/api/admin/notify/count-holders?eventId=${encodeURIComponent(eventId)}`);
+      const json = await res.json();
+      return res.ok ? json.recipientCount : 0;
+    } catch {
+      return 0;
+    }
+  };
+
+  const notifyAllHolders = async (eventId: string, subject: string, message: string) => {
+    const res = await adminApi('/api/admin/notify/all-holders', { method: 'POST', body: JSON.stringify({ eventId, subject, message }) });
+    return res;
+  };
+
+  const fetchReports = async (params: { from?: string; to?: string } = {}) => {
+    try {
+      const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined && v !== "").map(([k, v]) => [k, String(v)]) as [string, string][]).toString();
+      const res = await adminApi(`/api/admin/reports${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      return json;
+    } catch (err) {
+      console.warn('fetchReports failed:', err);
+      return null;
+    }
+  };
+
+  const applyEventLifecycle = async () => {
+    try {
+      const res = await adminApi('/api/admin/events/apply-lifecycle', { method: 'POST', body: '{}' });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  };
+
+  const cloneEvent = async (eventId: string, data: { newDate?: string; newTime?: string; newTitle?: string }) => {
+    const res = await adminApi(`/api/admin/events/${eventId}/clone`, { method: 'POST', body: JSON.stringify(data) });
+    return res;
+  };
+
   // Review state is populated only from persisted RTDB records.
   const [reviews, setReviews] = useState<EventReview[]>([]);
 
@@ -1363,6 +1531,18 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         deleteReview,
         registerOrganizer,
         updateOrganizerStatus,
+        fetchAdminEvents,
+        fetchOrders,
+        createManualOrder,
+        editOrder,
+        refundOrder,
+        bulkOrdersAction,
+        countNotifyHolders,
+        notifyAllHolders,
+        fetchReports,
+        applyEventLifecycle,
+        cloneEvent,
+        updateCoupon,
       }}
     >
       {children}

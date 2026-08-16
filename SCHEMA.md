@@ -220,3 +220,95 @@ Issued digital QR entry passes.
   }
 }
 ```
+
+## Admin Panel (Prompt B) additions
+
+### Event lifecycle (`events/$eventId`)
+
+The `status` field now drives the public/counter visibility model: `draft` events are never visible on the customer-facing site or counter panel; `published` events are visible and bookable; `archived` events are hidden from active lists but retained for historical reporting; `cancelled`/`sold_out` keep their existing meanings. Two optional scheduled-transition fields are supported:
+
+```json
+{
+  "scheduledPublishAt": "ISO 8601 string (optional)",
+  "scheduledUnpublishAt": "ISO 8601 string (optional)"
+}
+```
+
+Transitions are applied lazily on every event read (`applyScheduledTransitions()`) and by a 60-second background job plus a manual `/api/admin/events/apply-lifecycle` endpoint.
+
+### Seat records (`seats/$eventId/$seatId`)
+
+Two new fields extend the seat record:
+
+```json
+{
+  "seatType": "regular | premium | accessible | obstructed-view",
+  "pricingTierId": "string (id of a tier in events/$eventId/ticketTiers)"
+}
+```
+
+`seatType` determines the seat's visual class on the customer seat map; `pricingTierId` links each seat to a pricing tier, overriding the section default. Seat labels must be unique within a row, enforced by the seat-map deploy endpoint.
+
+### Coupons (`coupons/$code`)
+
+The existing coupon record gains optional event-scoping and expiry semantics consistent with the schema already in use; `eventId` null means all events, and null/empty `validUntil`/`usageLimit` mean no expiry / unlimited uses:
+
+```json
+{
+  "code": "string (unique, stored uppercase)",
+  "type": "percentage | fixed",
+  "value": "number",
+  "validUntil": "ISO date string (optional; null = never expires)",
+  "usageLimit": "number (optional; null = unlimited)",
+  "usedCount": "number",
+  "eventId": "string | null (null = all events)",
+  "isActive": "boolean",
+  "createdAt": "ISO 8601 string"
+}
+```
+
+Redemption increments `usedCount` atomically inside `finalizeBookingServerSide` (transactional, already prevents over-redemption under concurrency). The seat-map deploy endpoint additionally validates per-row label uniqueness.
+
+### Orders (`orders/$orderId`)
+
+A canonical admin-dashboard order record is written alongside every fulfilled booking (online, counter, and manual):
+
+```json
+{
+  "orderId": "string",
+  "eventId": "string",
+  "tierId": "string",
+  "seatIds": ["string"],
+  "quantity": "number",
+  "customerDetails": { "name": "string", "email": "string", "phone": "string" },
+  "amount": "number",
+  "discount": "number",
+  "couponCode": "string | null",
+  "paymentMethod": "string",
+  "channel": "online | counter | manual",
+  "status": "confirmed | cancelled | refunded",
+  "refundReason": "string | null",
+  "refundAmount": "number | null",
+  "ticketId": "string | null",
+  "bookingId": "string | null",
+  "createdAt": "ISO 8601 string",
+  "createdBy": "string (staff uid | 'system')"
+}
+```
+
+### Notifications (`notifications/$id`)
+
+```json
+{
+  "id": "string",
+  "eventId": "string",
+  "subject": "string",
+  "message": "string",
+  "recipientCount": "number",
+  "status": "queued | sent | failed",
+  "sentAt": "ISO 8601 string (optional)",
+  "createdBy": "string (staff uid)"
+}
+```
+
+Email delivery uses the optional `SMTP_*` environment configuration (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`). When SMTP is not configured, emails are logged and recorded in `notifications` with status `sent` marked as "no-mail-mode" rather than failing.

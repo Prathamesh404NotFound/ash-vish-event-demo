@@ -48,6 +48,8 @@ export interface SeatMapConfig {
   sections?: SeatSection[];
 }
 
+export type SeatType = 'regular' | 'premium' | 'accessible' | 'obstructed-view';
+
 export interface SeatNode {
   id: string; // e.g. "R1-C1" or "SEC_1-R1-S1"
   seatId?: string;
@@ -60,6 +62,9 @@ export interface SeatNode {
   heldBy?: string;
   heldAt?: number;
   holdExpiresAt?: number;
+  seatType?: SeatType;
+  pricingTierId?: string;
+  seatIdLabel?: string; // human-readable row/label override for the event
 }
 
 export interface EventItem {
@@ -92,6 +97,14 @@ export interface EventItem {
   totalCapacity?: number;
   organizerId?: string;
   organizerName?: string;
+  /** ISO-8601 timestamp at which a draft event is auto-published by the scheduler. */
+  scheduledPublishAt?: string | null;
+  /** ISO-8601 timestamp at which a published event is auto-unpublished (taken down) by the scheduler. */
+  scheduledUnpublishAt?: string | null;
+  /** Optional flag surfaced by the public portal once an event's sales have closed. */
+  isEventPublic?: boolean;
+  /** Event ID of the original listing this event was cloned from. */
+  clonedFrom?: string;
 }
 
 export type UserRole = 'customer' | 'admin' | 'ticket_counter' | 'organizer';

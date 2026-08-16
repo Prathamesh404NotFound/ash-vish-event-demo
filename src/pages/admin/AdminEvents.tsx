@@ -20,6 +20,8 @@ import {
   Search,
   Filter,
   Armchair,
+  Copy,
+  Mail,
 } from 'lucide-react';
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { storage } from '../../lib/firebase';
@@ -38,7 +40,7 @@ interface TierInput {
 }
 
 export const AdminEvents: React.FC = () => {
-  const { events, addEvent, updateEvent, deleteEvent } = useBooking();
+  const { events, addEvent, updateEvent, deleteEvent, fetchAdminEvents, applyEventLifecycle, cloneEvent, fetchOrders, countNotifyHolders, notifyAllHolders } = useBooking();
   const navigate = useNavigate();
 
   const [activeTab, setActiveTab] = useState<'all' | EventStatus>('all');
@@ -91,6 +93,89 @@ export const AdminEvents: React.FC = () => {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+
+  // Prompt B: event lifecycle scheduling (draft → published → archived)
+  const [scheduledPublishAt, setScheduledPublishAt] = useState<string>('');
+  const [scheduledUnpublishAt, setScheduledUnpublishAt] = useState<string>('');
+  // Prompt B: event cloning
+  const [cloneTarget, setCloneTarget] = useState<EventItem | null>(null);
+  const [cloneNewDate, setCloneNewDate] = useState<string>('');
+  const [cloneNewTime, setCloneNewTime] = useState<string>('');
+  const [cloneNewTitle, setCloneNewTitle] = useState<string>('');
+
+  const handleOpenCloneModal = (evt: EventItem) => {
+    setCloneTarget(evt);
+    setCloneNewDate('');
+    setCloneNewTime('');
+    setCloneNewTitle('');
+  };
+
+  const handleCloneEvent = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!cloneTarget) return;
+    try {
+      const res = await cloneEvent(cloneTarget.id, {
+        newDate: cloneNewDate || undefined,
+        newTime: cloneNewTime || undefined,
+        newTitle: cloneNewTitle.trim() || undefined,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Clone failed' }));
+        alert(err.error || 'Clone request was rejected.');
+        return;
+      }
+      alert(`Event "${cloneNewTitle.trim() || cloneTarget.title}" created as a new listing.`);
+      setCloneTarget(null);
+    } catch (err: any) {
+      alert(err?.message || 'Clone failed. Please try again.');
+    }
+  };
+
+  const handleApplyLifecycle = async () => {
+    const ok = await applyEventLifecycle();
+    if (ok) alert('Scheduled publish/unpublish transitions applied.');
+    else alert('Lifecycle sweep could not be applied right now.');
+  };
+
+  // Notify all ticket holders of an event (Item 6)
+  const [notifyTarget, setNotifyTarget] = useState<EventItem | null>(null);
+  const [notifyRecipientCount, setNotifyRecipientCount] = useState<number>(0);
+  const [notifySubject, setNotifySubject] = useState('');
+  const [notifyMessage, setNotifyMessage] = useState('');
+  const [notifySending, setNotifySending] = useState(false);
+
+  const handleOpenNotifyModal = async (evt: EventItem) => {
+    const count = await countNotifyHolders(evt.id);
+    setNotifyTarget(evt);
+    setNotifyRecipientCount(count);
+    setNotifySubject(`Update regarding your ${evt.title} booking`);
+    setNotifyMessage('');
+  };
+
+  const handleSendNotifications = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!notifyTarget) return;
+    if (String(notifySubject).trim().length < 3) return alert('Subject must be at least 3 characters.');
+    if (String(notifyMessage).trim().length < 5) return alert('Message must be at least 5 characters.');
+    if (notifyRecipientCount === 0) {
+      if (!confirm('No confirmed ticket holders with email addresses were found for this event. Continue anyway?')) return;
+    } else if (!confirm(`This will email approximately ${notifyRecipientCount} unique ticket holder(s) for "${notifyTarget.title}". Proceed?`)) return;
+    setNotifySending(true);
+    try {
+      const res = await notifyAllHolders(notifyTarget.id, String(notifySubject).trim(), String(notifyMessage).trim());
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Sending failed' }));
+        alert(err.error || 'Notification request was rejected.');
+      } else {
+        alert('Notification emails queued successfully.');
+        setNotifyTarget(null);
+      }
+    } catch (err: any) {
+      alert(err?.message || 'Sending notifications failed. Please try again.');
+    } finally {
+      setNotifySending(false);
+    }
+  };
 
   const todayISO = new Date().toISOString().split('T')[0];
 
@@ -153,6 +238,9 @@ export const AdminEvents: React.FC = () => {
     setOrganizer(evt.organizer || 'Ash-vish Events');
     setPosterUrl(evt.posterUrl);
     setCoverUrl(evt.coverUrl || evt.posterUrl);
+
+    setScheduledPublishAt(evt.scheduledPublishAt || '');
+    setScheduledUnpublishAt(evt.scheduledUnpublishAt || '');
 
     if (evt.ticketTiers && evt.ticketTiers.length > 0) {
       setTiers(
@@ -360,6 +448,8 @@ export const AdminEvents: React.FC = () => {
       ],
       rating: 4.9,
       reviewsCount: 12,
+      scheduledPublishAt: scheduledPublishAt ? new Date(scheduledPublishAt).toISOString() : null,
+      scheduledUnpublishAt: scheduledUnpublishAt ? new Date(scheduledUnpublishAt).toISOString() : null,
     };
 
     if (editingEventId) {
@@ -596,8 +686,22 @@ export const AdminEvents: React.FC = () => {
                             <Edit className="w-4 h-4" />
                           </button>
                           <button
+                            onClick={() => handleOpenCloneModal(evt)}
+                            className="p-2 rounded-xl bg-white/5 hover:bg-sky-500/20 text-gray-300 hover:text-sky-400 transition-all cursor-pointer"
+                            title="Clone Event into a New Listing"
+                          >
+                            <Copy className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleOpenNotifyModal(evt)}
+                            className="p-2 rounded-xl bg-white/5 hover:bg-emerald-500/20 text-gray-300 hover:text-emerald-400 transition-all cursor-pointer"
+                            title="Email All Ticket Holders"
+                          >
+                            <Mail className="w-4 h-4" />
+                          </button>
+                          <button
                             onClick={() => {
-                              if (confirm(`Are you sure you want to permanently delete event "${evt.title}"?`)) {
+                              if (confirm(`This will permanently remove event "${evt.title}" from listings. This action cannot be undone. Sales history for this event is retained in the audit log and booking records.`)) {
                                 deleteEvent(evt.id);
                               }
                             }}
@@ -710,6 +814,29 @@ export const AdminEvents: React.FC = () => {
                       <option value="sold_out">🟣 Sold Out</option>
                       <option value="cancelled">🔴 Cancelled</option>
                     </select>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-gray-300 font-bold block mb-1">Auto-Publish At (Draft → Live)</label>
+                      <input
+                        type="datetime-local"
+                        value={scheduledPublishAt}
+                        min={todayISO + 'T00:00'}
+                        onChange={(e) => setScheduledPublishAt(e.target.value)}
+                        className="w-full bg-[#1C1C1C] border border-white/10 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-[#D4AF37]"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-gray-300 font-bold block mb-1">Auto-Unpublish At (Take Down)</label>
+                      <input
+                        type="datetime-local"
+                        value={scheduledUnpublishAt}
+                        min={todayISO + 'T00:00'}
+                        onChange={(e) => setScheduledUnpublishAt(e.target.value)}
+                        className="w-full bg-[#1C1C1C] border border-white/10 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-[#D4AF37]"
+                      />
+                    </div>
                   </div>
 
                   <div>
@@ -997,6 +1124,156 @@ export const AdminEvents: React.FC = () => {
                   className="w-full sm:w-auto py-3 px-7 rounded-xl bg-gradient-to-r from-[#F3E5AB] via-[#D4AF37] to-[#AA7C11] hover:brightness-110 active:scale-95 text-black font-extrabold text-xs shadow-xl shadow-[#D4AF37]/20 transition-all cursor-pointer disabled:opacity-50"
                 >
                   {editingEventId ? 'Save & Sync Changes' : 'Publish Event Now'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Clone Event Modal (Prompt B) */}
+      {cloneTarget && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in">
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="w-full max-w-md bg-[#141414] border border-[#D4AF37]/30 rounded-3xl p-6 space-y-4 shadow-2xl"
+          >
+            <div className="flex justify-between items-start gap-4">
+              <div>
+                <span className="text-[10px] uppercase font-black tracking-widest text-[#D4AF37] block">Clone Event</span>
+                <h3 className="font-heading font-black text-lg text-white">Clone “{cloneTarget.title}”</h3>
+              </div>
+              <button
+                onClick={() => setCloneTarget(null)}
+                className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-all cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <p className="text-gray-400 text-xs leading-relaxed">
+              Cloning copies the event listing, pricing tiers, and seat-map configuration into a brand-new
+              listing. Sales history, tickets, and orders stay with the original event and remain visible in
+              the audit log. Override the date, time, or title for the new listing below.
+            </p>
+            <form onSubmit={handleCloneEvent} className="space-y-3">
+              <div>
+                <label className="text-gray-300 font-bold block mb-1 text-xs">New Title (optional)</label>
+                <input
+                  type="text"
+                  value={cloneNewTitle}
+                  onChange={(e) => setCloneNewTitle(e.target.value)}
+                  placeholder={`e.g. ${cloneTarget.title} — Edition 2`}
+                  className="w-full bg-[#1C1C1C] border border-white/10 rounded-xl px-3.5 py-2.5 text-white text-xs focus:outline-none focus:border-[#D4AF37]"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-gray-300 font-bold block mb-1 text-xs">New Date</label>
+                  <input
+                    type="date"
+                    value={cloneNewDate}
+                    min={todayISO}
+                    onChange={(e) => setCloneNewDate(e.target.value)}
+                    className="w-full bg-[#1C1C1C] border border-white/10 rounded-xl px-3.5 py-2.5 text-white text-xs focus:outline-none focus:border-[#D4AF37]"
+                  />
+                </div>
+                <div>
+                  <label className="text-gray-300 font-bold block mb-1 text-xs">New Time</label>
+                  <input
+                    type="text"
+                    value={cloneNewTime}
+                    onChange={(e) => setCloneNewTime(e.target.value)}
+                    placeholder={cloneTarget.time}
+                    className="w-full bg-[#1C1C1C] border border-white/10 rounded-xl px-3.5 py-2.5 text-white text-xs focus:outline-none focus:border-[#D4AF37]"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setCloneTarget(null)}
+                  className="py-2.5 px-4 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 font-bold text-xs cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="py-2.5 px-5 rounded-xl bg-gradient-to-r from-[#F3E5AB] via-[#D4AF37] to-[#AA7C11] hover:brightness-110 active:scale-95 text-black font-extrabold text-xs cursor-pointer"
+                >
+                  Clone Event
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Notify All Ticket Holders Modal (Item 6) */}
+      {notifyTarget && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in">
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="w-full max-w-md bg-[#141414] border border-[#D4AF37]/30 rounded-3xl p-6 space-y-4 shadow-2xl"
+          >
+            <div className="flex justify-between items-start gap-4">
+              <div>
+                <span className="text-[10px] uppercase font-black tracking-widest text-[#D4AF37] block">Event Notification</span>
+                <h3 className="font-heading font-black text-lg text-white">Email All Holders — “{notifyTarget.title}”</h3>
+              </div>
+              <button
+                onClick={() => setNotifyTarget(null)}
+                className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-all cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <p className="text-gray-400 text-xs leading-relaxed">
+              Compose an email to reach every unique email address attached to confirmed bookings for this
+              event. Holders are only emailed once each. This is recorded in the audit log and the
+              notifications ledger, regardless of whether a real SMTP server is configured.
+            </p>
+            <div className="rounded-xl bg-[#1C1C1C] border border-white/10 px-4 py-3 text-center">
+              <span className="text-gray-400 text-[11px] uppercase font-bold tracking-wider">Estimated Recipients</span>
+              <div className="text-2xl font-black text-[#D4AF37] font-mono">{notifyRecipientCount}</div>
+              <span className="text-gray-500 text-[10px]">unique ticket-holder email addresses</span>
+            </div>
+            <form onSubmit={handleSendNotifications} className="space-y-3">
+              <div>
+                <label className="text-gray-300 font-bold block mb-1 text-xs">Subject</label>
+                <input
+                  type="text"
+                  value={notifySubject}
+                  onChange={(e) => setNotifySubject(e.target.value)}
+                  placeholder="Update regarding your booking"
+                  className="w-full bg-[#1C1C1C] border border-white/10 rounded-xl px-3.5 py-2.5 text-white text-xs focus:outline-none focus:border-[#D4AF37]"
+                />
+              </div>
+              <div>
+                <label className="text-gray-300 font-bold block mb-1 text-xs">Message</label>
+                <textarea
+                  rows={5}
+                  value={notifyMessage}
+                  onChange={(e) => setNotifyMessage(e.target.value)}
+                  placeholder="Announce schedule changes, gate updates, or post-event follow-ups..."
+                  className="w-full bg-[#1C1C1C] border border-white/10 rounded-xl px-3.5 py-2.5 text-white text-xs focus:outline-none focus:border-[#D4AF37] resize-y"
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setNotifyTarget(null)}
+                  className="py-2.5 px-4 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 font-bold text-xs cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={notifySending}
+                  className="py-2.5 px-5 rounded-xl bg-gradient-to-r from-[#F3E5AB] via-[#D4AF37] to-[#AA7C11] hover:brightness-110 active:scale-95 text-black font-extrabold text-xs cursor-pointer disabled:opacity-50"
+                >
+                  {notifySending ? 'Sending…' : 'Send Notifications'}
                 </button>
               </div>
             </form>

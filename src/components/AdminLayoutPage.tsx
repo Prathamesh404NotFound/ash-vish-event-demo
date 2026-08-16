@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Ticket, ShieldCheck, LayoutDashboard, Calendar, Users, QrCode, Settings, ArrowLeft, Tag, MessageSquare, Armchair, Building2 } from 'lucide-react';
+import { Ticket, ShieldCheck, LayoutDashboard, Calendar, Users, QrCode, Settings, ArrowLeft, Tag, MessageSquare, Armchair, Building2, BarChart3 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 export const AdminLayoutPage: React.FC = () => {
@@ -43,6 +43,12 @@ export const AdminLayoutPage: React.FC = () => {
       path: "/admin/coupons",
       icon: Tag,
       description: "Promos & discount codes"
+    },
+    {
+      title: "Reports",
+      path: "/admin/reports",
+      icon: BarChart3,
+      description: "Revenue, attendance & channels"
     },
     {
       title: "Fan Review Moderation",

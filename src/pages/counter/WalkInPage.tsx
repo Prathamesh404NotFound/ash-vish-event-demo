@@ -21,10 +21,15 @@ export const WalkInPage: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [issuedTicket, setIssuedTicket] = useState<TicketType | null>(null);
 
-  const filteredEvents = events.filter((e) =>
+  // Counter staff only sell for live (published + not scheduled-hidden) events.
+  const isEventVisible = (e: any) =>
+    (e.status === 'published' || e.status === 'sold_out') &&
+    e.isEventPublic !== false;
+
+  const filteredEvents = events.filter((e) => isEventVisible(e) && (
     e.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
     e.city.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  ));
 
   const selectedEvent = events.find((e) => e.id === selectedEventId) || events[0];
   const selectedTier = selectedEvent?.ticketTiers.find((t) => t.id === selectedTierId) || selectedEvent?.ticketTiers[0];

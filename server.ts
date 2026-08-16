@@ -18,6 +18,126 @@ import {
 
 const SERVER_HMAC_SECRET = process.env.SERVER_HMAC_SECRET || "ASH_VISH_SECURE_HMAC_KEY_2026";
 
+// ============================================================
+// Admin Panel (Prompt B) — Item 6: minimal email service
+// ============================================================
+// Single lightweight dependency (nodemailer ^6.10.1). When the SMTP
+// environment variables are absent, sends are recorded in the notifications
+// node in no-mail mode rather than failing the calling action.
+
+interface SmtpConfig {
+  host: string;
+  port: number;
+  user: string;
+  pass: string;
+  from: string;
+}
+
+let smtpConfig: SmtpConfig | null = null;
+function loadSmtpConfig(): SmtpConfig | null {
+  const host = process.env.SMTP_HOST;
+  const port = Number(process.env.SMTP_PORT || 587);
+  const user = process.env.SMTP_USER;
+  const pass = process.env.SMTP_PASS;
+  const from = process.env.SMTP_FROM || process.env.SMTP_USER || "noreply@ashvish.events";
+  if (host && user) smtpConfig = { host, port, user, pass, from };
+  return smtpConfig;
+}
+loadSmtpConfig();
+
+function isSmtpConfigured(): boolean {
+  return Boolean(loadSmtpConfig());
+}
+
+async function sendMail(options: { to: string; subject: string; text: string; html?: string }): Promise<{ ok: boolean; mode: "smtp" | "no-mail"; error?: string }> {
+  if (!isSmtpConfigured()) {
+    return { ok: true, mode: "no-mail" };
+  }
+  try {
+    const nodemailer = await import("nodemailer");
+    const transport = nodemailer.createTransport({
+      host: smtpConfig!.host,
+      port: smtpConfig!.port,
+      secure: smtpConfig!.port === 465,
+      auth: { user: smtpConfig!.user, pass: smtpConfig!.pass },
+    });
+    await transport.sendMail({
+      from: smtpConfig!.from,
+      to: options.to,
+      subject: options.subject,
+      text: options.text,
+      html: options.html || undefined,
+    });
+    return { ok: true, mode: "smtp" };
+  } catch (err: any) {
+    return { ok: false, mode: "smtp", error: err?.message || "SMTP send failed" };
+  }
+}
+
+/** Record a notification send in the notifications node (audit trail for
+ * bulk and confirmation emails). */
+async function recordNotification(params: {
+  eventId?: string;
+  subject: string;
+  message: string;
+  recipientCount: number;
+  status: "queued" | "sent" | "failed";
+  createdBy?: string;
+}): Promise<void> {
+  try {
+    const adminToken = await getAdminAuthToken();
+    if (!adminToken) return;
+    const id = `ntf_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    await rtdbPush("notifications", {
+      id,
+      eventId: params.eventId || null,
+      subject: params.subject,
+      message: params.message,
+      recipientCount: params.recipientCount,
+      status: params.status,
+      createdBy: params.createdBy || "system",
+      sentAt: params.status === "sent" ? new Date().toISOString() : undefined,
+    }, adminToken).catch(() => {});
+  } catch (err: any) {
+    console.warn("[NOTIFY] Notification record failed:", err.message);
+  }
+}
+
+/**
+ * Send a confirmation email after order confirmation. Always returns
+ * normally — failures are logged, never thrown.
+ */
+async function sendOrderConfirmationEmail(
+  customerDetails: any,
+  details: { eventId: string; eventTitle: string; ticketNumber: string; tierName: string; amount: number; venue: string; city: string; date: string; time: string }
+): Promise<void> {
+  const email = customerDetails?.email;
+  if (!email || !String(email).includes("@")) return;
+  const name = customerDetails?.name || "Ticket Holder";
+  const subject = `Booking Confirmed — ${details.eventTitle}`;
+  const text = [
+    `Hi ${name},`,
+    ``,
+    `Your booking for "${details.eventTitle}" is confirmed.`,
+    `Ticket Number: ${details.ticketNumber}`,
+    `Tier: ${details.tierName}`,
+    `Amount Paid: INR ${details.amount}`,
+    `Venue: ${details.venue}, ${details.city}`,
+    `Date: ${details.date} at ${details.time}`,
+    ``,
+    `Show this ticket (or its QR code) at the entrance to check in.`,
+    `— Ash-vish Events`,
+  ].join("\n");
+  const result = await sendMail({ to: String(email), subject, text });
+  await recordNotification({
+    eventId: details.eventId,
+    subject,
+    message: `Confirmation email to ${email} for ${details.ticketNumber}${result.mode === "no-mail" ? " (no-mail mode: SMTP not configured)" : ""}`,
+    recipientCount: 1,
+    status: "sent",
+  }).catch(() => {});
+}
+
 // Server-side admin auth is a plain REST flow (service-account signed custom
 // token exchanged via signInWithCustomToken). No Firebase Admin SDK is used.
 async function getAdminAuthToken(): Promise<string | undefined> {
@@ -392,6 +512,132 @@ async function claimSeatsAtomically(
   return { committed: true };
 }
 
+// ============================================================
+// Admin Panel (Prompt B) — Item 1: Event lifecycle helpers
+// ============================================================
+
+const EVENT_LIFECYCLE_STATUSES = ["draft", "published", "archived", "cancelled", "sold_out"] as const;
+
+/**
+ * Apply scheduled publish/unpublish transitions to a single event. Idempotent:
+ * only mutates the event when the scheduled time has passed and the status
+ * would actually change. Returns the (possibly updated) event.
+ */
+async function applyScheduledTransitions(event: any, nowMs = Date.now()): Promise<any> {
+  if (!event || typeof event !== "object") return event;
+  const updates: Record<string, any> = {};
+
+  const publishAt = event.scheduledPublishAt ? Date.parse(String(event.scheduledPublishAt)) : NaN;
+  if (!Number.isNaN(publishAt) && nowMs >= publishAt && (event.status || "draft") === "draft") {
+    updates.status = "published";
+    updates.publishedVia = "scheduled_publish";
+  }
+
+  const unpublishAt = event.scheduledUnpublishAt ? Date.parse(String(event.scheduledUnpublishAt)) : NaN;
+  if (!Number.isNaN(unpublishAt) && nowMs >= unpublishAt && (updates.status || event.status || "published") === "published") {
+    updates.status = "archived";
+    updates.publishedVia = undefined;
+    updates.archivedVia = "scheduled_unpublish";
+  }
+
+  if (Object.keys(updates).length > 0) {
+    const merged = { ...event, ...updates };
+    try {
+      const adminToken = await getAdminAuthToken();
+      if (adminToken) await rtdbUpdate(`events/${event.id}`, updates, adminToken);
+    } catch (err: any) {
+      console.warn("[LIFECYCLE] Scheduled transition persistence failed:", err.message);
+    }
+    return merged;
+  }
+  return event;
+}
+
+/**
+ * Sweep all events for expired scheduled transitions. Invoked by the
+ * background job and the manual lifecycle endpoint.
+ */
+async function applyScheduledTransitionsAll(): Promise<{ processed: number }> {
+  let processed = 0;
+  try {
+    const adminToken = await getAdminAuthToken();
+    if (!adminToken) return { processed };
+    const snap = await rtdbGet("events", adminToken);
+    const events = (snap.data || {}) as Record<string, any>;
+    const now = Date.now();
+    for (const [id, evt] of Object.entries(events)) {
+      const updated = await applyScheduledTransitions(evt, now);
+      if (updated !== evt && JSON.stringify(updated.status) !== JSON.stringify(evt.status)) processed++;
+    }
+  } catch (err: any) {
+    console.error("[LIFECYCLE] Sweep failed:", err.message);
+  }
+  return { processed };
+}
+
+/** Visibility gate used by customer-facing and counter reads. Draft and
+ * archived events are never bookable or visible in active lists. */
+const isEventPublic = (event: any): boolean => (event?.status || "published") === "published";
+
+// ============================================================
+// Admin Panel (Prompt B) — Item 3: orders canonical record writer
+// ============================================================
+
+/**
+ * RecordOrder: writes the canonical admin orders record alongside every
+ * fulfilled booking (online, counter, and manual). Stored under orders/ so
+ * the orders dashboard can paginate and filter without scanning tickets.
+ */
+async function recordOrder(params: {
+  orderId: string;
+  eventId: string;
+  tierId: string;
+  seatIds: string[];
+  quantity: number;
+  customerDetails: { name: string; email: string; phone: string };
+  amount: number;
+  discount?: number;
+  couponCode?: string | null;
+  paymentMethod: string;
+  channel: "online" | "counter" | "manual";
+  ticketId?: string | null;
+  bookingId?: string | null;
+  createdBy?: string;
+}): Promise<void> {
+  try {
+    const adminToken = await getAdminAuthToken();
+    if (!adminToken) return;
+    const order = {
+      orderId: params.orderId,
+      eventId: params.eventId,
+      tierId: params.tierId,
+      seatIds: params.seatIds || [],
+      quantity: params.quantity,
+      customerDetails: {
+        name: String(params.customerDetails?.name || ""),
+        email: String(params.customerDetails?.email || ""),
+        phone: String(params.customerDetails?.phone || ""),
+      },
+      amount: Number(params.amount) || 0,
+      discount: Number(params.discount) || 0,
+      couponCode: params.couponCode || null,
+      paymentMethod: String(params.paymentMethod || ""),
+      channel: params.channel,
+      status: "confirmed",
+      refundReason: null,
+      refundAmount: null,
+      ticketId: params.ticketId || null,
+      bookingId: params.bookingId || null,
+      createdAt: new Date().toISOString(),
+      createdBy: params.createdBy || "system",
+    };
+    await rtdbSet(`orders/${params.orderId}`, order, adminToken);
+  } catch (err: any) {
+    // Orders dashboard convenience record; booking records remain authoritative.
+    console.warn("[ORDERS] Canonical order record write failed:", err.message);
+  }
+}
+
 /**
  * Normalize ticket tiers regardless of RTDB storage shape.
  * RTDB may store tiers as an object map with numeric keys (entries without an `id`),
@@ -441,7 +687,8 @@ async function finalizeBookingServerSide(
   orderId: string,
   paymentMethod: string,
   paymentId: string,
-  userToken?: string
+  userToken?: string,
+  explicitCouponCode?: string | null
 ): Promise<{ success: boolean; ticket?: any; booking?: any; error?: string }> {
   let couponIncremented = false;
   let couponCodeUpper: string | null = null;
@@ -465,7 +712,12 @@ async function finalizeBookingServerSide(
     }
 
     pendingOrder = pendingRes.data;
-    const { eventId, tierId, seatIds, quantity, customerDetails, userId, amount, couponCode } = pendingOrder;
+    const { eventId, tierId, seatIds, quantity, customerDetails, userId, amount, discount } = pendingOrder;
+    // Coupon code source of truth: prefer pending_order couponCode, fall back to
+    // the explicitly-passed counter code (the walk-in endpoint validates the
+    // coupon before building the pending order).
+    const couponCode: string | null = pendingOrder.couponCode || explicitCouponCode || null;
+    const discountAmount = Number(discount) || 0;
     const now = Date.now();
     // Production hardening: the live event tier price is the sole source of truth.
     let serverCalculatedRecheck = 0;
@@ -663,6 +915,7 @@ async function finalizeBookingServerSide(
       price,
       quantity,
       totalPaid: amount,
+      discount: discountAmount,
       seatNumber: seatLabel,
       selectedSeats: seatIds || [],
       attendeeName: customerDetails.name,
@@ -681,6 +934,7 @@ async function finalizeBookingServerSide(
       eventId,
       seatIds: seatIds || [],
       totalAmount: amount,
+      discount: discountAmount,
       status: 'confirmed',
       createdAt: new Date().toISOString(),
       paymentMethod,
@@ -729,6 +983,41 @@ async function finalizeBookingServerSide(
     };
     await rtdbSet(`processed_orders/${orderId}`, processedOrder, authToken);
     await rtdbDelete(`pending_orders/${orderId}`, authToken);
+
+    // Canonical admin orders record (Prompt B Item 3): written for every
+    // fulfilled booking regardless of channel, so the orders dashboard has a
+    // single filterable source that mirrors the tickets/booking records.
+    const isWalkInChannel = String(paymentMethod).startsWith("walkin");
+    await recordOrder({
+      orderId,
+      eventId,
+      tierId: tierId || "",
+      seatIds: seatIds || [],
+      quantity,
+      customerDetails: customerDetails || {},
+      amount,
+      discount: pendingOrder?.discount || 0,
+      couponCode: couponCodeUpper,
+      paymentMethod,
+      channel: isWalkInChannel ? "counter" : "online",
+      ticketId,
+      bookingId,
+    }).catch(() => {});
+
+    // Confirmation email (Prompt B Item 6): send on order confirmation. When
+    // SMTP is not configured, the mail helper records the send in the
+    // notifications outbox in no-mail mode instead of failing the booking.
+    sendOrderConfirmationEmail(customerDetails, {
+      eventId,
+      eventTitle,
+      ticketNumber: ticketNum,
+      tierName,
+      amount,
+      venue,
+      city,
+      date,
+      time,
+    }).catch((e) => console.warn("[MAIL] Confirmation email failed:", e?.message));
 
     return { success: true, ticket: newTicket, booking: newBookingRecord };
   } catch (err: any) {
@@ -1252,12 +1541,69 @@ export async function createApp() {
         beforeState,
         afterState: coupon,
       });
+            return res.json({ success: true, coupon });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+  // Coupon in-place edit (Prompt B): allowed fields are type, value, validUntil,
+  // usageLimit (null = unlimited), isActive, and eventId restriction.
+  app.put("/api/coupons/update", verifyRole(['admin']), async (req: any, res) => {
+    try {
+      const { code, type, value, validUntil, usageLimit, isActive, eventId } = req.body || {};
+      const upper = String(code || "").trim().toUpperCase();
+      if (!upper) return res.status(400).json({ success: false, error: "Coupon code is required" });
+      const coupon = await getCouponByCode(upper, req.user?.idToken);
+      if (!coupon) return res.status(404).json({ success: false, error: "Coupon not found" });
+      if (type !== undefined) {
+        if (!["percentage", "fixed"].includes(String(type))) {
+          return res.status(400).json({ success: false, error: "Type must be 'percentage' or 'fixed'." });
+        }
+        coupon.type = type;
+      }
+      if (value !== undefined) {
+        const v = Number(value);
+        if (!Number.isFinite(v) || v <= 0 || v > 10000) {
+          return res.status(400).json({ success: false, error: "Value must be a positive number not exceeding 10000." });
+        }
+        coupon.value = v;
+      }
+      if (validUntil !== undefined) {
+        const t = Date.parse(String(validUntil));
+        if (validUntil !== "" && Number.isNaN(t)) {
+          return res.status(400).json({ success: false, error: "validUntil must be a valid date." });
+        }
+        coupon.validUntil = validUntil === "" ? null : String(validUntil);
+      }
+      if (usageLimit !== undefined) {
+        if (usageLimit === null || usageLimit === "") {
+          coupon.usageLimit = null;
+        } else {
+          const n = Number(usageLimit);
+          if (!Number.isInteger(n) || n <= 0) {
+            return res.status(400).json({ success: false, error: "usageLimit must be a positive integer (or empty for unlimited)." });
+          }
+          coupon.usageLimit = n;
+        }
+      }
+      if (isActive !== undefined) coupon.isActive = Boolean(isActive);
+      if (eventId !== undefined) coupon.eventId = eventId || null;
+      const beforeState = JSON.parse(JSON.stringify(coupon));
+      await saveCouponToDB(upper, coupon, req.user?.idToken);
+      await writeAuditEntry({
+        actorId: req.user.uid,
+        actorRole: req.user.rbacRole,
+        action: "coupon.updated",
+        entityType: "coupon",
+        entityId: upper,
+        beforeState,
+        afterState: coupon,
+      });
       return res.json({ success: true, coupon });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err.message });
     }
   });
-
   app.delete("/api/coupons/:code", verifyRole(['admin']), async (req: any, res) => {
     try {
       const code = req.params.code.toUpperCase();
@@ -2085,6 +2431,17 @@ export async function createApp() {
         const priceError = validateNonNegativePrice(event.minPrice);
         if (priceError) return res.status(400).json({ success: false, error: priceError });
       }
+      if (event.status !== undefined && !EVENT_LIFECYCLE_STATUSES.includes(event.status)) {
+        return res.status(400).json({ success: false, error: `Invalid event status. Allowed: ${EVENT_LIFECYCLE_STATUSES.join(", ")}.` });
+      }
+      if (event.scheduledPublishAt !== undefined) {
+        const t = Date.parse(String(event.scheduledPublishAt));
+        if (Number.isNaN(t)) return res.status(400).json({ success: false, error: "scheduledPublishAt must be a valid ISO 8601 date/time." });
+      }
+      if (event.scheduledUnpublishAt !== undefined) {
+        const t = Date.parse(String(event.scheduledUnpublishAt));
+        if (Number.isNaN(t)) return res.status(400).json({ success: false, error: "scheduledUnpublishAt must be a valid ISO 8601 date/time." });
+      }
       if (Array.isArray(event.ticketTiers)) {
         for (const tier of event.ticketTiers) {
           if (tier) {
@@ -2139,6 +2496,17 @@ export async function createApp() {
       if (body.minPrice !== undefined) {
         const priceError = validateNonNegativePrice(body.minPrice);
         if (priceError) return res.status(400).json({ success: false, error: priceError });
+      }
+      if (body.status !== undefined && !EVENT_LIFECYCLE_STATUSES.includes(body.status)) {
+        return res.status(400).json({ success: false, error: `Invalid event status. Allowed: ${EVENT_LIFECYCLE_STATUSES.join(", ")}.` });
+      }
+      if (body.scheduledPublishAt !== undefined) {
+        const t = Date.parse(String(body.scheduledPublishAt));
+        if (Number.isNaN(t)) return res.status(400).json({ success: false, error: "scheduledPublishAt must be a valid ISO 8601 date/time." });
+      }
+      if (body.scheduledUnpublishAt !== undefined) {
+        const t = Date.parse(String(body.scheduledUnpublishAt));
+        if (Number.isNaN(t)) return res.status(400).json({ success: false, error: "scheduledUnpublishAt must be a valid ISO 8601 date/time." });
       }
       if (Array.isArray(body.ticketTiers)) {
         for (const tier of body.ticketTiers) {
@@ -2211,11 +2579,43 @@ export async function createApp() {
         return res.status(413).json({ success: false, error: "Seat map exceeds the supported size." });
       }
 
+      // Item 2: validate per-seat type, tier linkage, and per-row label uniqueness.
+      const seatTypes = new Set(["regular", "premium", "accessible", "obstructed-view"]);
       const adminToken = await getAdminAuthToken();
+      const eventSnap = await rtdbGet(`events/${eventId}`, adminToken);
+      const tierIds = new Set(normalizeTiers(eventSnap.data?.ticketTiers).map((t: any) => t.id).filter(Boolean));
+      const rowLabels = new Map<string, Set<string>>();
+      for (const [nodeId, node] of Object.entries(seatNodes)) {
+        const n = node as any;
+        if (n.seatType !== undefined && !seatTypes.has(String(n.seatType))) {
+          return res.status(400).json({ success: false, error: `Seat ${nodeId}: seatType must be one of regular, premium, accessible, obstructed-view.` });
+        }
+        if (n.pricingTierId !== undefined) {
+          const tid = String(n.pricingTierId);
+          if (!tierIds.has(tid) && tid !== "default") {
+            return res.status(400).json({ success: false, error: `Seat ${nodeId}: pricingTierId "${tid}" does not match any event ticket tier.` });
+          }
+        }
+        // Per-row label uniqueness (seatIdLabel / number within a row)
+        const label = n.seatIdLabel || n.number || n.id;
+        if (label !== undefined) {
+          const rowKey = String(n.row ?? "unknown");
+          let labels = rowLabels.get(rowKey);
+          if (!labels) { labels = new Set<string>(); rowLabels.set(rowKey, labels); }
+          const labelStr = String(label).trim();
+          if (labelStr) {
+            if (labels.has(labelStr)) {
+              return res.status(400).json({ success: false, error: `Row ${rowKey}: duplicate seat label "${labelStr}". Seat labels must be unique within each row.` });
+            }
+            labels.add(labelStr);
+          }
+        }
+      }
+
       if (!(await assertEventMutationAccess(eventId, req, adminToken))) {
         return res.status(403).json({ success: false, error: "You do not own this event." });
       }
-      const beforeState = (await rtdbGet(`events/${eventId}`, adminToken)).data;
+      const beforeState = eventSnap.data;
       await rtdbSet(`seats/${eventId}`, seatNodes, adminToken);
       await rtdbUpdate(`events/${eventId}`, {
         seatMap,
@@ -2239,12 +2639,15 @@ export async function createApp() {
 
   app.post("/api/walk-in-bookings", verifyRole(['admin', 'ticket_counter']), async (req: any, res) => {
     try {
-      const { eventId, tierId, attendeeName, attendeePhone, selectedSeats = [], paymentMethod = 'cash' } = req.body || {};
+      const { eventId, tierId, attendeeName, attendeePhone, attendeeEmail, selectedSeats = [], paymentMethod = 'cash', couponCode: rawCouponCode } = req.body || {};
       if (!eventId || !tierId || !attendeeName || !attendeePhone) {
         return res.status(400).json({ success: false, error: "Event, ticket tier, attendee name, and phone are required." });
       }
       if (!Array.isArray(selectedSeats) || selectedSeats.length > 100) {
         return res.status(400).json({ success: false, error: "Invalid seat selection." });
+      }
+      if (rawCouponCode && typeof rawCouponCode !== "string") {
+        return res.status(400).json({ success: false, error: "Invalid coupon code." });
       }
       // Server-side validation (Item 6): quantity is a positive integer (seat
       // count), and the walk-in may never exceed tier capacity or the platform
@@ -2272,12 +2675,42 @@ export async function createApp() {
         return res.status(400).json({ success: false, error: `Quantity exceeds the tier capacity of ${tier.capacity}.` });
       }
 
+      // Counter coupon support (Item 3): validate the coupon against the event
+      // and compute the discount up front; the atomic usedCount increment is
+      // performed by finalizeBookingServerSide, same as the online flow.
+      let couponCodeUpper: string | null = null;
+      let discountAmount = 0;
+      if (rawCouponCode?.trim()) {
+        couponCodeUpper = rawCouponCode.trim().toUpperCase();
+        const couponSnap = await rtdbGet(`coupons/${couponCodeUpper}`, adminToken);
+        const coupon = couponSnap.data as any;
+        if (!coupon || coupon.isActive === false) {
+          return res.status(400).json({ success: false, error: "Coupon is invalid or inactive." });
+        }
+        if (coupon.validUntil && new Date(coupon.validUntil) < new Date()) {
+          return res.status(400).json({ success: false, error: "Coupon has expired." });
+        }
+        if (coupon.eventId && coupon.eventId !== eventId) {
+          return res.status(400).json({ success: false, error: "Coupon is restricted to a different event." });
+        }
+        if (coupon.usageLimit && Number(coupon.usedCount || 0) >= Number(coupon.usageLimit)) {
+          return res.status(400).json({ success: false, error: "Coupon usage limit reached." });
+        }
+        const rawAmount = Number(tier.price) * quantity;
+        if (coupon.type === "percentage") {
+          discountAmount = Math.round((rawAmount * Number(coupon.value)) / 100);
+        } else if (coupon.type === "fixed") {
+          discountAmount = Math.min(rawAmount, Number(coupon.value));
+        }
+      }
+
       const orderId = `walkin_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
       const customerDetails = {
         name: String(attendeeName).trim(),
-        email: `${String(attendeeName).toLowerCase().replace(/[^a-z0-9]+/g, '') || 'guest'}@walkin.ashvish`,
+        email: attendeeEmail?.trim() || `${String(attendeeName).toLowerCase().replace(/[^a-z0-9]+/g, '') || 'guest'}@walkin.ashvish`,
         phone: String(attendeePhone).trim(),
       };
+      const lineAmount = Number(tier.price) * quantity;
       await rtdbSet(`pending_orders/${orderId}`, {
         orderId,
         eventId,
@@ -2286,7 +2719,9 @@ export async function createApp() {
         quantity,
         customerDetails,
         userId: 'walk_in_guest',
-        amount: Number(tier.price) * quantity,
+        amount: lineAmount,
+        discount: discountAmount,
+        couponCode: couponCodeUpper,
         createdAt: new Date().toISOString(),
         paymentMethod: `walkin_${String(paymentMethod).slice(0, 32)}`,
       }, adminToken);
@@ -2296,6 +2731,7 @@ export async function createApp() {
         `walkin_${String(paymentMethod).slice(0, 32)}`,
         `walkin_payment_${orderId}`,
         adminToken,
+        couponCodeUpper,
       );
       if (!result.success) {
         return res.status(409).json({ success: false, error: result.error || "Walk-in booking could not be completed." });
@@ -2306,7 +2742,7 @@ export async function createApp() {
         action: "order.created.walk_in",
         entityType: "order",
         entityId: orderId,
-        afterState: { eventId, tierId, quantity, attendee: customerDetails.name, paymentMethod },
+        afterState: { eventId, tierId, quantity, attendee: customerDetails.name, paymentMethod, couponCode: couponCodeUpper, discount: discountAmount },
       });
       return res.status(201).json({ success: true, ticket: result.ticket, booking: result.booking });
     } catch (err: any) {
@@ -2317,6 +2753,13 @@ export async function createApp() {
   setInterval(() => {
     sweepExpiredHolds().catch(err => console.error("Error in background sweeper:", err.message));
   }, 30 * 1000);
+
+  // Item 1: scheduled event publish/unpublish transitions — checked every
+  // minute so draft events auto-publish and published events auto-archive
+  // without manual intervention.
+  setInterval(() => {
+    applyScheduledTransitionsAll().catch(err => console.error("Error in lifecycle sweeper:", err.message));
+  }, 60 * 1000);
 
   // Reviews endpoints
   app.get("/api/events/:eventId/reviews", async (req, res) => {
@@ -2676,6 +3119,561 @@ export async function createApp() {
   });
 
 
+  // ============================================================
+  // Admin Panel (Prompt B) — Items 1, 4, 5, 6: orders dashboard, lifecycle,
+  // reporting, notifications
+  // ============================================================
+
+  // -- Item 1: manual lifecycle sweep endpoint ------------------------------
+  app.post("/api/admin/events/apply-lifecycle", requireRole(["super_admin", "event_manager"]), async (req: any, res) => {
+    try {
+      const { processed } = await applyScheduledTransitionsAll();
+      await writeAuditEntry({
+        actorId: req.user.uid,
+        actorRole: req.user.rbacRole,
+        action: "event.lifecycle.applied",
+        entityType: "event",
+        afterState: { processed },
+      });
+      return res.json({ success: true, processed });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // -- Item 1: clone event (duplicate config to a new draft event) ----------
+  app.post("/api/admin/events/:eventId/clone", requireRole(["super_admin", "event_manager"]), async (req: any, res) => {
+    try {
+      const { eventId } = req.params;
+      const { newDate, newTime, newTitle } = req.body || {};
+      const adminToken = await getAdminAuthToken();
+      const original = (await rtdbGet(`events/${eventId}`, adminToken)).data as any;
+      if (!original) return res.status(404).json({ success: false, error: "Event not found." });
+      if (newDate) {
+        const dateError = validateEventDates(newDate, undefined);
+        if (dateError) return res.status(400).json({ success: false, error: dateError });
+      }
+      const newId = `evt_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
+      const clone = {
+        ...original,
+        id: newId,
+        title: newTitle?.trim() || `${original.title} (Clone)`,
+        date: newDate || original.date,
+        time: newTime || original.time,
+        status: "draft",
+        rating: 0,
+        reviewsCount: 0,
+        totalCapacity: original.totalCapacity,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        clonedFrom: eventId,
+      };
+      // Drop fields that should not carry over
+      delete clone.scheduledPublishAt;
+      delete clone.scheduledUnpublishAt;
+      await rtdbSet(`events/${newId}`, clone, adminToken);
+      // Rebuild the seat map for the new event: copy seats, reset statuses,
+      // preserve seatType and pricingTierId from the original configuration.
+      const seatSnap = await rtdbGet(`seats/${eventId}`, adminToken);
+      if (seatSnap.data) {
+        const newSeats: Record<string, any> = {};
+        for (const [seatId, seat] of Object.entries(seatSnap.data as any)) {
+          const s = seat as any;
+          newSeats[seatId] = {
+            ...s,
+            status: "available",
+            heldBy: null,
+            reservationId: null,
+            heldAt: null,
+            holdExpiresAt: null,
+            statusChangedAt: Date.now(),
+            statusChangedBy: "clone",
+          };
+          if (s.seatType) newSeats[seatId].seatType = s.seatType;
+          if (s.pricingTierId) newSeats[seatId].pricingTierId = s.pricingTierId;
+          if (s.seatIdLabel) newSeats[seatId].seatIdLabel = s.seatIdLabel;
+        }
+        await rtdbSet(`seats/${newId}`, newSeats, adminToken);
+      }
+      await writeAuditEntry({
+        actorId: req.user.uid,
+        actorRole: req.user.rbacRole,
+        action: "event.cloned",
+        entityType: "event",
+        entityId: newId,
+        afterState: { clonedFrom: eventId, status: "draft" },
+      });
+      return res.status(201).json({ success: true, event: clone });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || "Could not clone event." });
+    }
+  });
+
+  // -- Item 1: admin events list (all statuses + scheduled fields) ----------
+  app.get("/api/admin/events", requireRole(["super_admin", "event_manager"]), async (req: any, res) => {
+    try {
+      const adminToken = await getAdminAuthToken();
+      const snap = await rtdbGet("events", adminToken);
+      let events = Object.values((snap.data || {}) as Record<string, any>);
+      const statusFilter = typeof req.query.status === "string" && req.query.status ? req.query.status : undefined;
+      if (statusFilter) events = events.filter((e: any) => (e.status || "published") === statusFilter);
+      // Apply lazy scheduled transitions to every event being listed so the
+      // list never shows a status that should already have changed.
+      const now = Date.now();
+      events = events.map((e: any) => applyScheduledTransitions(e, now));
+      events.sort((a: any, b: any) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+      return res.json({ success: true, events, count: events.length });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // -- Item 4: orders dashboard (list, filters, pagination) -----------------
+  app.get("/api/admin/orders", requireRole(["super_admin", "event_manager", "counter_staff"]), async (req: any, res) => {
+    try {
+      const adminToken = await getAdminAuthToken();
+      const q = req.query || {};
+      const eventId = typeof q.eventId === "string" ? q.eventId : undefined;
+      const status = typeof q.status === "string" ? q.status : undefined;
+      const channel = typeof q.channel === "string" ? q.channel : undefined;
+      const dateFrom = typeof q.dateFrom === "string" ? q.dateFrom : undefined;
+      const dateTo = typeof q.dateTo === "string" ? q.dateTo : undefined;
+      const search = typeof q.search === "string" ? q.search.trim().toLowerCase() : undefined;
+      const page = Math.max(1, Number(q.page) || 1);
+      const pageSize = Math.min(100, Math.max(10, Number(q.pageSize) || 20));
+
+      const snap = await rtdbGet("orders", adminToken);
+      let orders = Object.values((snap.data || {}) as Record<string, any>);
+      if (eventId) orders = orders.filter((o: any) => o.eventId === eventId);
+      if (status) orders = orders.filter((o: any) => o.status === status);
+      if (channel) orders = orders.filter((o: any) => o.channel === channel);
+      if (dateFrom) orders = orders.filter((o: any) => String(o.createdAt) >= String(dateFrom));
+      if (dateTo) orders = orders.filter((o: any) => String(o.createdAt) <= String(dateTo));
+      if (search) {
+        orders = orders.filter((o: any) =>
+          [o.customerDetails?.name, o.customerDetails?.email, o.customerDetails?.phone, o.orderId]
+            .map(String).join(" ").toLowerCase().includes(search)
+        );
+      }
+      orders.sort((a: any, b: any) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+      const total = orders.length;
+      const paged = orders.slice((page - 1) * pageSize, page * pageSize);
+      return res.json({ success: true, orders: paged, total, page, pageSize });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // -- Item 4: create manual order (admin-assigned booking with seat locking) -
+  app.post("/api/admin/orders", requireRole(["super_admin", "event_manager", "counter_staff"]), async (req: any, res) => {
+    try {
+      const { eventId, tierId, attendeeName, attendeeEmail, attendeePhone, selectedSeats = [], paymentMethod = "cash", couponCode: rawCouponCode, quantity: explicitQty } = req.body || {};
+      if (!eventId || !tierId || !attendeeName) {
+        return res.status(400).json({ success: false, error: "Event, tier, and attendee name are required." });
+      }
+      if (!Array.isArray(selectedSeats)) return res.status(400).json({ success: false, error: "Invalid seat selection." });
+      const quantity = Math.max(1, Number(explicitQty) || selectedSeats.length || 1);
+      const qtyError = validatePositiveInteger(quantity, 100);
+      if (qtyError) return res.status(400).json({ success: false, error: qtyError });
+
+      const adminToken = await getAdminAuthToken();
+      const event = (await rtdbGet(`events/${eventId}`, adminToken)).data as any;
+      if (!event) return res.status(404).json({ success: false, error: "Event not found." });
+      const tier = normalizeTiers(event.ticketTiers).find((t: any) => t.id === tierId);
+      if (!tier) return res.status(400).json({ success: false, error: "Invalid ticket tier." });
+      const priceError = validateNonNegativePrice(tier.price);
+      if (priceError) return res.status(400).json({ success: false, error: `Tier '${tier.name}': ${priceError}` });
+
+      // Coupon validation (Item 3) — same rules as the counter and online flows.
+      let couponCodeUpper: string | null = null;
+      let discountAmount = 0;
+      if (rawCouponCode?.trim()) {
+        couponCodeUpper = rawCouponCode.trim().toUpperCase();
+        const couponSnap = await rtdbGet(`coupons/${couponCodeUpper}`, adminToken);
+        const coupon = couponSnap.data as any;
+        if (!coupon || coupon.isActive === false) return res.status(400).json({ success: false, error: "Coupon is invalid or inactive." });
+        if (coupon.validUntil && new Date(coupon.validUntil) < new Date()) return res.status(400).json({ success: false, error: "Coupon has expired." });
+        if (coupon.eventId && coupon.eventId !== eventId) return res.status(400).json({ success: false, error: "Coupon is restricted to a different event." });
+        if (coupon.usageLimit && Number(coupon.usedCount || 0) >= Number(coupon.usageLimit)) return res.status(400).json({ success: false, error: "Coupon usage limit reached." });
+        const rawAmount = Number(tier.price) * quantity;
+        if (coupon.type === "percentage") discountAmount = Math.round((rawAmount * Number(coupon.value)) / 100);
+        else if (coupon.type === "fixed") discountAmount = Math.min(rawAmount, Number(coupon.value));
+      }
+
+      // Seat locking (Item 4): seats are claimed via the shared atomic path;
+      // any unavailable seat aborts the whole order and releases claims.
+      const orderId = `manual_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+      const claim = selectedSeats.length > 0
+        ? await claimSeatsAtomically(adminToken, eventId, selectedSeats, orderId, `manual_${req.user.uid}`)
+        : { committed: true };
+      if (!claim.committed) {
+        return res.status(409).json({ success: false, error: "One or more selected seats are no longer available." });
+      }
+
+      const customerDetails = {
+        name: String(attendeeName).trim(),
+        email: attendeeEmail?.trim() || "",
+        phone: attendeePhone?.trim() || "",
+      };
+      const amount = Number(tier.price) * quantity;
+      // Persist a pending order so the shared fulfillment path (inventory,
+      // ticket issuance, canonical orders record, confirmation email) is
+      // reused identically to all other channels.
+      await rtdbSet(`pending_orders/${orderId}`, {
+        orderId, eventId, tierId, seatIds: selectedSeats, quantity,
+        customerDetails, userId: `manual_${req.user.uid}`,
+        amount, discount: discountAmount, couponCode: couponCodeUpper,
+        createdAt: new Date().toISOString(),
+        paymentMethod: `manual_${String(paymentMethod).slice(0, 32)}`,
+      }, adminToken);
+
+      const result = await finalizeBookingServerSide(orderId, `manual_${String(paymentMethod).slice(0, 32)}`, `manual_payment_${orderId}`, adminToken, couponCodeUpper);
+      if (!result.success) {
+        for (const rolledId of selectedSeats) await releaseSeat(adminToken, eventId, rolledId, { reservationId: orderId }).catch(() => {});
+        return res.status(409).json({ success: false, error: result.error || "Manual order could not be completed." });
+      }
+      await writeAuditEntry({
+        actorId: req.user.uid,
+        actorRole: req.user.rbacRole,
+        action: "order.created.manual",
+        entityType: "order",
+        entityId: orderId,
+        afterState: { eventId, tierId, quantity, attendee: customerDetails.name, couponCode: couponCodeUpper, discount: discountAmount },
+      });
+      return res.status(201).json({ success: true, order: { orderId, amount, discount: discountAmount, status: "confirmed" }, ticket: result.ticket });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || "Could not create manual order." });
+    }
+  });
+
+  // -- Item 4: edit order (seat/customer changes with locking) ---------------
+  app.put("/api/admin/orders/:orderId", requireRole(["super_admin", "event_manager", "counter_staff"]), async (req: any, res) => {
+    try {
+      const { orderId } = req.params;
+      const adminToken = await getAdminAuthToken();
+      const orderSnap = await rtdbGet(`orders/${orderId}`, adminToken);
+      const order = orderSnap.data as any;
+      if (!order) return res.status(404).json({ success: false, error: "Order not found." });
+      if (order.status !== "confirmed") return res.status(400).json({ success: false, error: `Order cannot be edited (status: ${order.status}).` });
+
+      const { selectedSeats, customerDetails, tierId } = req.body || {};
+      const updates: Record<string, any> = {};
+      const before = JSON.parse(JSON.stringify(order));
+
+      if (customerDetails) {
+        updates.customerDetails = {
+          name: String(customerDetails.name ?? order.customerDetails?.name).trim(),
+          email: String(customerDetails.email ?? order.customerDetails?.email).trim(),
+          phone: String(customerDetails.phone ?? order.customerDetails?.phone).trim(),
+        };
+      }
+
+      if (selectedSeats !== undefined && Array.isArray(selectedSeats)) {
+        const oldSeats: string[] = order.seatIds || [];
+        const newSeats: string[] = selectedSeats;
+        if (JSON.stringify([...oldSeats].sort()) !== JSON.stringify([...newSeats].sort())) {
+          // Release seats no longer held by this order (all-or-nothing claim first)
+          const toAdd = newSeats.filter((s: string) => !oldSeats.includes(s));
+          if (toAdd.length > 0) {
+            const claim = await claimSeatsAtomically(adminToken, order.eventId, toAdd, orderId, `manual_${req.user.uid}`);
+            if (!claim.committed) return res.status(409).json({ success: false, error: "One or more new seats are no longer available." });
+          }
+          for (const removed of oldSeats.filter((s: string) => !newSeats.includes(s))) {
+            await releaseSeat(adminToken, order.eventId, removed, {});
+          }
+          updates.seatIds = newSeats;
+          updates.quantity = newSeats.length || order.quantity;
+          // Mirror changes to the ticket/seat records for consistency
+          for (const newSeat of toAdd) {
+            await rtdbUpdate(`seats/${order.eventId}/${newSeat}`, { bookedBy: order.createdBy, orderId, statusChangedAt: Date.now(), statusChangedBy: "order_edit" }, adminToken);
+          }
+        }
+      }
+
+      if (tierId && tierId !== order.tierId) {
+        const event = (await rtdbGet(`events/${order.eventId}`, adminToken)).data as any;
+        const tier = normalizeTiers(event?.ticketTiers).find((t: any) => t.id === tierId);
+        if (!tier) return res.status(400).json({ success: false, error: "Invalid ticket tier." });
+        updates.tierId = tierId;
+        const priceError = validateNonNegativePrice(tier.price);
+        if (priceError) return res.status(400).json({ success: false, error: `Tier '${tier.name}': ${priceError}` });
+        updates.amount = Number(tier.price) * (updates.quantity ?? order.quantity);
+      }
+      updates.updatedAt = new Date().toISOString();
+      await rtdbUpdate(`orders/${orderId}`, updates, adminToken);
+      await writeAuditEntry({
+        actorId: req.user.uid,
+        actorRole: req.user.rbacRole,
+        action: "order.updated",
+        entityType: "order",
+        entityId: orderId,
+        beforeState: before,
+        afterState: { ...order, ...updates },
+      });
+      return res.json({ success: true, order: { ...order, ...updates } });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || "Could not update order." });
+    }
+  });
+
+  // -- Item 4: refund order (releases seats, marks refunded, audit trail) -----
+  app.post("/api/admin/orders/:orderId/refund", requireRole(["super_admin", "event_manager"]), async (req: any, res) => {
+    try {
+      const { orderId } = req.params;
+      const { refundType = "full", amount: refundAmount, reason } = req.body || {};
+      if (!["full", "partial"].includes(refundType)) {
+        return res.status(400).json({ success: false, error: "refundType must be 'full' or 'partial'." });
+      }
+      if (!reason || String(reason).trim().length < 5) {
+        return res.status(400).json({ success: false, error: "A refund reason of at least 5 characters is required." });
+      }
+      const adminToken = await getAdminAuthToken();
+      const orderSnap = await rtdbGet(`orders/${orderId}`, adminToken);
+      const order = orderSnap.data as any;
+      if (!order) return res.status(404).json({ success: false, error: "Order not found." });
+      if (order.status === "refunded") return res.status(400).json({ success: false, error: "Order is already refunded." });
+
+      const refundValue = refundType === "full" ? order.amount : Number(refundAmount);
+      if (!Number.isFinite(refundValue) || refundValue <= 0) {
+        return res.status(400).json({ success: false, error: "Invalid refund amount." });
+      }
+      if (refundValue > order.amount) {
+        return res.status(400).json({ success: false, error: "Refund amount exceeds the paid amount." });
+      }
+      const partialSeats = refundType === "partial" && Array.isArray(req.body.seatIds) ? req.body.seatIds : [];
+
+      const before = JSON.parse(JSON.stringify(order));
+      // Release refunded seats back to available (transactional).
+      const seatsToRelease = partialSeats.length > 0 ? partialSeats : (order.seatIds || []);
+      const lastResult = { committed: true, error: undefined as string | undefined };
+      for (const seatId of seatsToRelease) {
+        const r = await releaseSeat(adminToken, order.eventId, seatId, {});
+        if (!r.committed) lastResult.committed = false;
+      }
+      if (!lastResult.committed) {
+        return res.status(409).json({ success: false, error: "Could not release one or more seats; refund aborted." });
+      }
+
+      const afterState = {
+        ...order,
+        status: "refunded",
+        refundReason: String(reason).trim(),
+        refundAmount: refundValue,
+        refundedAt: new Date().toISOString(),
+        refundedBy: req.user.uid,
+      };
+      await rtdbUpdate(`orders/${orderId}`, afterState, adminToken);
+
+      // Mark the linked ticket cancelled in the canonical tickets node so it
+      // can no longer be redeemed at the gate.
+      if (order.ticketId) {
+        await rtdbUpdate(`tickets/${order.ticketId}`, { status: "cancelled", cancelledReason: "refunded", statusChangedAt: new Date().toISOString() }, adminToken);
+      }
+
+      await writeAuditEntry({
+        actorId: req.user.uid,
+        actorRole: req.user.rbacRole,
+        action: "order.refunded",
+        entityType: "order",
+        entityId: orderId,
+        beforeState: before,
+        afterState: { status: "refunded", refundReason: String(reason).trim(), refundAmount: refundValue },
+      });
+      return res.json({ success: true, order: afterState });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || "Could not refund order." });
+    }
+  });
+
+  // -- Item 7: bulk order actions (export / cancel / email) -------------------
+  app.post("/api/admin/orders/bulk-action", requireRole(["super_admin", "event_manager"]), async (req: any, res) => {
+    try {
+      const { action: bulkAction, orderIds = [] } = req.body || {};
+      if (!["export", "cancel", "email"].includes(bulkAction)) {
+        return res.status(400).json({ success: false, error: "Bulk action must be 'export', 'cancel', or 'email'." });
+      }
+      if (!Array.isArray(orderIds) || orderIds.length === 0) {
+        return res.status(400).json({ success: false, error: "No order IDs provided." });
+      }
+      const adminToken = await getAdminAuthToken();
+
+      if (bulkAction === "export") {
+        const rows = await Promise.all(orderIds.map(async (id) => (await rtdbGet(`orders/${id}`, adminToken)).data as any));
+        const csv = ["orderId,channel,status,amount,discount,createdAt,name,email,phone"]
+          .concat(
+            rows.filter(Boolean).map((o: any) =>
+              [o.orderId, o.channel, o.status, o.amount, o.discount || 0, o.createdAt,
+               JSON.stringify(String(o.customerDetails?.name || "").replace(/"/g, "")),
+               String(o.customerDetails?.email || ""), String(o.customerDetails?.phone || "")].join(",")
+            )
+          )
+          .join("\n");
+        return res.setHeader("content-type", "text/csv").send(csv);
+      }
+
+      if (bulkAction === "cancel") {
+        let cancelled = 0;
+        for (const id of orderIds) {
+          const order = (await rtdbGet(`orders/${id}`, adminToken)).data as any;
+          if (!order || order.status !== "confirmed") continue;
+          const before = JSON.parse(JSON.stringify(order));
+          for (const seatId of order.seatIds || []) await releaseSeat(adminToken, order.eventId, seatId, {});
+          await rtdbUpdate(`orders/${id}`, { status: "cancelled", cancelledAt: new Date().toISOString(), cancelledBy: req.user.uid }, adminToken);
+          if (order.ticketId) await rtdbUpdate(`tickets/${order.ticketId}`, { status: "cancelled", cancelledReason: "admin_cancelled" }, adminToken);
+          await writeAuditEntry({ actorId: req.user.uid, actorRole: req.user.rbacRole, action: "order.cancelled", entityType: "order", entityId: id, beforeState: before, afterState: { status: "cancelled" } });
+          cancelled++;
+        }
+        return res.json({ success: true, cancelled });
+      }
+
+      // bulkAction === "email"
+      const sent: string[] = [];
+      const subject = req.body.subject || "Update regarding your Ash-vish booking";
+      const message = req.body.message || "";
+      if (String(message).trim().length < 5) {
+        return res.status(400).json({ success: false, error: "Email message must be at least 5 characters." });
+      }
+      for (const id of orderIds) {
+        const order = (await rtdbGet(`orders/${id}`, adminToken)).data as any;
+        const email = order?.customerDetails?.email;
+        if (!email || !String(email).includes("@")) continue;
+        const result = await sendMail({ to: String(email), subject, text: `${order?.customerDetails?.name || "Ticket Holder"},\n\n${message}\n\n— Ash-vish Events` });
+        await recordNotification({ eventId: order?.eventId, subject, message: `Bulk email to ${email} for order ${id}${result.mode === "no-mail" ? " (no-mail mode)" : ""}`, recipientCount: 1, status: "sent" }).catch(() => {});
+        sent.push(id);
+      }
+      return res.json({ success: true, sent: sent.length });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || "Bulk action failed." });
+    }
+  });
+
+  // -- Item 6: notify all ticket holders of an event --------------------------
+  app.get("/api/admin/notify/count-holders", requireRole(["super_admin", "event_manager"]), async (req: any, res) => {
+    try {
+      const eventId = typeof req.query.eventId === "string" ? req.query.eventId : undefined;
+      if (!eventId) return res.status(400).json({ success: false, error: "eventId is required." });
+      const adminToken = await getAdminAuthToken();
+      const snap = await rtdbGet("orders", adminToken);
+      const orders = Object.values((snap.data || {}) as Record<string, any>).filter((o: any) => o.eventId === eventId && o.status === "confirmed");
+      const emails = new Set(orders.map((o: any) => String(o.customerDetails?.email || "").toLowerCase()).filter((e) => e.includes("@")));
+      return res.json({ success: true, eventId, recipientCount: emails.size });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  app.post("/api/admin/notify/all-holders", requireRole(["super_admin", "event_manager"]), async (req: any, res) => {
+    try {
+      const { eventId, subject, message } = req.body || {};
+      if (!eventId || !subject || !message) {
+        return res.status(400).json({ success: false, error: "eventId, subject, and message are required." });
+      }
+      if (String(subject).trim().length < 3 || String(message).trim().length < 5) {
+        return res.status(400).json({ success: false, error: "Subject (3+ chars) and message (5+ chars) are required." });
+      }
+      const adminToken = await getAdminAuthToken();
+      const snap = await rtdbGet("orders", adminToken);
+      const orders = Object.values((snap.data || {}) as Record<string, any>).filter((o: any) => o.eventId === eventId && o.status === "confirmed");
+      const recipients = new Map<string, { email: string; name: string }>();
+      for (const o of orders) {
+        const email = String(o.customerDetails?.email || "").toLowerCase();
+        if (!email.includes("@") || recipients.has(email)) continue;
+        recipients.set(email, { email, name: o.customerDetails?.name || "Ticket Holder" });
+      }
+
+      // Record the send first (audit trail) then deliver.
+      await recordNotification({
+        eventId,
+        subject: String(subject).trim(),
+        message: String(message).trim(),
+        recipientCount: recipients.size,
+        status: "sent",
+        createdBy: req.user.uid,
+      });
+
+      for (const { email, name } of recipients.values()) {
+        const text = `${name},\n\n${message}\n\n— Ash-vish Events`;
+        const result = await sendMail({ to: email, subject: String(subject).trim(), text });
+        if (result.ok === false) console.warn(`[NOTIFY] Failed to send to ${email}: ${result.error}`);
+      }
+      return res.json({ success: true, recipientCount: recipients.size });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // -- Item 5: reporting dashboard -------------------------------------------
+  app.get("/api/admin/reports", requireRole(["super_admin", "event_manager", "auditor"]), async (req: any, res) => {
+    try {
+      const adminToken = await getAdminAuthToken();
+      const q = req.query || {};
+      const from = typeof q.from === "string" ? q.from : undefined;
+      const to = typeof q.to === "string" ? q.to : undefined;
+      const eventsSnap = await rtdbGet("events", adminToken);
+      const eventsById: Record<string, any> = (eventsSnap.data || {}) as Record<string, any>;
+
+      const ordersSnap = await rtdbGet("orders", adminToken);
+      let orders = Object.values((ordersSnap.data || {}) as Record<string, any>);
+      if (from) orders = orders.filter((o: any) => String(o.createdAt) >= String(from));
+      if (to) orders = orders.filter((o: any) => String(o.createdAt) <= String(to));
+      const confirmed = orders.filter((o: any) => o.status === "confirmed");
+      const refunded = orders.filter((o: any) => o.status === "refunded");
+
+      const revenueByEvent = Object.values(confirmed.reduce((acc: Record<string, any>, o: any) => {
+        const key = o.eventId || "unknown";
+        if (!acc[key]) acc[key] = { eventId: key, title: eventsById[key]?.title || key, revenue: 0, netRevenue: 0, orders: 0, tickets: 0 };
+        acc[key].revenue += Number(o.amount) || 0;
+        acc[key].netRevenue -= Number(o.refundAmount) || 0;
+        acc[key].orders += 1;
+        acc[key].tickets += Number(o.quantity) || 1;
+        return acc;
+      }, {}));
+
+      const revenueByDate = Object.values(confirmed.reduce((acc: Record<string, any>, o: any) => {
+        const key = String(o.createdAt || "").slice(0, 10);
+        if (!acc[key]) acc[key] = { date: key, revenue: 0, orders: 0 };
+        acc[key].revenue += Number(o.amount) || 0;
+        acc[key].orders += 1;
+        return acc;
+      }, {})).sort((a: any, b: any) => String(a.date).localeCompare(String(b.date)));
+
+      const attendanceVsCapacity = Object.values(confirmed.reduce((acc: Record<string, any>, o: any) => {
+        if (!o.eventId || !eventsById[o.eventId]) return acc;
+        if (!acc[o.eventId]) acc[o.eventId] = { eventId: o.eventId, title: eventsById[o.eventId].title, capacity: eventsById[o.eventId].totalCapacity || 0, sold: 0, checkedIn: 0 };
+        acc[o.eventId].sold += Number(o.quantity) || 1;
+        return acc;
+      }, {})) as any[];
+      // Checked-in counts come from ticket scan records (scannedAt presence).
+      const ticketsSnap = await rtdbGet("tickets", adminToken);
+      const tickets = Object.values((ticketsSnap.data || {}) as Record<string, any>);
+      for (const t of tickets) {
+        const entry = attendanceVsCapacity.find((a: any) => a.eventId === t.eventId);
+        if (entry && t.scannedAt) entry.checkedIn += 1;
+      }
+
+      const channels = confirmed.reduce((acc: Record<string, number>, o: any) => {
+        acc[o.channel || "unknown"] = (acc[o.channel || "unknown"] || 0) + 1;
+        return acc;
+      }, {});
+
+      const totalRevenue = confirmed.reduce((sum: number, o: any) => sum + (Number(o.amount) || 0), 0);
+      const totalRefunded = refunded.reduce((sum: number, o: any) => sum + (Number(o.refundAmount) || 0), 0);
+      const totalOrders = confirmed.length;
+      const totalTickets = confirmed.reduce((sum: number, o: any) => sum + (Number(o.quantity) || 1), 0);
+
+      return res.json({
+        success: true,
+        summary: { totalRevenue, totalRefunded, totalOrders, totalTickets },
+        revenueByEvent,
+        revenueByDate,
+        attendanceVsCapacity,
+        channels,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   // Ticket Token Generation & Verification
   app.post("/api/tickets/generate-token", requireRole(["super_admin", "event_manager", "counter_staff"]), async (req: any, res) => {
     try {
@@ -2818,12 +3816,34 @@ export async function createApp() {
 
   app.post("/api/tickets/send-email", requireRole(["super_admin", "event_manager", "counter_staff"]), async (req: any, res) => {
     try {
-      const { attendeeEmail } = req.body;
+      const { attendeeEmail, subject, message } = req.body || {};
+      if (!attendeeEmail || !String(attendeeEmail).includes("@")) {
+        return res.status(400).json({ success: false, error: "A valid recipient email address is required." });
+      }
+      if (!subject || String(subject).trim().length < 3) {
+        return res.status(400).json({ success: false, error: "Subject (3+ characters) is required." });
+      }
+      if (!message || String(message).trim().length < 5) {
+        return res.status(400).json({ success: false, error: "Message (5+ characters) is required." });
+      }
+      const result = await sendMail({
+        to: String(attendeeEmail).trim(),
+        subject: String(subject).trim(),
+        text: String(message).trim(),
+      });
+      await recordNotification({
+        subject: String(subject).trim(),
+        message: `Email to ${attendeeEmail}${result.mode === "no-mail" ? " (no-mail mode: SMTP not configured)" : ""}`,
+        recipientCount: 1,
+        status: "sent",
+        createdBy: req.user.uid,
+      }).catch(() => {});
       return res.json({
         success: true,
-        sentTo: attendeeEmail || "customer@example.com",
+        sentTo: String(attendeeEmail).trim(),
         sentAt: new Date().toISOString(),
-        status: "DELIVERED",
+        status: result.ok ? "DELIVERED" : "FAILED",
+        mode: result.mode,
       });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err.message });

@@ -1,21 +1,64 @@
 import React, { useState } from 'react';
-import { Tag, Plus, CheckCircle2, XCircle, Trash2, Calendar, AlertCircle, Percent, DollarSign, Filter } from 'lucide-react';
+import { Tag, Plus, Trash2, AlertCircle, Edit } from 'lucide-react';
 import { useBooking } from '../../contexts/BookingContext';
 import { Coupon } from '../../types';
 
 export const AdminCoupons: React.FC = () => {
-  const { coupons, createCoupon, toggleCouponStatus, deleteCoupon, events } = useBooking();
+  const { coupons, createCoupon, toggleCouponStatus, deleteCoupon, updateCoupon, events } = useBooking();
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [code, setCode] = useState('');
   const [type, setType] = useState<'percentage' | 'fixed'>('percentage');
   const [value, setValue] = useState<number>(20);
   const [validUntil, setValidUntil] = useState('2028-12-31');
+  const [noExpiry, setNoExpiry] = useState(false);
   const [usageLimit, setUsageLimit] = useState<number | ''>('');
   const [eventId, setEventId] = useState<string>('');
 
   const [errorMsg, setErrorMsg] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Edit modal state (Prompt B: update existing coupons)
+  const [editingCoupon, setEditingCoupon] = useState<Coupon | null>(null);
+  const [editType, setEditType] = useState<'percentage' | 'fixed'>('percentage');
+  const [editValue, setEditValue] = useState<number>(20);
+  const [editValidUntil, setEditValidUntil] = useState('');
+  const [editNoExpiry, setEditNoExpiry] = useState(false);
+  const [editUsageLimit, setEditUsageLimit] = useState<number | ''>('');
+  const [editEventId, setEditEventId] = useState<string>('');
+  const [editErrorMsg, setEditErrorMsg] = useState('');
+
+  const handleOpenEditModal = (coupon: Coupon) => {
+    setEditingCoupon(coupon);
+    setEditType(coupon.type);
+    setEditValue(coupon.value);
+    setEditValidUntil(coupon.validUntil);
+    setEditNoExpiry(!coupon.validUntil);
+    setEditUsageLimit(coupon.usageLimit ?? '');
+    setEditEventId(coupon.eventId || '');
+    setEditErrorMsg('');
+  };
+
+  const handleUpdateCoupon = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingCoupon) return;
+    setIsSubmitting(true);
+    setEditErrorMsg('');
+    const success = await updateCoupon(editingCoupon.code, {
+      type: editType,
+      value: Number(editValue),
+      validUntil: editNoExpiry ? null : editValidUntil,
+      usageLimit: editUsageLimit !== '' ? Number(editUsageLimit) : null,
+      eventId: editEventId || null,
+      isActive: editingCoupon.isActive,
+    });
+    setIsSubmitting(false);
+    if (success) {
+      setEditingCoupon(null);
+    } else {
+      setEditErrorMsg('Failed to update the coupon. Please try again.');
+    }
+  };
 
   const handleCreateCoupon = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -31,7 +74,7 @@ export const AdminCoupons: React.FC = () => {
       code: code.trim().toUpperCase(),
       type,
       value: Number(value),
-      validUntil,
+      validUntil: noExpiry ? '' : validUntil,
       usageLimit: usageLimit !== '' ? Number(usageLimit) : undefined,
       eventId: eventId || undefined,
       isActive: true,
@@ -113,7 +156,7 @@ export const AdminCoupons: React.FC = () => {
                         {c.type === 'percentage' ? `${c.value}% OFF` : `₹${c.value} OFF`}
                       </td>
                       <td className="px-6 py-4 font-mono text-gray-400">
-                        {c.validUntil}
+                        {c.validUntil ? c.validUntil : 'No Expiry'}
                         {isExpired && <span className="ml-2 text-[10px] text-red-400 font-bold">(EXPIRED)</span>}
                       </td>
                       <td className="px-6 py-4 font-mono">
@@ -136,6 +179,13 @@ export const AdminCoupons: React.FC = () => {
                         </button>
                       </td>
                       <td className="px-6 py-4 text-right">
+                        <button
+                          onClick={() => handleOpenEditModal(c)}
+                          className="p-2 rounded-xl bg-[#D4AF37]/10 text-[#D4AF37] hover:bg-[#D4AF37]/20 transition-all cursor-pointer mr-2"
+                          title="Edit Coupon"
+                        >
+                          <Edit className="w-4 h-4" />
+                        </button>
                         <button
                           onClick={() => deleteCoupon(c.code)}
                           className="p-2 rounded-xl bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white transition-all cursor-pointer"
@@ -223,11 +273,21 @@ export const AdminCoupons: React.FC = () => {
                   <label className="font-bold text-gray-300 block mb-1">Expiration Date</label>
                   <input
                     type="date"
-                    required
+                    required={!noExpiry}
+                    disabled={noExpiry}
                     value={validUntil}
                     onChange={(e) => setValidUntil(e.target.value)}
-                    className="w-full bg-[#141414] border border-white/10 rounded-xl px-4 py-3 text-white font-mono focus:outline-none focus:border-[#D4AF37]"
+                    className="w-full bg-[#141414] border border-white/10 rounded-xl px-4 py-3 text-white font-mono focus:outline-none focus:border-[#D4AF37] disabled:opacity-50"
                   />
+                  <label className="flex items-center gap-2 mt-2 text-gray-400 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={noExpiry}
+                      onChange={(e) => setNoExpiry(e.target.checked)}
+                      className="accent-[#D4AF37]"
+                    />
+                    <span className="text-[11px]">No expiry (never expires)</span>
+                  </label>
                 </div>
 
                 <div>
@@ -272,6 +332,138 @@ export const AdminCoupons: React.FC = () => {
                   className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black font-extrabold cursor-pointer disabled:opacity-50"
                 >
                   {isSubmitting ? 'Creating...' : 'Save & Activate Coupon'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Coupon Modal (Prompt B) */}
+      {editingCoupon && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
+          <div className="bg-[#181818] border border-[#D4AF37]/30 rounded-3xl p-5 sm:p-8 max-w-lg w-full max-h-[calc(100dvh-2rem)] overflow-y-auto space-y-6 shadow-2xl relative">
+            <div className="flex items-center justify-between border-b border-white/10 pb-4">
+              <h3 className="font-heading font-bold text-lg text-white flex items-center gap-2">
+                <Edit className="w-5 h-5 text-[#D4AF37]" />
+                <span>Edit Coupon “{editingCoupon.code}”</span>
+              </h3>
+              <button
+                onClick={() => setEditingCoupon(null)}
+                className="text-gray-400 hover:text-white text-sm font-bold p-1 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {editErrorMsg && (
+              <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{editErrorMsg}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleUpdateCoupon} className="space-y-4 text-xs">
+              <div>
+                <label className="font-bold text-gray-300 block mb-1">Coupon Code (read-only)</label>
+                <input
+                  type="text"
+                  readOnly
+                  value={editingCoupon.code}
+                  className="w-full bg-[#141414] border border-white/10 rounded-xl px-4 py-3 text-gray-400 uppercase font-mono text-sm"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="font-bold text-gray-300 block mb-1">Discount Type</label>
+                  <select
+                    value={editType}
+                    onChange={(e) => setEditType(e.target.value as any)}
+                    className="w-full bg-[#141414] border border-white/10 rounded-xl px-3 py-3 text-white focus:outline-none focus:border-[#D4AF37]"
+                  >
+                    <option value="percentage">Percentage (%) Off</option>
+                    <option value="fixed">Fixed Amount (₹) Off</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="font-bold text-gray-300 block mb-1">
+                    {editType === 'percentage' ? 'Percentage Value (%)' : 'Discount Amount (₹)'}
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    min={1}
+                    value={editValue}
+                    onChange={(e) => setEditValue(Number(e.target.value))}
+                    className="w-full bg-[#141414] border border-white/10 rounded-xl px-4 py-3 text-white font-mono focus:outline-none focus:border-[#D4AF37]"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="font-bold text-gray-300 block mb-1">Expiration Date</label>
+                  <input
+                    type="date"
+                    required={!editNoExpiry}
+                    disabled={editNoExpiry}
+                    value={editValidUntil}
+                    onChange={(e) => setEditValidUntil(e.target.value)}
+                    className="w-full bg-[#141414] border border-white/10 rounded-xl px-4 py-3 text-white font-mono focus:outline-none focus:border-[#D4AF37] disabled:opacity-50"
+                  />
+                  <label className="flex items-center gap-2 mt-2 text-gray-400 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={editNoExpiry}
+                      onChange={(e) => setEditNoExpiry(e.target.checked)}
+                      className="accent-[#D4AF37]"
+                    />
+                    <span className="text-[11px]">No expiry (never expires)</span>
+                  </label>
+                </div>
+                <div>
+                  <label className="font-bold text-gray-300 block mb-1">Total Usage Limit (Optional)</label>
+                  <input
+                    type="number"
+                    placeholder="Unlimited"
+                    value={editUsageLimit}
+                    onChange={(e) => setEditUsageLimit(e.target.value ? Number(e.target.value) : '')}
+                    className="w-full bg-[#141414] border border-white/10 rounded-xl px-4 py-3 text-white font-mono focus:outline-none focus:border-[#D4AF37]"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="font-bold text-gray-300 block mb-1">Event Restriction (Optional)</label>
+                <select
+                  value={editEventId}
+                  onChange={(e) => setEditEventId(e.target.value)}
+                  className="w-full bg-[#141414] border border-white/10 rounded-xl px-3 py-3 text-white focus:outline-none focus:border-[#D4AF37]"
+                >
+                  <option value="">Applicable to ALL Events</option>
+                  {events.map((evt) => (
+                    <option key={evt.id} value={evt.id}>
+                      {evt.title} ({evt.city})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-3 pt-4 border-t border-white/10">
+                <button
+                  type="button"
+                  onClick={() => setEditingCoupon(null)}
+                  className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 font-bold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black font-extrabold cursor-pointer disabled:opacity-50"
+                >
+                  {isSubmitting ? 'Updating...' : 'Save Changes'}
                 </button>
               </div>
             </form>
