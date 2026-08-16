@@ -87,16 +87,15 @@ export const Home: React.FC<HomeProps> = ({
           <div className="absolute inset-0 bg-gradient-to-r from-[#070707] via-[#070707]/80 to-transparent" />
         </div>
 
-        {/* Hero Content Container */}
+                {/* Hero Content Container */}
         <div className="relative z-10 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pb-16 pt-32">
+          {currentHeroEvent ? (
           <div className="max-w-2xl space-y-6">
-            
             {/* Category Eyebrow */}
             <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#D4AF37]/15 text-[#F3E5AB] border border-[#D4AF37]/30 text-xs font-bold uppercase tracking-wider backdrop-blur-md">
               <Sparkles className="w-3.5 h-3.5" />
               <span>FEATURED HEADLINER SHOW</span>
             </div>
-
             {/* Title & Subtitle */}
             <div className="space-y-3">
               <h1 className="font-heading font-extrabold text-4xl sm:text-6xl text-white tracking-tight leading-[1.08] drop-shadow-2xl">
@@ -106,25 +105,21 @@ export const Home: React.FC<HomeProps> = ({
                 {currentHeroEvent.subtitle}
               </p>
             </div>
-
             {/* Event Quick Meta */}
             <div className="flex flex-wrap items-center gap-4 text-xs sm:text-sm text-gray-200">
               <div className="flex items-center gap-1.5 bg-black/50 px-3 py-1.5 rounded-xl border border-white/10 backdrop-blur-md">
                 <Calendar className="w-4 h-4 text-[#D4AF37]" />
                 <span className="font-medium">{currentHeroEvent.date} @ {currentHeroEvent.time}</span>
               </div>
-
               <div className="flex items-center gap-1.5 bg-black/50 px-3 py-1.5 rounded-xl border border-white/10 backdrop-blur-md">
                 <MapPin className="w-4 h-4 text-gray-400" />
                 <span>{currentHeroEvent.venue}, {currentHeroEvent.city}</span>
               </div>
-
               <div className="flex items-center gap-1.5 bg-black/50 px-3 py-1.5 rounded-xl border border-white/10 backdrop-blur-md">
                 <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
                 <span className="font-bold">{currentHeroEvent.rating}</span>
               </div>
             </div>
-
             {/* CTAs */}
             <div className="pt-2 flex flex-wrap items-center gap-4">
               <button
@@ -134,7 +129,6 @@ export const Home: React.FC<HomeProps> = ({
                 <Ticket className="w-5 h-5 stroke-[2.5]" />
                 <span>Book Tickets Now (From {formatINR(currentHeroEvent.startingPrice)})</span>
               </button>
-
               <button
                 onClick={() => onSelectEvent(currentHeroEvent)}
                 className="px-6 py-3.5 rounded-2xl bg-white/10 hover:bg-white/20 text-white font-semibold text-sm backdrop-blur-md border border-white/15 transition-all"
@@ -142,8 +136,27 @@ export const Home: React.FC<HomeProps> = ({
                 View Full Lineup
               </button>
             </div>
-
           </div>
+          ) : (
+            /* Empty-state hero: shows when the events collection has no public,
+               well-formed events (e.g. all events were deleted). Never crashes. */
+            <div className="max-w-2xl space-y-5">
+              <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#D4AF37]/15 text-[#F3E5AB] border border-[#D4AF37]/30 text-xs font-bold uppercase tracking-wider backdrop-blur-md">
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Welcome to Ash-vish Events</span>
+              </div>
+              <h1 className="font-heading font-extrabold text-4xl sm:text-5xl text-white tracking-tight leading-[1.1] drop-shadow-2xl">
+                Live shows are being prepared
+              </h1>
+              <p className="text-gray-300 text-sm sm:text-base leading-relaxed">
+                We are setting up the next season of concerts, comedy nights, and stadium events. New listings will appear here shortly.
+              </p>
+              <div className="flex items-center gap-1.5 text-xs text-gray-400">
+                <MapPin className="w-4 h-4 text-gray-400" />
+                <span>Browse categories below for upcoming availability</span>
+              </div>
+            </div>
+          )}
 
           <div className="mt-12 flex items-center gap-3">
             {featuredEvents.map((_, idx) => (

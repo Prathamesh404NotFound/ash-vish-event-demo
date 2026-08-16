@@ -9,6 +9,7 @@ import { RoleRoute } from './components/RoleRoute';
 // Components & Shared Tools
 import { EventCard } from './components/EventCard';
 import { EmptyState } from './components/EmptyState';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { QRScanner } from './components/QRScanner';
 
 // Public / Customer Pages
@@ -181,6 +182,7 @@ function FavoritesRoute() {
 
 export default function App() {
   return (
+    <ErrorBoundary>
     <AuthProvider>
       <BookingProvider>
         <BrowserRouter>
@@ -254,5 +256,6 @@ export default function App() {
         </BrowserRouter>
       </BookingProvider>
     </AuthProvider>
+    </ErrorBoundary>
   );
 }
