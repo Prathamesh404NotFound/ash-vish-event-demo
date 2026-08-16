@@ -101,11 +101,17 @@ export const EventDetail: React.FC<EventDetailProps> = ({
 
       {/* Hero Cover Image Header */}
       <div className="relative aspect-[21/9] sm:aspect-[2.5/1] w-full rounded-3xl overflow-hidden border border-white/10 bg-[#1C1C1C] shadow-2xl">
+        {event.coverUrl || event.posterUrl ? (
         <img
-          src={event.coverUrl}
+          src={event.coverUrl || event.posterUrl}
           alt={event.title}
           className="w-full h-full object-cover filter brightness-[0.8]"
         />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center bg-[#262626]">
+            <Ticket className="w-16 h-16 text-white/25" />
+          </div>
+        )}
         <div className="absolute inset-0 bg-gradient-to-t from-[#090909] via-black/40 to-transparent" />
 
         <div className="absolute bottom-6 left-6 right-6 flex flex-wrap items-end justify-between gap-4">

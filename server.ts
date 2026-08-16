@@ -2459,10 +2459,19 @@ export async function createApp() {
       const eventId = typeof event.id === 'string' && /^evt_[A-Za-z0-9_-]+$/.test(event.id)
         ? event.id
         : `evt_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
+      // Defensive defaults: image fields are read unguarded by the public UI,
+      // so an event written without posterUrl/coverUrl would crash the homepage.
+      const defaultPoster =
+        "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&q=80&w=800";
+      const normalizedPoster = event.posterUrl || defaultPoster;
       const createdEvent = {
         ...event,
         id: eventId,
         organizerId: req.user.role === 'organizer' ? req.user.uid : (event.organizerId || null),
+        status: event.status || "draft",
+        posterUrl: normalizedPoster,
+        coverUrl: event.coverUrl || normalizedPoster,
+        title: (event.title || "Untitled Event").trim() || "Untitled Event",
         createdBy: req.user.uid,
         createdAt: event.createdAt || new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -2522,11 +2531,18 @@ export async function createApp() {
       }
 
       const existing = (await rtdbGet(`events/${eventId}`, adminToken)).data || {};
+      const defaultPoster =
+        "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&q=80&w=800";
+      const normalizedPoster = body.posterUrl || existing.posterUrl || defaultPoster;
       const updatedEvent = {
         ...existing,
         ...body,
         id: eventId,
         organizerId: existing.organizerId || (req.user.role === 'organizer' ? req.user.uid : null),
+        status: body.status || existing.status || "draft",
+        posterUrl: normalizedPoster,
+        coverUrl: body.coverUrl || existing.coverUrl || normalizedPoster,
+        title: (body.title ?? existing.title ?? "Untitled Event").trim() || "Untitled Event",
         updatedAt: new Date().toISOString(),
       };
       await rtdbSet(`events/${eventId}`, updatedEvent, adminToken);
@@ -3154,13 +3170,18 @@ export async function createApp() {
         if (dateError) return res.status(400).json({ success: false, error: dateError });
       }
       const newId = `evt_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
+      const defaultPoster =
+        "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&q=80&w=800";
+      const originalPoster = original.posterUrl || defaultPoster;
       const clone = {
         ...original,
         id: newId,
-        title: newTitle?.trim() || `${original.title} (Clone)`,
+        title: newTitle?.trim() || `${original.title || "Untitled Event"} (Clone)`,
         date: newDate || original.date,
         time: newTime || original.time,
         status: "draft",
+        posterUrl: originalPoster,
+        coverUrl: original.coverUrl || originalPoster,
         rating: 0,
         reviewsCount: 0,
         totalCapacity: original.totalCapacity,

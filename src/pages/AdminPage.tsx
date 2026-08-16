@@ -238,7 +238,13 @@ export const AdminPage: React.FC = () => {
                 {events.map((evt) => (
                   <tr key={evt.id} className="hover:bg-white/5 transition-colors">
                     <td className="p-4 flex items-center gap-3">
-                      <img src={evt.posterUrl} alt={evt.title} className="w-12 h-14 rounded-lg object-cover" />
+                      {evt.posterUrl ? (
+                        <img src={evt.posterUrl} alt={evt.title} className="w-12 h-14 rounded-lg object-cover" />
+                      ) : (
+                        <div className="w-12 h-14 rounded-lg bg-[#262626] border border-white/10 flex items-center justify-center shrink-0">
+                          <Ticket className="w-5 h-5 text-white/30" />
+                        </div>
+                      )}
                       <div>
                         <span className="font-heading font-bold text-sm text-white block">{evt.title}</span>
                         <span className="text-gray-400">{evt.subtitle}</span>

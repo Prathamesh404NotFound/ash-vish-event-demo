@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, CheckCircle2, AlertCircle, Lock, Clock, RefreshCw, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CheckCircle2, AlertCircle, Lock, Clock, RefreshCw, ShieldCheck, Ticket } from 'lucide-react';
 import { useBooking, ReservationState, QuoteResult, getSessionId } from '../contexts/BookingContext';
 import { useAuth } from '../contexts/AuthContext';
 import { CountdownTimer } from '../components/CountdownTimer';
@@ -636,7 +636,13 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
         <div className="bg-[#141414] border border-white/10 rounded-3xl p-6 space-y-6 animate-in fade-in">
           <h3 className="font-heading font-bold text-lg text-white">1. Confirm Your Tickets</h3>
           <div className="flex flex-col sm:flex-row gap-4">
+            {event.posterUrl ? (
             <img src={event.posterUrl} alt={event.title} className="w-24 h-32 mx-auto sm:mx-0 rounded-xl object-cover border border-white/10" />
+            ) : (
+              <div className="w-24 h-32 mx-auto sm:mx-0 rounded-xl bg-[#262626] border border-white/10 flex items-center justify-center">
+                <Ticket className="w-8 h-8 text-white/25" />
+              </div>
+            )}
             <div className="space-y-1">
               <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#D4AF37]/10 text-[#D4AF37] border border-[#D4AF37]/20">{tier.name}</span>
               <h4 className="font-heading font-bold text-base text-white">{event.title}</h4>

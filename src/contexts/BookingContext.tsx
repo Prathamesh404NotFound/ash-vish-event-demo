@@ -308,10 +308,24 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
           } else if (typeof val === 'object' && val !== null) {
             dbList = Object.values(val);
           }
+          // Normalize incomplete records (e.g. missing posterUrl/coverUrl) so
+          // image renders and property access can never throw at runtime.
+          const DEFAULT_POSTER =
+            'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&q=80&w=800';
+          const sanitized = dbList.map((e) => ({
+            ...e,
+            status: e.status || 'published',
+            posterUrl: e.posterUrl || DEFAULT_POSTER,
+            coverUrl: e.coverUrl || e.posterUrl || DEFAULT_POSTER,
+            title: e.title || 'Untitled Event',
+            startingPrice: typeof e.startingPrice === 'number' ? e.startingPrice : 0,
+            rating: typeof e.rating === 'number' ? e.rating : 0,
+            reviewsCount: typeof e.reviewsCount === 'number' ? e.reviewsCount : 0,
+          }));
           if (dbList.length > 0) {
-            setEvents(dbList);
+            setEvents(sanitized);
             // Cache to offline storage without overriding server authority
-            localStorage.setItem('ash_vish_events_db', JSON.stringify(dbList));
+            localStorage.setItem('ash_vish_events_db', JSON.stringify(sanitized));
           } else {
             setEvents([]);
             localStorage.removeItem('ash_vish_events_db');

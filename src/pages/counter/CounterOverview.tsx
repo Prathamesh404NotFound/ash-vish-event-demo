@@ -119,11 +119,17 @@ export const CounterOverview: React.FC = () => {
                 className="p-4 rounded-2xl bg-[#1C1C1C] border border-white/5 space-y-3 hover:border-white/20 transition-all"
               >
                 <div className="flex gap-3">
+                  {evt.posterUrl ? (
                   <img
                     src={evt.posterUrl}
                     alt={evt.title}
                     className="w-16 h-16 rounded-xl object-cover flex-shrink-0"
                   />
+                  ) : (
+                    <div className="w-16 h-16 rounded-xl bg-[#262626] border border-white/10 flex items-center justify-center flex-shrink-0">
+                      <Ticket className="w-6 h-6 text-white/30" />
+                    </div>
+                  )}
                   <div className="overflow-hidden">
                     <span className="text-[10px] uppercase tracking-wider text-[#D4AF37] font-bold">
                       {evt.city} • {evt.venue}

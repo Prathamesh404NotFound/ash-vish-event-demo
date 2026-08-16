@@ -37,7 +37,13 @@ export const Home: React.FC<HomeProps> = ({
     description: 'Book official live tickets for music tours, standup comedy specials, stadium sports, and theater shows on Ash-vish Events.',
   });
 
-  const publicEvents = events.filter((e) => e.status !== 'draft');
+  // Guard against incomplete/malformed event records so a single bad row
+  // in the database can never crash the whole homepage (e.g. "v.coverUrl
+  // undefined" TypeError on the cinematic hero).
+  const wellFormedEvents = events.filter(
+    (e) => e && typeof e === 'object' && e.title && (e.posterUrl || e.coverUrl) && typeof e.status === 'string'
+  );
+  const publicEvents = wellFormedEvents.filter((e) => e.status !== 'draft' && e.status !== 'archived' && e.isEventPublic !== false);
   const featuredEvents = publicEvents.filter((e) => e.isFeatured);
   const currentHeroEvent = featuredEvents[heroIndex] || publicEvents[0];
 
@@ -67,11 +73,15 @@ export const Home: React.FC<HomeProps> = ({
       <section className="relative min-h-[85vh] sm:min-h-[88vh] flex items-end justify-start overflow-hidden rounded-b-[36px] bg-[#070707]">
         {/* Hero Background Poster Image */}
         <div className="absolute inset-0">
+          {currentHeroEvent ? (
           <img
-            src={currentHeroEvent.coverUrl}
+            src={currentHeroEvent.coverUrl || currentHeroEvent.posterUrl}
             alt={currentHeroEvent.title}
             className="w-full h-full object-cover object-center filter brightness-[0.75] contrast-[1.1] transition-all duration-700 scale-105"
           />
+          ) : (
+            <div className="w-full h-full bg-gradient-to-br from-[#0A0A0A] via-[#1C1C1C] to-[#0A0A0A]" />
+          )}
           {/* Overlay Gradients */}
           <div className="absolute inset-0 bg-gradient-to-t from-[#070707] via-[#070707]/60 to-black/40" />
           <div className="absolute inset-0 bg-gradient-to-r from-[#070707] via-[#070707]/80 to-transparent" />
@@ -342,11 +352,17 @@ export const Home: React.FC<HomeProps> = ({
                   onClick={() => onSelectEvent(evt)}
                   className="flex items-center gap-4 p-3 rounded-2xl bg-[#1C1C1C] hover:bg-[#262626] cursor-pointer transition-all border border-white/5"
                 >
+                  {evt.posterUrl ? (
                   <img
                     src={evt.posterUrl}
                     alt={evt.title}
                     className="w-16 h-16 rounded-xl object-cover"
                   />
+                  ) : (
+                    <div className="w-16 h-16 rounded-xl bg-[#262626] border border-white/10 flex items-center justify-center shrink-0">
+                      <Ticket className="w-6 h-6 text-white/30" />
+                    </div>
+                  )}
                   <div className="flex-1 min-w-0">
                     <h4 className="font-heading font-bold text-sm text-white truncate">
                       {evt.title}
@@ -380,11 +396,17 @@ export const Home: React.FC<HomeProps> = ({
                   onClick={() => onSelectEvent(evt)}
                   className="flex items-center gap-4 p-3 rounded-2xl bg-[#1C1C1C] hover:bg-[#262626] cursor-pointer transition-all border border-white/5"
                 >
+                  {evt.posterUrl ? (
                   <img
                     src={evt.posterUrl}
                     alt={evt.title}
                     className="w-16 h-16 rounded-xl object-cover"
                   />
+                  ) : (
+                    <div className="w-16 h-16 rounded-xl bg-[#262626] border border-white/10 flex items-center justify-center shrink-0">
+                      <Ticket className="w-6 h-6 text-white/30" />
+                    </div>
+                  )}
                   <div className="flex-1 min-w-0">
                     <h4 className="font-heading font-bold text-sm text-white truncate">
                       {evt.title}

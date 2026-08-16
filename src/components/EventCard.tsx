@@ -36,12 +36,18 @@ export const EventCard: React.FC<EventCardProps> = ({ event, onSelectEvent, onBo
     >
       {/* Poster Image Container */}
       <div className="relative aspect-[4/3] w-full overflow-hidden bg-[#1C1C1C]">
+        {event.posterUrl ? (
         <img
           src={event.posterUrl}
           alt={event.title}
           className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
           loading="lazy"
         />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center bg-[#262626]">
+            <Ticket className="w-12 h-12 text-white/25" />
+          </div>
+        )}
 
         {/* Top Overlay Gradient */}
         <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/80 via-black/30 to-transparent" />
