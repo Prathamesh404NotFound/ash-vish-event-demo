@@ -12,7 +12,14 @@ import {
 import { ref, get, update, onValue } from 'firebase/database';
 import { auth, rtdb, googleProvider } from '../lib/firebase';
 import { UserProfile, UserRole } from '../types';
-import { INITIAL_USER } from '../data/mockEvents';
+
+const DEMO_ACCOUNT_EMAILS = new Set([
+  'alex.rivera@example.com',
+  'alex.rivera@ashvishevents.com',
+]);
+
+const isDemoAccount = (email?: string | null) =>
+  Boolean(email && DEMO_ACCOUNT_EMAILS.has(email.trim().toLowerCase()));
 
 interface AuthContextType {
   user: UserProfile | null;
@@ -30,20 +37,16 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<UserProfile | null>(() => {
-    const saved = localStorage.getItem('ash_vish_user_session');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {
-        console.error('Error parsing stored user session:', e);
-      }
-    }
-    return INITIAL_USER;
-  });
+  const [user, setUser] = useState<UserProfile | null>(null);
 
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Legacy builds persisted a local demo profile and treated it as authenticated
+  // after refresh. Firebase is now the sole session authority.
+  useEffect(() => {
+    localStorage.removeItem('ash_vish_user_session');
+  }, []);
 
   // Sync profile from Realtime Database users/$uid and staff/$uid
   // Sync profile from Realtime Database users/$uid and staff/$uid
@@ -111,6 +114,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (unsubUser) { unsubUser(); unsubUser = null; }
 
       if (fbUser) {
+        if (isDemoAccount(fbUser.email)) {
+          // A legacy demo identity must not survive as a valid customer session.
+          // This signs it out only; permanent Firebase Auth deletion is handled
+          // separately with explicit approval and administrator credentials.
+          await signOut(auth).catch(() => undefined);
+          setFirebaseUser(null);
+          setUser(null);
+          localStorage.removeItem('ash_vish_user_session');
+          setIsLoading(false);
+          return;
+        }
         setFirebaseUser(fbUser);
         const profile = await fetchAndSyncUserProfile(fbUser);
         setUser(profile);
@@ -164,17 +178,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
       } else {
         setFirebaseUser(null);
-        // Retain initial saved user or null
-        const saved = localStorage.getItem('ash_vish_user_session');
-        if (saved) {
-          try {
-            setUser(JSON.parse(saved));
-          } catch (e) {
-            setUser(null);
-          }
-        } else {
-          setUser(null);
-        }
+        setUser(null);
+        localStorage.removeItem('ash_vish_user_session');
       }
       setIsLoading(false);
     });
@@ -186,14 +191,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
-  useEffect(() => {
-    if (user) {
-      localStorage.setItem('ash_vish_user_session', JSON.stringify(user));
-    } else {
-      localStorage.removeItem('ash_vish_user_session');
-    }
-  }, [user]);
-
   // Login with Email
   const loginWithEmail = async (email: string, pass: string): Promise<boolean> => {
     setIsLoading(true);
@@ -204,23 +201,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setIsLoading(false);
       return true;
     } catch (error: any) {
-      console.warn('Firebase Auth email login error or offline mode, activating local session fallback:', error.message);
-      // Fallback local session for seamless UX
-      let role: UserRole = 'customer';
-
-      const fallbackUser: UserProfile = {
-        id: 'usr_' + Math.floor(Math.random() * 90000 + 10000),
-        name: email.split('@')[0].toUpperCase(),
-        email,
-        phone: '+1 (555) 019-2831',
-        photoUrl: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=300',
-        authProvider: 'email',
-        joinedDate: 'August 2026',
-        role,
-      };
-      setUser(fallbackUser);
+      console.warn('Firebase Auth email login failed:', error.message);
       setIsLoading(false);
-      return true;
+      return false;
     }
   };
 
@@ -237,20 +220,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setIsLoading(false);
       return true;
     } catch (error: any) {
-      console.warn('Firebase Auth signup error or offline mode, activating local session fallback:', error.message);
-      const fallbackUser: UserProfile = {
-        id: 'usr_' + Math.floor(Math.random() * 90000 + 10000),
-        name,
-        email,
-        phone: '',
-        photoUrl: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=300',
-        authProvider: 'email',
-        joinedDate: 'August 2026',
-        role: 'customer',
-      };
-      setUser(fallbackUser);
+      console.warn('Firebase Auth signup failed:', error.message);
       setIsLoading(false);
-      return true;
+      return false;
     }
   };
 
@@ -280,21 +252,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setIsLoading(false);
       return true;
     } catch (error: any) {
-      console.warn('Google Sign-In popup notice:', error.message);
-      // Fallback demo account for browser environment testing if popup is blocked
-      const demoGoogleUser: UserProfile = {
-        id: 'usr_goog_' + Math.floor(Math.random() * 90000 + 10000),
-        name: 'Alex Rivera',
-        email: 'alex.rivera@ashvishevents.com',
-        phone: '+1 (555) 382-9102',
-        photoUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=300',
-        authProvider: 'google',
-        joinedDate: 'August 2026',
-        role: 'customer',
-      };
-      setUser(demoGoogleUser);
+      console.warn('Google Sign-In failed:', error.message);
       setIsLoading(false);
-      return true;
+      return false;
     }
   };
 
@@ -345,7 +305,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       value={{
         user,
         firebaseUser,
-        isAuthenticated: !!user,
+        isAuthenticated: !!firebaseUser,
         isLoading,
         loginWithEmail,
         signupWithEmail,

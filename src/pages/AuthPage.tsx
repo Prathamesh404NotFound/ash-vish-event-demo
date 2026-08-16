@@ -29,9 +29,11 @@ export const AuthPage: React.FC = () => {
     if (mode === 'login') {
       const ok = await loginWithEmail(email, password);
       if (ok) handleSuccess();
+      else setErrorMsg('Sign-in failed. Check your email and password, then try again.');
     } else if (mode === 'signup') {
       const ok = await signupWithEmail(name, email, password);
       if (ok) handleSuccess();
+      else setErrorMsg('Account creation failed. Please try again or use a different email address.');
     } else {
       await resetPassword(email);
       alert(`Password reset instructions sent to ${email}`);
@@ -42,6 +44,7 @@ export const AuthPage: React.FC = () => {
   const handleGoogleSignIn = async () => {
     const ok = await loginWithGoogle();
     if (ok) handleSuccess();
+    else setErrorMsg('Google sign-in did not complete. Please try again.');
   };
 
   return (
@@ -159,7 +162,7 @@ export const AuthPage: React.FC = () => {
                       required
                       value={name}
                       onChange={(e) => setName(e.target.value)}
-                      placeholder="Alex Rivera"
+                      placeholder="Your full name"
                       className="w-full bg-[#1C1C1C] border border-white/10 rounded-xl pl-10 pr-4 py-2.5 text-xs text-white focus:outline-none focus:border-[#D4AF37]"
                     />
                   </div>
@@ -175,7 +178,7 @@ export const AuthPage: React.FC = () => {
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="alex.rivera@example.com"
+                    placeholder="you@example.com"
                     className="w-full bg-[#1C1C1C] border border-white/10 rounded-xl pl-10 pr-4 py-2.5 text-xs text-white focus:outline-none focus:border-[#D4AF37]"
                   />
                 </div>

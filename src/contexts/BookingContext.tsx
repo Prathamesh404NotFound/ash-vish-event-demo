@@ -3,7 +3,6 @@ import { ref, get, push, child, onValue } from 'firebase/database';
 import { rtdb, auth } from '../lib/firebase';
 import { useAuth } from './AuthContext';
 import { EventItem, Ticket, TicketTier, BookingRecord, Coupon, EventReview, OrganizerAccount } from '../types';
-import { MOCK_EVENTS, MOCK_TICKETS, DEMO_ORGANIZERS } from '../data/mockEvents';
 import { safeFetch, getApiUrl, SafeFetchResponse } from '../lib/api';
 import { rtdbGet, rtdbSet, rtdbDelete } from '../lib/rtdb';
 
@@ -139,30 +138,14 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const clearToast = () => setToast(null);
 
-  // 1. Events State with RTDB Single Source of Truth & LocalStorage Offline Fallback
-  const [events, setEvents] = useState<EventItem[]>(() => {
-    const saved = localStorage.getItem('ash_vish_events_db');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        return parsed.length > 0 ? parsed : MOCK_EVENTS;
-      } catch (err) {
-        return MOCK_EVENTS;
-      }
-    }
-    return MOCK_EVENTS;
-  });
+  // Firebase is the single source of truth. A clean production workspace starts
+  // empty instead of restoring a legacy mock catalog from browser storage.
+  const [events, setEvents] = useState<EventItem[]>([]);
 
   // 2. Tickets & Bookings State
-  const [allTickets, setAllTickets] = useState<Ticket[]>(() => {
-    const saved = localStorage.getItem('ash_vish_all_tickets_db');
-    return saved ? JSON.parse(saved) : MOCK_TICKETS;
-  });
+  const [allTickets, setAllTickets] = useState<Ticket[]>([]);
 
-  const [myTickets, setMyTickets] = useState<Ticket[]>(() => {
-    const saved = localStorage.getItem('ash_vish_user_tickets');
-    return saved ? JSON.parse(saved) : MOCK_TICKETS;
-  });
+  const [myTickets, setMyTickets] = useState<Ticket[]>([]);
 
   const [allBookings, setAllBookings] = useState<BookingRecord[]>(() => {
     const saved = localStorage.getItem('ash_vish_all_bookings');
@@ -174,10 +157,7 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return saved ? JSON.parse(saved) : [];
   });
 
-  const [favorites, setFavorites] = useState<string[]>(() => {
-    const saved = localStorage.getItem('ash_vish_favorites');
-    return saved ? JSON.parse(saved) : ['evt_001', 'evt_003'];
-  });
+  const [favorites, setFavorites] = useState<string[]>([]);
 
   const [currentCheckout, setCurrentCheckout] = useState<CheckoutSession | null>(() => {
     const saved = localStorage.getItem('ash_vish_current_checkout');
@@ -266,6 +246,17 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   });
 
+  // Clear caches created by older demo builds. Active reservations and attendee
+  // drafts are intentionally retained because they are live checkout state.
+  useEffect(() => {
+    [
+      'ash_vish_events_db',
+      'ash_vish_all_tickets_db',
+      'ash_vish_user_tickets',
+      'ash_vish_favorites',
+    ].forEach((key) => localStorage.removeItem(key));
+  }, []);
+
   /** Server-authority validation of a restored reservation.
    *  The local init guard only filters expired/terminal records; the server may
    *  have since released the hold (sweep, manual release, payment). Never drive
@@ -321,16 +312,18 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
             setEvents(dbList);
             // Cache to offline storage without overriding server authority
             localStorage.setItem('ash_vish_events_db', JSON.stringify(dbList));
+          } else {
+            setEvents([]);
+            localStorage.removeItem('ash_vish_events_db');
           }
         } else {
-          // Seed initial events if empty
-          // Event seeding is server-owned. Never attempt a client write to the
-          // public catalog; the locked RTDB rules intentionally reject it.
-          setEvents(MOCK_EVENTS);
+          setEvents([]);
+          localStorage.removeItem('ash_vish_events_db');
         }
       },
       (error) => {
-        console.warn('Realtime Database events sync notice (offline mode active):', error);
+        console.warn('Realtime Database events sync failed:', error);
+        setEvents([]);
       }
     );
 
@@ -1230,7 +1223,7 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
-  const [organizers, setOrganizers] = useState<OrganizerAccount[]>(DEMO_ORGANIZERS);
+  const [organizers, setOrganizers] = useState<OrganizerAccount[]>([]);
 
   const fetchOrganizers = async () => {
     try {
@@ -1242,12 +1235,10 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
           return;
         }
       }
-      // Seed DEMO_ORGANIZERS into RTDB if empty, so changes persist across refreshes
-      for (const org of DEMO_ORGANIZERS) {
-        await rtdbSet(`organizers/${org.id}`, org);
-      }
+      setOrganizers([]);
     } catch (err) {
-      console.warn('RTDB organizers fetch notice (using defaults):', err);
+      console.warn('RTDB organizers fetch failed:', err);
+      setOrganizers([]);
     }
   };
 
