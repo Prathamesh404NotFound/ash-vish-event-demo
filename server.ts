@@ -873,7 +873,9 @@ async function finalizeBookingServerSide(
     const eventRes = await rtdbGet(`events/${eventId}`, authToken);
     const eventData = eventRes.data || {};
     const eventTitle = eventData.title || "Live Event";
-    const eventPoster = eventData.posterUrl || "";
+    const eventPoster =
+      eventData.posterUrl ||
+      "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&q=80&w=800";
     const venue = eventData.venue || "Live Venue";
     const city = eventData.city || "Mumbai";
     const date = eventData.date || "Today";
