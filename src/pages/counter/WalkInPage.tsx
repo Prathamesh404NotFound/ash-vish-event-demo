@@ -1,12 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   UserPlus,
-  Ticket,
   CheckCircle2,
   DollarSign,
   Phone,
   User,
-  Calendar,
   ArrowRight,
   Printer,
   Search,
@@ -17,14 +15,18 @@ import {
   WifiOff,
   Plus,
   Minus,
-  Trash2,
-  ShieldCheck,
-  RefreshCw,
   Layers,
   X,
   AlertTriangle,
   Clock,
+  RefreshCw,
+  ShieldCheck,
+  Copy,
+  ExternalLink,
+  SlidersHorizontal,
+  Settings2,
 } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
 import { useBooking } from '../../contexts/BookingContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { Ticket as TicketType } from '../../types';
@@ -39,29 +41,68 @@ import {
   removeQueuedSale,
   syncOfflineWalkInQueue,
 } from '../../lib/offlineQueue';
+import {
+  buildUpiPayUri,
+  formatRupee,
+  isValidVpa,
+  validateUpiParam,
+} from '../../lib/upiQr';
 
 type PaymentEntry = { method: 'cash' | 'card' | 'upi'; amount: number };
 type ConnectionState = 'online' | 'lost' | 'retrying';
+type UpiFlowState = 'none' | 'awaiting' | 'received';
 
 const PAYMENT_METHODS = [
   { key: 'cash', label: 'Cash', icon: DollarSign, color: '#D4AF37' },
-  { key: 'card', label: 'Card Terminal', icon: CreditCard, color: '#38bdf8' },
+  { key: 'card', label: 'Card', icon: CreditCard, color: '#38bdf8' },
   { key: 'upi', label: 'UPI', icon: QrCode, color: '#34d399' },
 ] as const;
+
+const MEMORY_KEY = 'walkin_pos_last_selection';
+
+interface PosMemory {
+  eventId?: string;
+  tierId?: string;
+}
+
+const readMemory = (): PosMemory => {
+  try {
+    return JSON.parse(localStorage.getItem(MEMORY_KEY) || '{}') || {};
+  } catch {
+    return {};
+  }
+};
 
 export const WalkInPage: React.FC = () => {
   const { events, createWalkInBooking } = useBooking();
   const { user } = useAuth();
 
+  // ---------- Selection ----------
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedEventId, setSelectedEventId] = useState(events[0]?.id || '');
-  const [selectedTierId, setSelectedTierId] = useState(events[0]?.ticketTiers[0]?.id || '');
+  const [selectedEventId, setSelectedEventId] = useState(() => {
+    const memory = readMemory();
+    return memory.eventId || events[0]?.id || '';
+  });
+  const [selectedTierId, setSelectedTierId] = useState(() => {
+    const memory = readMemory();
+    return memory.tierId || events[0]?.ticketTiers[0]?.id || '';
+  });
   const [quantity, setQuantity] = useState(1);
   const [selectedSeats, setSelectedSeats] = useState<string[]>([]);
 
+  // ---------- Customer ----------
   const [attendeeName, setAttendeeName] = useState('');
   const [attendeePhone, setAttendeePhone] = useState('');
+
+  // ---------- Payment ----------
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'upi'>('cash');
+  const [showSplit, setShowSplit] = useState(false);
   const [payments, setPayments] = useState<PaymentEntry[]>([{ method: 'cash', amount: 0 }]);
+  const [upiFlow, setUpiFlow] = useState<UpiFlowState>('none');
+  const [upiConfig, setUpiConfig] = useState<{ vpa: string; name: string } | null>(null);
+  const [upiError, setUpiError] = useState('');
+
+  // ---------- General ----------
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [issuedTicket, setIssuedTicket] = useState<TicketType | null>(null);
   const [seatRefreshKey, setSeatRefreshKey] = useState(0);
@@ -69,6 +110,11 @@ export const WalkInPage: React.FC = () => {
   const [errorBanner, setErrorBanner] = useState<string>('');
   const [seatSearch, setSeatSearch] = useState('');
   const [searchError, setSearchError] = useState('');
+  const [formError, setFormError] = useState('');
+  const [showUpiSettings, setShowUpiSettings] = useState(false);
+  const [newVpa, setNewVpa] = useState('');
+  const [newName, setNewName] = useState('');
+  const [isSavingVpa, setIsSavingVpa] = useState(false);
 
   // Client-side idempotency key generated once per sale attempt
   const [idempotencyKey, setIdempotencyKey] = useState<string>(() => `idemp_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`);
@@ -92,10 +138,10 @@ export const WalkInPage: React.FC = () => {
 
   // Active staff shift attribution.
   const [activeShiftId, setActiveShiftId] = useState<string | null>(null);
-  const [shiftsLoaded, setShiftsLoaded] = useState(false);
 
   const seatSearchInputRef = useRef<HTMLInputElement>(null);
   const confirmButtonRef = useRef<HTMLButtonElement>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
 
   // Counter staff only sell for live (published + not scheduled-hidden) events.
   const isEventVisible = (e: any) =>
@@ -110,24 +156,46 @@ export const WalkInPage: React.FC = () => {
   const selectedEvent = events.find((e) => e.id === selectedEventId) || events[0];
   const selectedTier = selectedEvent?.ticketTiers.find((t) => t.id === selectedTierId) || selectedEvent?.ticketTiers[0];
 
-  // Refresh Queue from IndexedDB
-  const refreshQueue = useCallback(async () => {
-    const q = await getQueuedSales();
-    setQueuedSales(q);
+  // Remember the last event + tier for fast repeat issuance.
+  useEffect(() => {
+    if (selectedEvent && selectedTier) {
+      localStorage.setItem(MEMORY_KEY, JSON.stringify({ eventId: selectedEvent.id, tierId: selectedTier.id }));
+    }
+  }, [selectedEvent?.id, selectedTier?.id]);
+
+  // ---------- Quantity helpers ----------
+  const maxQuantity = 10;
+  const remainingForTier = Math.max(0, selectedTier?.remainingInventory || 0);
+
+  const clampQuantity = useCallback((q: number): number => {
+    const clamped = Math.min(maxQuantity, remainingForTier);
+    return Math.max(1, Math.min(Number.isFinite(q) ? Math.floor(q) : 1, clamped));
+  }, [remainingForTier]);
+
+  // Auto-correct quantity when event/tier changes or inventory drops below it.
+  useEffect(() => {
+    setQuantity((q) => clampQuantity(q));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clampQuantity]);
+
+  // ---------- Merchant UPI config ----------
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const res = await safeFetch<any>('/api/merchant-upi', { headers: await authenticatedApiHeaders() });
+        if (!cancelled && res.ok && res.data?.success) {
+          setUpiConfig({ vpa: res.data.vpa || '', name: res.data.name || '' });
+        }
+      } catch {
+        /* best-effort */
+      }
+    };
+    load();
+    return () => { cancelled = true; };
   }, []);
 
-  // Background sync runner
-  const triggerSync = useCallback(async () => {
-    if (!navigator.onLine) return;
-    const res = await syncOfflineWalkInQueue((confirmedTicket, queueItem) => {
-      setOfflineToast(`Offline sale for ${queueItem.payload.attendeeName} confirmed! Ticket #${confirmedTicket.ticketNumber}`);
-    });
-    if (res.synced > 0 || res.conflicts > 0) {
-      refreshQueue();
-    }
-  }, [refreshQueue]);
-
-  // --- Real-time seat map refresh (every 5 seconds while online) ---
+  // ---------- Real-time seat map refresh ----------
   useEffect(() => {
     if (!isSeatBasedEvent(selectedEvent)) return;
     const interval = window.setInterval(() => {
@@ -147,7 +215,22 @@ export const WalkInPage: React.FC = () => {
     return () => window.clearInterval(interval);
   }, [lastLiveRefresh]);
 
-  // --- Load queue and sync listeners on mount ---
+  // ---------- Offline queue listeners ----------
+  const refreshQueue = useCallback(async () => {
+    const q = await getQueuedSales();
+    setQueuedSales(q);
+  }, []);
+
+  const triggerSync = useCallback(async () => {
+    if (!navigator.onLine) return;
+    const res = await syncOfflineWalkInQueue((confirmedTicket, queueItem) => {
+      setOfflineToast(`Offline sale for ${queueItem.payload.attendeeName} confirmed! Ticket #${confirmedTicket.ticketNumber}`);
+    });
+    if (res.synced > 0 || res.conflicts > 0) {
+      refreshQueue();
+    }
+  }, [refreshQueue]);
+
   useEffect(() => {
     refreshQueue();
 
@@ -161,7 +244,6 @@ export const WalkInPage: React.FC = () => {
     window.addEventListener('online', onOnline);
     window.addEventListener('offline', onOffline);
 
-    // Periodic 30s background sync
     const syncInterval = window.setInterval(() => {
       triggerSync();
     }, 30000);
@@ -173,7 +255,7 @@ export const WalkInPage: React.FC = () => {
     };
   }, [refreshQueue, triggerSync]);
 
-  // --- Load any open shift for attribution ---
+  // ---------- Open shift attribution ----------
   useEffect(() => {
     let cancelled = false;
     const loadShifts = async () => {
@@ -184,30 +266,51 @@ export const WalkInPage: React.FC = () => {
         setActiveShiftId(openShift ? openShift.shiftId : null);
       } catch {
         /* shift loading is best-effort */
-      } finally {
-        if (!cancelled) setShiftsLoaded(true);
       }
     };
     loadShifts();
     return () => { cancelled = true; };
   }, [user?.uid]);
 
-  const grossTotal = (selectedTier?.price || 0) * (selectedSeats.length > 0 ? selectedSeats.length : quantity);
+  // ---------- Totals ----------
+  const seatCount = selectedSeats.length;
+  const unitCount = isSeatBasedEvent(selectedEvent) ? seatCount : quantity;
+  const grossTotal = (selectedTier?.price || 0) * unitCount;
   const paymentsSum = payments.reduce((acc, p) => acc + p.amount, 0);
   const netTotal = Math.max(0, grossTotal - discountAmount);
   const paymentsValid = payments.length > 0 && Math.abs(paymentsSum - netTotal) < 0.01 && payments.every((p) => p.amount > 0);
+  const upiUri = paymentMethod === 'upi' && validateUpiParam({
+    vpa: upiConfig?.vpa || '',
+    name: upiConfig?.name,
+    amount: netTotal,
+    note: selectedEvent ? `Walk-in pass: ${selectedEvent.title}` : undefined,
+  }).valid
+    ? buildUpiPayUri({
+        vpa: upiConfig!.vpa,
+        name: upiConfig?.name,
+        amount: netTotal,
+        note: selectedEvent ? `Walk-in pass: ${selectedEvent.title}` : undefined,
+      })
+    : '';
+
+  // Whenever the order totals or payment method change, reset the UPI flow so
+  // the operator re-confirms payment against the updated amount.
+  useEffect(() => {
+    setUpiFlow('none');
+    setUpiError('');
+  }, [paymentMethod, netTotal, upiConfig?.vpa]);
 
   const refreshSeats = useCallback(() => {
     setSeatRefreshKey((k) => k + 1);
     setLastLiveRefresh(Date.now());
   }, []);
 
-  // --- Quick seat search: jump to a seat by label (e.g. "A-5") ---
+  // ---------- Quick seat search ----------
   const handleSeatSearch = (value: string) => {
     setSeatSearch(value);
     setSearchError('');
     const match = /^([A-Za-z])-?(\d{1,2})$/i.exec(value.trim());
-    if (!match || !selectedEvent?.seatMap) return; // seat-search only applies to seat-based events
+    if (!match || !selectedEvent?.seatMap) return;
     const row = match[1].toUpperCase().charCodeAt(0) - 64;
     const col = parseInt(match[2], 10);
     if (row < 1 || col < 1 || col > (selectedEvent.seatMap.cols || 8)) {
@@ -225,7 +328,7 @@ export const WalkInPage: React.FC = () => {
     });
   };
 
-  // --- Keyboard shortcuts for POS use ---
+  // ---------- Keyboard shortcuts ----------
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
@@ -246,7 +349,7 @@ export const WalkInPage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // --- Split payment helpers ---
+  // ---------- Split payment helpers ----------
   const updatePayment = (index: number, patch: Partial<PaymentEntry>) => {
     setPayments((prev) => prev.map((p, i) => (i === index ? { ...p, ...patch } : p)));
   };
@@ -264,7 +367,7 @@ export const WalkInPage: React.FC = () => {
     updatePayment(index, { amount: Math.max(0, Math.round((netTotal - other) * 100) / 100) });
   };
 
-  // --- Manager-gated discount override ---
+  // ---------- Manager-gated discount override ----------
   const handleRequestOverride = async () => {
     if (!selectedEvent || netTotal <= 0) return;
     setIsOverrideLoading(true);
@@ -298,17 +401,64 @@ export const WalkInPage: React.FC = () => {
     }
   };
 
-  const handleIssueWalkIn = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorBanner('');
-    if (!attendeeName.trim() || !attendeePhone.trim()) return;
+  // ---------- Merchant UPI save ----------
+  const handleSaveVpa = async () => {
+    setIsSavingVpa(true);
+    setUpiError('');
+    try {
+      const res = await safeFetch<any>('/api/merchant-upi', {
+        method: 'PUT',
+        headers: await authenticatedApiHeaders(),
+        body: JSON.stringify({ vpa: newVpa.trim(), name: newName.trim() }),
+      });
+      if (!res.ok || !res.data?.success) {
+        setUpiError(res.data?.error || 'Could not save the UPI ID.');
+        return;
+      }
+      setUpiConfig({ vpa: res.data.vpa || '', name: res.data.name || '' });
+      setNewVpa('');
+      setNewName('');
+      setShowUpiSettings(false);
+    } catch {
+      setUpiError('Network error while saving. Please try again.');
+    } finally {
+      setIsSavingVpa(false);
+    }
+  };
 
+  const maskedVpa = (vpa: string): string => {
+    const [local, domain] = vpa.split('@');
+    if (!domain || local.length < 4) return vpa;
+    return `${local.slice(0, 2)}${'•'.repeat(Math.max(0, local.length - 4))}${local.slice(-2)}@${domain}`;
+  };
+
+  // ---------- Submission ----------
+  const handleIssueWalkIn = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setErrorBanner('');
+    setFormError('');
+
+    const trimmedName = attendeeName.trim();
+    const trimmedPhone = attendeePhone.trim();
+    if (!trimmedName) {
+      setFormError('Enter the guest\u2019s full name to continue.');
+      nameInputRef.current?.focus();
+      return;
+    }
+    if (trimmedPhone && !/^[0-9+\s()-]{7,20}$/.test(trimmedPhone)) {
+      setFormError('The mobile number must be 7-20 digits (e.g. 9876543210).');
+      return;
+    }
     if (selectedEvent && isSeatBasedEvent(selectedEvent) && selectedSeats.length === 0) {
-      setErrorBanner('Please select seats on the seat map for this walk-in booking.');
+      setFormError('Select seats on the map for this walk-in booking.');
+      return;
+    }
+    if (paymentMethod === 'upi' && upiFlow !== 'received') {
+      setFormError('Show the QR code, confirm payment was received, then tap Confirm.');
       return;
     }
     if (!paymentsValid) {
-      setErrorBanner(`Payment amounts must sum to the order total (₹${netTotal}). Currently ₹${paymentsSum}.`);
+      setFormError(`Payment amounts must sum to the order total (${formatRupee(netTotal)}). Currently ${formatRupee(paymentsSum)}.`);
       return;
     }
 
@@ -317,11 +467,12 @@ export const WalkInPage: React.FC = () => {
     const salePayload = {
       eventId: selectedEventId,
       tierId: selectedTierId,
-      attendeeName: attendeeName.trim(),
-      attendeePhone: attendeePhone.trim(),
+      attendeeName: trimmedName,
+      attendeePhone: trimmedPhone,
       scannedByStaffId: user?.name || 'Counter Operator',
       selectedSeats: selectedSeats.length > 0 ? selectedSeats : undefined,
-      paymentMethod: payments[0]?.method || 'cash',
+      quantity: isSeatBasedEvent(selectedEvent) ? undefined : quantity,
+      paymentMethod,
       payments,
       discountOverride: overrideApproved
         ? {
@@ -333,6 +484,58 @@ export const WalkInPage: React.FC = () => {
         : undefined,
       shiftId: activeShiftId || undefined,
       idempotencyKey,
+    };
+
+    const submitBooking = async (): Promise<void> => {
+      try {
+        const ticket = await createWalkInBooking(
+          selectedEventId,
+          selectedTierId,
+          trimmedName,
+          trimmedPhone,
+          user?.name || 'Counter Operator',
+          selectedSeats.length > 0 ? selectedSeats : undefined,
+          paymentMethod,
+          {
+            quantity: isSeatBasedEvent(selectedEvent) ? undefined : quantity,
+            payments,
+            discountOverride: overrideApproved
+              ? {
+                  overrideId: `${Date.now()}`,
+                  discountAmount: overrideApproved.amount,
+                  actorId: overrideApproved.actorId,
+                  reason: overrideReason.trim(),
+                }
+              : undefined,
+            shiftId: activeShiftId || undefined,
+            idempotencyKey,
+          }
+        );
+        setIssuedTicket(ticket);
+        setConnection('online');
+      } catch (err: any) {
+        console.error('Walk-in ticket issue error:', err);
+        const isNetworkDrop = !navigator.onLine || /network|fetch|failed to fetch/i.test(String(err?.message || ''));
+        if (isNetworkDrop) {
+          try {
+            await enqueueOfflineSale({
+              idempotencyKey,
+              payload: salePayload,
+              eventTitle: selectedEvent?.title,
+              tierName: selectedTier?.name,
+              totalAmount: netTotal,
+            });
+            setConnection('lost');
+            setErrorBanner('Saved offline — will complete automatically when connection returns.');
+          } catch (qErr: any) {
+            setErrorBanner('Connection lost and could not save offline: ' + qErr.message);
+          }
+        } else {
+          setErrorBanner(err?.message || 'The sale could not be completed. The seats were not sold — please retry.');
+        }
+      } finally {
+        setIsSubmitting(false);
+      }
     };
 
     // If browser is explicitly offline, enqueue directly without network call
@@ -356,56 +559,7 @@ export const WalkInPage: React.FC = () => {
       return;
     }
 
-    try {
-      const ticket = await createWalkInBooking(
-        selectedEventId,
-        selectedTierId,
-        attendeeName,
-        attendeePhone,
-        user?.name || 'Counter Operator',
-        selectedSeats.length > 0 ? selectedSeats : undefined,
-        payments[0]?.method || 'cash',
-        {
-          payments,
-          discountOverride: overrideApproved
-            ? {
-                overrideId: `${Date.now()}`,
-                discountAmount: overrideApproved.amount,
-                actorId: overrideApproved.actorId,
-                reason: overrideReason.trim(),
-              }
-            : undefined,
-          shiftId: activeShiftId || undefined,
-          idempotencyKey,
-        }
-      );
-      setIssuedTicket(ticket);
-      setConnection('online');
-    } catch (err: any) {
-      console.error('Walk-in ticket issue error:', err);
-      // If network / fetch failure: save safely into durable IndexedDB queue
-      const isNetworkDrop = !navigator.onLine || /network|fetch|failed to fetch/i.test(String(err?.message || ''));
-      if (isNetworkDrop) {
-        try {
-          await enqueueOfflineSale({
-            idempotencyKey,
-            payload: salePayload,
-            eventTitle: selectedEvent?.title,
-            tierName: selectedTier?.name,
-            totalAmount: netTotal,
-          });
-          setConnection('lost');
-          setErrorBanner('Saved offline — will complete automatically when connection returns.');
-          await refreshQueue();
-        } catch (qErr: any) {
-          setErrorBanner('Connection lost and could not save offline: ' + qErr.message);
-        }
-      } else {
-        setErrorBanner(err?.message || 'The sale could not be completed. The seats were not sold — please retry.');
-      }
-    } finally {
-      setIsSubmitting(false);
-    }
+    await submitBooking();
   };
 
   const handleReset = () => {
@@ -414,39 +568,53 @@ export const WalkInPage: React.FC = () => {
     setAttendeePhone('');
     setSelectedSeats([]);
     setSeatSearch('');
+    setQuantity(clampQuantity(1));
+    setPaymentMethod('cash');
+    setShowSplit(false);
     setPayments([{ method: 'cash', amount: 0 }]);
+    setUpiFlow('none');
     setDiscountAmount(0);
     setOverrideApproved(null);
     setOverrideReason('');
     setOverrideError('');
     setErrorBanner('');
-    // Generate a fresh idempotencyKey for the new transaction
+    setFormError('');
+    // Fresh idempotencyKey for the new transaction
     setIdempotencyKey(`idemp_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`);
     refreshSeats();
-    seatSearchInputRef.current?.focus();
+    // Keep the event/tier memory; focus the name field for the next guest.
+    setTimeout(() => nameInputRef.current?.focus(), 50);
   };
 
   const pendingCount = queuedSales.filter((s) => s.status === 'pending' || s.status === 'syncing').length;
   const conflictCount = queuedSales.filter((s) => s.status === 'conflict').length;
 
+  const confirmDisabled =
+    isSubmitting ||
+    !attendeeName.trim() ||
+    !selectedEvent ||
+    !selectedTier ||
+    (isSeatBasedEvent(selectedEvent) && selectedSeats.length === 0) ||
+    (paymentMethod === 'upi' && upiFlow !== 'received') ||
+    !paymentsValid;
+
   return (
-    <div className="space-y-6 max-w-5xl mx-auto">
+    <div className="space-y-5 max-w-6xl mx-auto">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-6 rounded-3xl bg-[#141414] border border-white/10">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-3xl bg-[#141414] border border-white/10">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-2xl bg-[#D4AF37]/10 border border-[#D4AF37]/30 flex items-center justify-center text-[#D4AF37]">
             <UserPlus className="w-5 h-5" />
           </div>
           <div className="flex-1">
-            <h1 className="font-heading font-extrabold text-xl text-white">Counter Walk-In Ticket Issuance</h1>
+            <h1 className="font-heading font-extrabold text-xl text-white">Walk-In Issuance</h1>
             <p className="text-gray-400 text-xs mt-0.5">
-              Issue physical passes & live seat reservations directly with cash, card, or UPI.
+              Fast counter pass issuance — cash, card terminal, or UPI.
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
-          {/* Offline Queue Badge & Modal Trigger */}
           {queuedSales.length > 0 && (
             <button
               onClick={() => setShowQueueModal(true)}
@@ -503,7 +671,8 @@ export const WalkInPage: React.FC = () => {
               Ticket #{issuedTicket.ticketNumber}
             </h2>
             <p className="text-gray-400 text-xs mt-1">
-              Issued for <strong className="text-white">{issuedTicket.attendeeName}</strong> ({issuedTicket.attendeePhone})
+              Issued for <strong className="text-white">{issuedTicket.attendeeName}</strong>
+              {issuedTicket.attendeePhone ? ` (${issuedTicket.attendeePhone})` : ' (no contact recorded)'}
             </p>
           </div>
 
@@ -517,13 +686,13 @@ export const WalkInPage: React.FC = () => {
               <span className="font-bold text-[#D4AF37]">{issuedTicket.tierName}</span>
             </div>
             <div className="flex justify-between text-gray-400">
-              <span>Seats:</span>
+              <span>{isSeatBasedEvent(selectedEvent) ? 'Seats' : 'Passes'}:</span>
               <span className="font-bold text-white">{issuedTicket.seatNumber}</span>
             </div>
             <div className="flex justify-between text-gray-400">
               <span>Payment Received:</span>
               <span className="font-bold text-emerald-400">
-                ₹{issuedTicket.totalPaid}{payments.length > 1 ? ` (split across ${payments.length} methods)` : ` (${payments[0]?.method.toUpperCase()})`}
+                ₹{issuedTicket.totalPaid}{payments.length > 1 ? ` (split across ${payments.length} methods)` : ` (${paymentMethod.toUpperCase()})`}
               </span>
             </div>
             {discountAmount > 0 && (
@@ -556,421 +725,619 @@ export const WalkInPage: React.FC = () => {
           </div>
         </div>
       ) : (
-        /* Booking Form */
-        <form onSubmit={handleIssueWalkIn} className="p-6 md:p-8 rounded-3xl bg-[#141414] border border-white/10 space-y-6">
-          {(errorBanner || connection === 'lost') && (
-            <div className={`p-4 rounded-2xl border text-xs flex items-start gap-3 ${
-              errorBanner.includes('Saved offline')
-                ? 'bg-amber-500/10 border-amber-500/40 text-amber-200'
-                : connection === 'lost'
-                ? 'bg-red-500/10 border-red-500/40 text-red-300'
-                : 'bg-amber-500/10 border-amber-500/40 text-amber-200'
-            }`}>
-              <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
-              <div className="flex-1">
-                <span>{errorBanner || 'Connection offline — all sales will be saved to the durable local queue and auto-synced upon reconnection.'}</span>
-                {connection === 'lost' && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setConnection('retrying');
-                      triggerSync();
-                    }}
-                    className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 text-white font-bold hover:bg-white/20 transition-all"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5" /> Retry Connection & Sync
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-
-          {activeShiftId && (
-            <div className="px-3.5 py-2.5 rounded-xl bg-[#D4AF37]/5 border border-[#D4AF37]/20 text-[11px] text-[#F3E5AB] flex items-center gap-2">
-              <ShieldCheck className="w-3.5 h-3.5" />
-              This sale is attributed to your open shift (cash reconciliation will include it).
-            </div>
-          )}
-
-          {/* 1. Search & Select Event */}
-          <div className="space-y-3">
-            <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider">
-              1. Select Event
-            </label>
-            <div className="relative">
-              <input
-                type="text"
-                placeholder="Filter events by title or city..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-3.5 rounded-xl bg-[#1C1C1C] border border-white/10 text-white text-sm focus:outline-none focus:border-[#D4AF37]"
-              />
-              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            </div>
-
-            <select
-              value={selectedEventId}
-              onChange={(e) => {
-                setSelectedEventId(e.target.value);
-                setSelectedSeats([]);
-                setSeatSearch('');
-                const evt = events.find((item) => item.id === e.target.value);
-                if (evt && evt.ticketTiers[0]) {
-                  setSelectedTierId(evt.ticketTiers[0].id);
-                }
-              }}
-              className="w-full py-3.5 px-4 rounded-2xl bg-[#1C1C1C] border border-white/10 text-white font-semibold text-sm focus:outline-none focus:border-[#D4AF37] transition-colors"
-            >
-              {filteredEvents.map((evt) => (
-                <option key={evt.id} value={evt.id}>
-                  {evt.title} ({evt.city} • {evt.date})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* 2. Select Tier & Quantity */}
-          {selectedEvent && (
-            <div className="space-y-3">
-              <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider">
-                2. Select Ticket Category
-              </label>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                {selectedEvent.ticketTiers.map((tier) => (
-                  <button
-                    type="button"
-                    key={tier.id}
-                    onClick={() => {
-                      setSelectedTierId(tier.id);
-                      setSelectedSeats([]);
-                      setSeatSearch('');
-                    }}
-                    className={`p-4 rounded-2xl border text-left transition-all cursor-pointer ${
-                      selectedTierId === tier.id
-                        ? 'bg-[#D4AF37]/10 border-[#D4AF37] text-white shadow-lg'
-                        : 'bg-[#1C1C1C] border-white/5 text-gray-400 hover:border-white/20'
-                    }`}
-                  >
-                    <span className="block font-bold text-sm text-white">{tier.name}</span>
-                    <span className="font-heading font-extrabold text-base text-[#D4AF37] mt-1 block">
-                      ₹{tier.price}
-                    </span>
-                    <span className="text-[10px] text-gray-400 block mt-1">
-                      {tier.remainingInventory} passes remaining
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* 3. Seat Map Selection (or GA quantity when admin disabled seating) */}
-          {selectedEvent && isSeatBasedEvent(selectedEvent) ? (
-            <div className="space-y-3 p-4 rounded-2xl bg-black/40 border border-white/10">
-              <div className="flex items-center justify-between">
-                <label className="block text-xs font-bold text-[#D4AF37] uppercase tracking-wider flex items-center gap-2">
-                  <Armchair className="w-4 h-4" />
-                  <span>3. Interactive Counter Seat Map</span>
-                </label>
-                <div className="flex items-center gap-2 text-xs">
-                  <span className="text-gray-400">Quantity:</span>
-                  <select
-                    value={quantity}
-                    onChange={(e) => {
-                      setQuantity(Number(e.target.value));
-                      setSelectedSeats([]);
-                      setSeatSearch('');
-                    }}
-                    className="bg-[#1C1C1C] border border-white/10 rounded-lg px-2 py-1.5 text-white text-xs font-bold"
-                  >
-                    {[1, 2, 3, 4, 5, 6, 8, 10].map((n) => (
-                      <option key={n} value={n}>{n} seat{n > 1 ? 's' : ''}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {/* Stale snapshot warning if connection is down */}
-              {connection === 'lost' && (
-                <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center gap-2">
-                  <Clock className="w-4 h-4 shrink-0" />
-                  <span>
-                    Offline seat map — showing snapshot as of <strong>{secondsAgo}s ago</strong> (may be stale).
-                  </span>
-                </div>
-              )}
-
-              {/* Quick seat search */}
-              <div className="flex items-center gap-3">
-                <div className="relative flex-1">
-                  <input
-                    ref={seatSearchInputRef}
-                    type="text"
-                    placeholder='Quick seat lookup — type "A-5" and press Enter...'
-                    value={seatSearch}
-                    onChange={(e) => handleSeatSearch(e.target.value)}
-                    className="w-full pl-10 pr-4 py-3 rounded-xl bg-[#1C1C1C] border border-white/10 text-white text-sm font-mono focus:outline-none focus:border-[#D4AF37]"
-                  />
-                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                </div>
-                <button
-                  type="button"
-                  onClick={refreshSeats}
-                  className="px-3.5 py-3 rounded-xl bg-[#222] border border-white/10 text-gray-300 text-xs font-bold hover:border-[#D4AF37] hover:text-white transition-all flex items-center gap-1.5 shrink-0 cursor-pointer"
-                  title="Refresh seat availability now"
-                >
-                  <RefreshCw className="w-4 h-4" /> Refresh
-                </button>
-              </div>
-              {searchError && (
-                <p className="text-red-400 text-xs flex items-center gap-1.5">
-                  <AlertCircle className="w-3.5 h-3.5" /> {searchError}
-                </p>
-              )}
-
-              <SeatMap
-                key={seatRefreshKey}
-                eventId={selectedEvent.id}
-                seatMapConfig={selectedEvent.seatMap}
-                requiredQuantity={quantity}
-                selectedSeatIds={selectedSeats}
-                onSeatsSelected={(seatIds) => setSelectedSeats(seatIds)}
-                currentUserId={`counter_${user?.uid || 'staff'}`}
-                ticketTiers={selectedEvent.ticketTiers}
-                eventDate={selectedEvent.date}
-                eventTime={selectedEvent.time}
-                onReservationError={(msg) => setErrorBanner(msg)}
-              />
-            </div>
-          ) : (
-            /* General Admission Quantity Selector */
-            <div className="space-y-2">
-              <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider">
-                3. Pass Quantity
-              </label>
-              <div className="flex items-center gap-4">
-                <button
-                  type="button"
-                  onClick={() => setQuantity((q) => Math.max(1, q - 1))}
-                  className="w-10 h-10 rounded-xl bg-[#1C1C1C] border border-white/10 text-white font-bold text-lg hover:border-[#D4AF37]"
-                >
-                  -
-                </button>
-                <span className="text-white font-extrabold text-lg">{quantity}</span>
-                <button
-                  type="button"
-                  onClick={() => setQuantity((q) => Math.min(10, q + 1))}
-                  className="w-10 h-10 rounded-xl bg-[#1C1C1C] border border-white/10 text-white font-bold text-lg hover:border-[#D4AF37]"
-                >
-                  +
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* 4. Attendee Contact Info */}
-          <div className="space-y-3">
-            <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider">
-              4. Customer Details (Walk-In)
-            </label>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        /* POS Checkout Form */
+        <div className="grid grid-cols-1 lg:grid-cols-[1.25fr_1fr] gap-5 items-start">
+          {/* ================= LEFT: selection column ================= */}
+          <div className="space-y-4">
+            {/* 1. Event selector */}
+            <div className="p-4 rounded-3xl bg-[#141414] border border-white/10 space-y-2.5">
+              <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest">Event</label>
               <div className="relative">
                 <input
                   type="text"
+                  placeholder="Filter events..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2.5 rounded-xl bg-[#1C1C1C] border border-white/10 text-white text-sm focus:outline-none focus:border-[#D4AF37] transition-colors"
+                />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+              </div>
+              <select
+                value={selectedEventId}
+                onChange={(e) => {
+                  setSelectedEventId(e.target.value);
+                  setSelectedSeats([]);
+                  setSeatSearch('');
+                  const evt = events.find((item) => item.id === e.target.value);
+                  if (evt && evt.ticketTiers[0]) {
+                    setSelectedTierId(evt.ticketTiers[0].id);
+                  }
+                }}
+                className="w-full py-2.5 px-3 rounded-xl bg-[#1C1C1C] border border-white/10 text-white font-semibold text-sm focus:outline-none focus:border-[#D4AF37] transition-colors cursor-pointer"
+              >
+                {filteredEvents.length === 0 ? (
+                  <option value="">No events match the filter</option>
+                ) : (
+                  filteredEvents.map((evt) => (
+                    <option key={evt.id} value={evt.id}>
+                      {evt.title} ({evt.city} • {evt.date})
+                    </option>
+                  ))
+                )}
+              </select>
+            </div>
+
+            {/* 2. Ticket category cards */}
+            {selectedEvent && (
+              <div className="p-4 rounded-3xl bg-[#141414] border border-white/10 space-y-2.5">
+                <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest">Category</label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  {selectedEvent.ticketTiers.map((tier) => (
+                    <button
+                      type="button"
+                      key={tier.id}
+                      onClick={() => {
+                        setSelectedTierId(tier.id);
+                        setSelectedSeats([]);
+                        setSeatSearch('');
+                      }}
+                      className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer ${
+                        selectedTierId === tier.id
+                          ? 'bg-[#D4AF37]/10 border-[#D4AF37] text-white shadow-lg shadow-[#D4AF37]/10'
+                          : 'bg-[#1C1C1C] border-white/5 text-gray-400 hover:border-white/20'
+                      }`}
+                    >
+                      <span className="block font-bold text-sm text-white">{tier.name}</span>
+                      <span className="font-heading font-extrabold text-base text-[#D4AF37] mt-0.5 block">
+                        ₹{tier.price}
+                      </span>
+                      <span className={`text-[10px] block mt-0.5 ${tier.remainingInventory > 0 ? 'text-gray-400' : 'text-red-400'}`}>
+                        {tier.remainingInventory > 0 ? `${tier.remainingInventory} passes left` : 'Sold out'}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 3. Quantity / seats */}
+            {selectedEvent && isSeatBasedEvent(selectedEvent) ? (
+              <div className="space-y-2.5 p-4 rounded-3xl bg-[#141414] border border-white/10">
+                <div className="flex items-center justify-between">
+                  <label className="block text-[10px] font-bold text-[#D4AF37] uppercase tracking-widest flex items-center gap-1.5">
+                    <Armchair className="w-3.5 h-3.5" />
+                    <span>Seat Map</span>
+                  </label>
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className="text-gray-400">Seats:</span>
+                    <select
+                      value={quantity}
+                      onChange={(e) => {
+                        setQuantity(Number(e.target.value));
+                        setSelectedSeats([]);
+                        setSeatSearch('');
+                      }}
+                      className="bg-[#1C1C1C] border border-white/10 rounded-lg px-2 py-1.5 text-white text-xs font-bold cursor-pointer"
+                    >
+                      {[1, 2, 3, 4, 5, 6, 8, 10].map((n) => (
+                        <option key={n} value={n}>{n} seat{n > 1 ? 's' : ''}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {connection === 'lost' && (
+                  <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center gap-2">
+                    <Clock className="w-4 h-4 shrink-0" />
+                    <span>
+                      Offline seat map — showing snapshot as of <strong>{secondsAgo}s ago</strong> (may be stale).
+                    </span>
+                  </div>
+                )}
+
+                <div className="flex items-center gap-3">
+                  <div className="relative flex-1">
+                    <input
+                      ref={seatSearchInputRef}
+                      type="text"
+                      placeholder='Quick lookup — type "A-5" and press Enter...'
+                      value={seatSearch}
+                      onChange={(e) => handleSeatSearch(e.target.value)}
+                      className="w-full pl-9 pr-4 py-2.5 rounded-xl bg-[#1C1C1C] border border-white/10 text-white text-sm font-mono focus:outline-none focus:border-[#D4AF37]"
+                    />
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={refreshSeats}
+                    className="px-3 py-2.5 rounded-xl bg-[#222] border border-white/10 text-gray-300 text-xs font-bold hover:border-[#D4AF37] hover:text-white transition-all flex items-center gap-1.5 shrink-0 cursor-pointer"
+                    title="Refresh seat availability now"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                {searchError && (
+                  <p className="text-red-400 text-xs flex items-center gap-1.5">
+                    <AlertCircle className="w-3.5 h-3.5" /> {searchError}
+                  </p>
+                )}
+
+                <SeatMap
+                  key={seatRefreshKey}
+                  eventId={selectedEvent.id}
+                  seatMapConfig={selectedEvent.seatMap}
+                  requiredQuantity={quantity}
+                  selectedSeatIds={selectedSeats}
+                  onSeatsSelected={(seatIds) => setSelectedSeats(seatIds)}
+                  currentUserId={`counter_${user?.uid || 'staff'}`}
+                  ticketTiers={selectedEvent.ticketTiers}
+                  eventDate={selectedEvent.date}
+                  eventTime={selectedEvent.time}
+                  onReservationError={(msg) => setErrorBanner(msg)}
+                />
+              </div>
+            ) : (
+              /* GA quantity stepper */
+              <div className="p-4 rounded-3xl bg-[#141414] border border-white/10">
+                <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest">Passes</label>
+                <div className="flex items-center justify-between mt-2.5">
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setQuantity((q) => clampQuantity(q - 1))}
+                      disabled={quantity <= 1}
+                      className="w-9 h-9 rounded-xl bg-[#1C1C1C] border border-white/10 text-white font-bold text-lg hover:border-[#D4AF37] disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                    >
+                      −
+                    </button>
+                    <input
+                      type="number"
+                      min={1}
+                      max={maxQuantity}
+                      value={quantity}
+                      onChange={(e) => setQuantity(clampQuantity(Number(e.target.value) || 1))}
+                      className="w-14 h-9 rounded-xl bg-[#1C1C1C] border border-white/10 text-white text-center text-base font-extrabold focus:outline-none focus:border-[#D4AF37]"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setQuantity((q) => clampQuantity(q + 1))}
+                      disabled={quantity >= maxQuantity || quantity >= remainingForTier}
+                      className="w-9 h-9 rounded-xl bg-[#1C1C1C] border border-white/10 text-white font-bold text-lg hover:border-[#D4AF37] disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                    >
+                      +
+                    </button>
+                  </div>
+                  {quantity >= remainingForTier && remainingForTier > 0 && (
+                    <span className="text-amber-400 text-[10px] font-bold uppercase tracking-wide">
+                      Max remaining reached
+                    </span>
+                  )}
+                </div>
+                {remainingForTier === 0 && selectedTier && (
+                  <p className="text-red-400 text-xs mt-2">
+                    This category is sold out — pick another to continue.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* 4. Customer */}
+            <div className="p-4 rounded-3xl bg-[#141414] border border-white/10 space-y-2.5">
+              <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest">Guest</label>
+              <div className="relative">
+                <input
+                  ref={nameInputRef}
+                  type="text"
                   required
                   value={attendeeName}
-                  onChange={(e) => setAttendeeName(e.target.value)}
-                  placeholder="Guest Full Name *"
-                  className="w-full pl-10 pr-4 py-3.5 rounded-xl bg-[#1C1C1C] border border-white/10 text-white text-sm focus:outline-none focus:border-[#D4AF37]"
+                  onChange={(e) => {
+                    setAttendeeName(e.target.value);
+                    if (formError.startsWith('Enter the guest')) setFormError('');
+                  }}
+                  placeholder="Guest full name *"
+                  className="w-full pl-9 pr-4 py-2.5 rounded-xl bg-[#1C1C1C] border border-white/10 text-white text-sm focus:outline-none focus:border-[#D4AF37] transition-colors"
                 />
-                <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
               </div>
-
               <div className="relative">
                 <input
                   type="tel"
-                  required
                   value={attendeePhone}
                   onChange={(e) => setAttendeePhone(e.target.value)}
-                  placeholder="Guest Mobile Number *"
-                  className="w-full pl-10 pr-4 py-3.5 rounded-xl bg-[#1C1C1C] border border-white/10 text-white text-sm focus:outline-none focus:border-[#D4AF37]"
+                  placeholder="Mobile number (Optional)"
+                  className="w-full pl-9 pr-4 py-2.5 rounded-xl bg-[#1C1C1C] border border-white/10 text-white text-sm focus:outline-none focus:border-[#D4AF37] transition-colors"
                 />
-                <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
               </div>
             </div>
-          </div>
 
-          {/* 5. Payment Method(s) with split-payment support */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider">
-                5. Payment Method Received
-              </label>
-              <span className="text-[10px] text-gray-500">Split across multiple methods if needed</span>
-            </div>
-
-            {payments.map((payment, index) => (
-              <div key={index} className="flex items-center gap-3">
-                <div className="grid grid-cols-3 gap-2 flex-1">
-                  {PAYMENT_METHODS.map((m) => (
-                    <label
-                      key={m.key}
-                      className={`flex items-center justify-center gap-1.5 text-[11px] font-bold py-3 px-2 rounded-xl border cursor-pointer transition-all ${
-                        payment.method === m.key
-                          ? 'bg-[#D4AF37]/20 border-[#D4AF37] text-white shadow-lg'
-                          : 'bg-[#1C1C1C] border-white/10 text-gray-400 hover:border-white/20'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name={`payment-${index}`}
-                        checked={payment.method === m.key}
-                        onChange={() => updatePayment(index, { method: m.key })}
-                        className="hidden"
-                      />
-                      <m.icon className="w-3.5 h-3.5" style={{ color: m.color }} />
-                      <span>{m.label}</span>
-                    </label>
-                  ))}
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <span className="text-gray-500 text-sm">₹</span>
-                  <input
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    value={payment.amount || ''}
-                    onChange={(e) => updatePayment(index, { amount: Number(e.target.value) || 0 })}
-                    placeholder="0.00"
-                    className="w-24 px-3 py-3 rounded-xl bg-[#1C1C1C] border border-white/10 text-white text-sm font-mono focus:outline-none focus:border-[#D4AF37]"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => autofillRemaining(index)}
-                    className="px-2.5 py-3 rounded-xl bg-[#222] border border-white/10 text-gray-400 text-[10px] font-bold hover:border-[#D4AF37] hover:text-white transition-all cursor-pointer"
-                    title="Fill with remaining balance"
-                  >
-                    Fill
-                  </button>
-                  {payments.length > 1 && (
+            {/* Manager discount override (approvers only) */}
+            {isApprover && (
+              <div className="p-4 rounded-3xl bg-[#D4AF37]/5 border border-[#D4AF37]/25 space-y-2.5">
+                <label className="block text-[10px] font-bold text-[#D4AF37] uppercase tracking-widest flex items-center gap-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  Manager Discount Override
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <div>
+                    <span className="text-[10px] text-gray-400 block mb-1">Amount (₹)</span>
+                    <input
+                      type="number"
+                      min={0}
+                      step="1"
+                      disabled={!!overrideApproved}
+                      value={discountAmount || ''}
+                      onChange={(e) => {
+                        setDiscountAmount(Number(e.target.value) || 0);
+                        setOverrideApproved(null);
+                      }}
+                      placeholder="0"
+                      className="w-full px-3 py-2.5 rounded-xl bg-[#1C1C1C] border border-white/10 text-white text-sm font-mono focus:outline-none focus:border-[#D4AF37] disabled:opacity-50"
+                    />
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-gray-400 block mb-1">Reason</span>
+                    <input
+                      type="text"
+                      disabled={!!overrideApproved}
+                      value={overrideReason}
+                      onChange={(e) => setOverrideReason(e.target.value)}
+                      placeholder="e.g. VIP guest courtesy"
+                      className="w-full px-3 py-2.5 rounded-xl bg-[#1C1C1C] border border-white/10 text-white text-sm focus:outline-none focus:border-[#D4AF37] disabled:opacity-50"
+                    />
+                  </div>
+                  <div className="flex items-end">
                     <button
                       type="button"
-                      onClick={() => removePaymentRow(index)}
-                      className="w-10 h-10 rounded-xl bg-[#1C1C1C] border border-red-500/30 text-red-400 hover:bg-red-500/10 flex items-center justify-center transition-all cursor-pointer"
+                      disabled={isOverrideLoading || discountAmount <= 0 || grossTotal <= 0 || netTotal <= 0}
+                      onClick={handleRequestOverride}
+                      className="w-full py-2.5 rounded-xl bg-[#222] hover:bg-[#333] disabled:opacity-50 border border-[#D4AF37]/40 text-[#D4AF37] font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer disabled:cursor-not-allowed"
                     >
-                      <Trash2 className="w-4 h-4" />
+                      {isOverrideLoading ? (
+                        <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Approving...</>
+                      ) : (
+                        <><ShieldCheck className="w-3.5 h-3.5" /> Approve Discount</>
+                      )}
+                    </button>
+                  </div>
+                </div>
+                {overrideError && (
+                  <p className="text-red-400 text-xs flex items-center gap-1.5">
+                    <AlertCircle className="w-3.5 h-3.5" /> {overrideError}
+                  </p>
+                )}
+                {overrideApproved && (
+                  <p className="text-emerald-400 text-xs flex items-center gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    Approved by {overrideApproved.actorName} — ₹{overrideApproved.amount} off (audited).
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* ================= RIGHT: payment column ================= */}
+          <div className="lg:sticky lg:top-28 space-y-4">
+            {/* Total card */}
+            <div className="p-5 rounded-3xl bg-[#141414] border border-white/10">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                  {discountAmount > 0 ? 'Total Due (after discount)' : 'Total Due'}
+                </span>
+                {activeShiftId && (
+                  <span className="text-[10px] text-[#F3E5AB]/70 flex items-center gap-1">
+                    <ShieldCheck className="w-3 h-3" /> On shift
+                  </span>
+                )}
+              </div>
+              <div className="font-heading font-extrabold text-4xl text-[#D4AF37] mt-2">
+                {formatRupee(netTotal)}
+              </div>
+              {grossTotal > netTotal && (
+                <div className="text-[10px] text-gray-400 mt-1">
+                  {formatRupee(grossTotal)} − {formatRupee(discountAmount)} discount
+                  {isSeatBasedEvent(selectedEvent) ? ` • ${selectedSeats.length} seat${selectedSeats.length === 1 ? '' : 's'}` : ` • ${quantity} pass${quantity === 1 ? '' : 'es'} × ${formatRupee(selectedTier?.price || 0)}`}
+                </div>
+              )}
+
+              {/* Method selector */}
+              <div className="grid grid-cols-3 gap-2 mt-4">
+                {PAYMENT_METHODS.map((m) => (
+                  <button
+                    key={m.key}
+                    type="button"
+                    onClick={() => setPaymentMethod(m.key)}
+                    className={`py-3 rounded-xl border text-xs font-bold flex flex-col items-center gap-1.5 transition-all cursor-pointer ${
+                      paymentMethod === m.key
+                        ? 'bg-[#D4AF37]/15 border-[#D4AF37] text-white shadow-lg shadow-[#D4AF37]/10'
+                        : 'bg-[#1C1C1C] border-white/10 text-gray-400 hover:border-white/25'
+                    }`}
+                  >
+                    <m.icon className="w-4 h-4" style={{ color: m.color }} />
+                    <span>{m.label}</span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Split payment (advanced) */}
+              <div className="mt-3 border-t border-white/10 pt-3">
+                <button
+                  type="button"
+                  onClick={() => setShowSplit((v) => !v)}
+                  className={`text-[11px] font-bold flex items-center gap-1.5 transition-colors cursor-pointer ${showSplit ? 'text-[#D4AF37]' : 'text-gray-500 hover:text-gray-300'}`}
+                >
+                  <SlidersHorizontal className="w-3.5 h-3.5" />
+                  {showSplit ? 'Hide split payments' : 'Split across multiple methods'}
+                </button>
+                {showSplit && (
+                  <div className="mt-3 space-y-2">
+                    {payments.map((payment, index) => (
+                      <div key={index} className="flex items-center gap-2">
+                        <div className="grid grid-cols-3 gap-1.5 flex-1">
+                          {PAYMENT_METHODS.map((m) => (
+                            <label
+                              key={m.key}
+                              className={`flex items-center justify-center gap-1 text-[10px] font-bold py-2 px-1 rounded-lg border cursor-pointer transition-all ${
+                                payment.method === m.key
+                                  ? 'bg-[#D4AF37]/20 border-[#D4AF37] text-white'
+                                  : 'bg-[#1C1C1C] border-white/10 text-gray-400 hover:border-white/20'
+                              }`}
+                            >
+                              <input
+                                type="radio"
+                                name={`payment-${index}`}
+                                checked={payment.method === m.key}
+                                onChange={() => updatePayment(index, { method: m.key })}
+                                className="hidden"
+                              />
+                              <m.icon className="w-3 h-3" style={{ color: m.color }} />
+                              <span>{m.label}</span>
+                            </label>
+                          ))}
+                        </div>
+                        <span className="text-gray-500 text-xs">₹</span>
+                        <input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={payment.amount || ''}
+                          onChange={(e) => updatePayment(index, { amount: Number(e.target.value) || 0 })}
+                          placeholder="0.00"
+                          className="w-20 px-2 py-2 rounded-lg bg-[#1C1C1C] border border-white/10 text-white text-xs font-mono focus:outline-none focus:border-[#D4AF37]"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => autofillRemaining(index)}
+                          className="px-2 py-2 rounded-lg bg-[#222] border border-white/10 text-gray-400 text-[10px] font-bold hover:border-[#D4AF37] hover:text-white transition-all cursor-pointer"
+                          title="Fill with remaining balance"
+                        >
+                          Fill
+                        </button>
+                        {payments.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => removePaymentRow(index)}
+                            className="w-8 h-8 rounded-lg bg-[#1C1C1C] border border-red-500/30 text-red-400 hover:bg-red-500/10 flex items-center justify-center transition-all cursor-pointer"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={addPaymentRow}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#222] border border-white/10 text-gray-300 text-[10px] font-bold hover:border-[#D4AF37] hover:text-white transition-all cursor-pointer"
+                    >
+                      <Plus className="w-3 h-3" /> Add method
+                    </button>
+                    <div className={`text-[11px] font-bold flex items-center gap-2 ${
+                      paymentsValid ? 'text-emerald-400' : 'text-amber-400'
+                    }`}>
+                      <span className="text-gray-500">Paid: {formatRupee(paymentsSum)}</span>
+                      <span>/</span>
+                      <span>Due: {formatRupee(netTotal)}</span>
+                      {paymentsValid ? <CheckCircle2 className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* UPI payment panel */}
+            {paymentMethod === 'upi' && (
+              <div className="p-5 rounded-3xl bg-[#141414] border border-[#D4AF37]/30">
+                <div className="flex items-center justify-between">
+                  <label className="block text-[10px] font-bold text-[#D4AF37] uppercase tracking-widest flex items-center gap-1.5">
+                    <QrCode className="w-3.5 h-3.5" />
+                    Pay by UPI
+                  </label>
+                  {isApprover && (
+                    <button
+                      type="button"
+                      onClick={() => setShowUpiSettings((v) => !v)}
+                      className="text-gray-500 hover:text-[#D4AF37] transition-colors cursor-pointer"
+                      title="Configure merchant UPI ID"
+                    >
+                      <Settings2 className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+
+                {showUpiSettings && isApprover && (
+                  <div className="mt-3 p-3 rounded-2xl bg-[#1C1C1C] border border-[#D4AF37]/30 space-y-2.5">
+                    <input
+                      type="text"
+                      value={newVpa}
+                      onChange={(e) => setNewVpa(e.target.value)}
+                      placeholder="Merchant UPI ID (e.g. store@upi)"
+                      className="w-full px-3 py-2.5 rounded-xl bg-[#0E0E0E] border border-white/10 text-white text-sm font-mono focus:outline-none focus:border-[#D4AF37]"
+                    />
+                    <input
+                      type="text"
+                      value={newName}
+                      onChange={(e) => setNewName(e.target.value)}
+                      placeholder="Display name (shown in payer app, max 25 chars)"
+                      maxLength={25}
+                      className="w-full px-3 py-2.5 rounded-xl bg-[#0E0E0E] border border-white/10 text-white text-sm focus:outline-none focus:border-[#D4AF37]"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleSaveVpa}
+                      disabled={isSavingVpa || !newVpa.trim()}
+                      className="w-full py-2.5 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black font-extrabold text-xs hover:brightness-110 disabled:opacity-50 transition-all cursor-pointer disabled:cursor-not-allowed"
+                    >
+                      {isSavingVpa ? 'Saving...' : 'Save Merchant UPI ID'}
+                    </button>
+                  </div>
+                )}
+
+                {validateUpiParam({
+                  vpa: upiConfig?.vpa || '',
+                  name: upiConfig?.name,
+                  amount: netTotal,
+                }).valid ? (
+                  <div className="mt-4 flex flex-col items-center">
+                    <div className="p-4 rounded-2xl bg-white">
+                      <QRCodeSVG
+                        value={upiUri}
+                        size={220}
+                        level="M"
+                        includeMargin={false}
+                        bgColor="#FFFFFF"
+                        fgColor="#000000"
+                      />
+                    </div>
+                    <div className="text-center mt-3 space-y-1">
+                      <p className="font-heading font-extrabold text-2xl text-[#D4AF37]">
+                        {formatRupee(netTotal)}
+                      </p>
+                      <p className="text-gray-400 text-xs">
+                        Exact-amount request • {upiConfig?.name || 'merchant'}
+                      </p>
+                      <p className="text-gray-500 text-xs font-mono">
+                        {maskedVpa(upiConfig!.vpa)}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 mt-4 w-full">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard?.writeText(upiConfig!.vpa).then(
+                            () => setOfflineToast('UPI ID copied'),
+                            () => {}
+                          );
+                        }}
+                        className="flex-1 py-2.5 rounded-xl bg-[#222] border border-white/10 text-gray-300 text-xs font-bold hover:border-[#D4AF37] hover:text-white transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <Copy className="w-3.5 h-3.5" /> Copy UPI ID
+                      </button>
+                      <a
+                        href={upiUri}
+                        className="flex-1 py-2.5 rounded-xl bg-[#222] border border-white/10 text-gray-300 text-xs font-bold hover:border-[#D4AF37] hover:text-white transition-all flex items-center justify-center gap-1.5 no-underline cursor-pointer"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" /> Open UPI App
+                      </a>
+                    </div>
+                    <div className="mt-4 w-full space-y-2">
+                      {upiFlow !== 'received' && (
+                        <button
+                          type="button"
+                          onClick={() => setUpiFlow('received')}
+                          className={`w-full py-3.5 rounded-2xl font-extrabold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                            upiFlow === 'awaiting'
+                              ? 'bg-emerald-500/15 border border-emerald-500/40 text-emerald-300'
+                              : 'bg-[#222] border border-white/10 text-gray-300 hover:border-emerald-500/40 hover:text-emerald-300'
+                          }`}
+                        >
+                          <CheckCircle2 className="w-4 h-4" />
+                          {upiFlow === 'awaiting'
+                            ? 'Payment Received — Tap to Lock It In'
+                            : 'Payment Received — Issue Ticket'}
+                        </button>
+                      )}
+                      {upiFlow === 'received' && (
+                        <p className="text-emerald-400 text-[11px] text-center font-bold flex items-center justify-center gap-1.5">
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          Payment confirmed — ready to issue ticket.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-4 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/40 text-amber-200 text-xs space-y-1.5">
+                    <p className="font-bold flex items-center gap-1.5">
+                      <AlertTriangle className="w-3.5 h-3.5" />
+                      UPI is not configured yet
+                    </p>
+                    <p className="text-amber-300/80">
+                      Ask a super admin to save the merchant UPI ID (Settings icon above), or pick Cash / Card for now.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Form error banner */}
+            {formError && (
+              <div className="p-3.5 rounded-2xl bg-red-500/10 border border-red-500/40 text-red-300 text-xs flex items-start gap-2.5">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{formError}</span>
+              </div>
+            )}
+
+            {(errorBanner || connection === 'lost') && (
+              <div className={`p-3.5 rounded-2xl border text-xs flex items-start gap-2.5 ${
+                errorBanner.includes('Saved offline')
+                  ? 'bg-amber-500/10 border-amber-500/40 text-amber-200'
+                  : connection === 'lost'
+                  ? 'bg-red-500/10 border-red-500/40 text-red-300'
+                  : 'bg-amber-500/10 border-amber-500/40 text-amber-200'
+              }`}>
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <span>{errorBanner || 'Connection offline — sales are queued locally and auto-synced on reconnect.'}</span>
+                  {connection === 'lost' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setConnection('retrying');
+                        triggerSync();
+                      }}
+                      className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 text-white font-bold hover:bg-white/20 transition-all cursor-pointer"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" /> Retry & Sync
                     </button>
                   )}
                 </div>
               </div>
-            ))}
+            )}
 
-            <div className="flex items-center justify-between pt-1">
-              <button
-                type="button"
-                onClick={addPaymentRow}
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#222] border border-white/10 text-gray-300 text-xs font-bold hover:border-[#D4AF37] hover:text-white transition-all cursor-pointer"
-              >
-                <Plus className="w-3.5 h-3.5" /> Add payment method
-              </button>
-              <div className={`text-xs font-bold flex items-center gap-2 ${
-                paymentsValid ? 'text-emerald-400' : 'text-amber-400'
-              }`}>
-                <span className="text-gray-500">Paid: ₹{paymentsSum.toFixed(2)}</span>
-                <span>/</span>
-                <span>Due: ₹{netTotal.toFixed(2)}</span>
-                {paymentsValid ? <CheckCircle2 className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
-              </div>
-            </div>
-          </div>
-
-          {/* 6. Manager Discount Override */}
-          {isApprover && (
-            <div className="space-y-3 p-4 rounded-2xl bg-[#D4AF37]/5 border border-[#D4AF37]/25">
-              <label className="block text-xs font-bold text-[#D4AF37] uppercase tracking-wider flex items-center gap-2">
-                <ShieldCheck className="w-4 h-4" />
-                6. Manager Discount Override
-              </label>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
-                  <span className="text-[10px] text-gray-400 block mb-1">Discount Amount (₹)</span>
-                  <input
-                    type="number"
-                    min={0}
-                    step="1"
-                    disabled={!!overrideApproved}
-                    value={discountAmount || ''}
-                    onChange={(e) => {
-                      setDiscountAmount(Number(e.target.value) || 0);
-                      setOverrideApproved(null);
-                    }}
-                    placeholder="0"
-                    className="w-full px-3 py-3 rounded-xl bg-[#1C1C1C] border border-white/10 text-white text-sm font-mono focus:outline-none focus:border-[#D4AF37] disabled:opacity-50"
-                  />
-                </div>
-                <div>
-                  <span className="text-[10px] text-gray-400 block mb-1">Reason</span>
-                  <input
-                    type="text"
-                    disabled={!!overrideApproved}
-                    value={overrideReason}
-                    onChange={(e) => setOverrideReason(e.target.value)}
-                    placeholder="e.g. VIP guest courtesy"
-                    className="w-full px-3 py-3 rounded-xl bg-[#1C1C1C] border border-white/10 text-white text-sm focus:outline-none focus:border-[#D4AF37] disabled:opacity-50"
-                  />
-                </div>
-                <div className="flex items-end">
-                  <button
-                    type="button"
-                    disabled={isOverrideLoading || discountAmount <= 0 || grossTotal <= 0 || netTotal <= 0}
-                    onClick={handleRequestOverride}
-                    className="w-full py-3 rounded-xl bg-[#222] hover:bg-[#333] disabled:opacity-50 border border-[#D4AF37]/40 text-[#D4AF37] font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer disabled:cursor-not-allowed"
-                  >
-                    {isOverrideLoading ? (
-                      <><RefreshCw className="w-4 h-4 animate-spin" /> Approving...</>
-                    ) : (
-                      <><ShieldCheck className="w-4 h-4" /> Approve Discount</>
-                    )}
-                  </button>
-                </div>
-              </div>
-              {overrideError && (
-                <p className="text-red-400 text-xs flex items-center gap-1.5">
-                  <AlertCircle className="w-3.5 h-3.5" /> {overrideError}
-                </p>
-              )}
-              {overrideApproved && (
-                <p className="text-emerald-400 text-xs flex items-center gap-1.5">
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  Approved by {overrideApproved.actorName} — ₹{overrideApproved.amount} off (audited).
-                </p>
-              )}
-            </div>
-          )}
-
-          {/* Submit Action */}
-          <div className="pt-4 border-t border-white/10 flex items-center justify-between gap-4">
-            <div>
-              <span className="text-xs text-gray-400 block">Total Due{discountAmount > 0 ? ' (after discount)' : ''}:</span>
-              <span className="font-heading font-extrabold text-2xl text-[#D4AF37]">
-                ₹{netTotal}
-              </span>
-              {grossTotal > netTotal && (
-                <span className="text-[10px] text-emerald-400 block">₹{grossTotal} − ₹{discountAmount} discount</span>
-              )}
-            </div>
-
+            {/* Confirm */}
             <button
               ref={confirmButtonRef}
-              type="submit"
-              disabled={isSubmitting || !attendeeName || !attendeePhone || (selectedEvent && isSeatBasedEvent(selectedEvent) && selectedSeats.length === 0) || !paymentsValid}
-              className="py-3.5 px-8 rounded-2xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] hover:brightness-110 disabled:opacity-50 text-black font-extrabold text-sm shadow-lg shadow-[#D4AF37]/25 transition-all flex items-center gap-2 cursor-pointer disabled:cursor-not-allowed"
+              type="button"
+              onClick={() => handleIssueWalkIn()}
+              disabled={confirmDisabled}
+              className="w-full py-4 rounded-2xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] hover:brightness-110 disabled:opacity-50 disabled:brightness-100 text-black font-extrabold text-sm shadow-lg shadow-[#D4AF37]/25 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:cursor-not-allowed"
             >
-              <span>{isSubmitting ? 'Processing Booking...' : connection === 'lost' ? 'Save Sale Offline' : 'Confirm Walk-In Pass'}</span>
-              <ArrowRight className="w-4 h-4 stroke-[2.5]" />
+              {isSubmitting ? (
+                <><RefreshCw className="w-4 h-4 animate-spin" /> Processing...</>
+              ) : (
+                <>
+                  <span>
+                    Confirm {paymentMethod === 'cash' ? 'Cash' : paymentMethod === 'card' ? 'Card' : 'UPI'} Payment — {formatRupee(netTotal)}
+                  </span>
+                  <ArrowRight className="w-4 h-4 stroke-[2.5]" />
+                </>
+              )}
             </button>
+
+            <p className="text-center text-[10px] text-gray-500 -mt-2">
+              Enter = issue • F = seat lookup • C = confirm • N = next ticket
+            </p>
           </div>
-        </form>
+        </div>
       )}
 
       {/* ======================================================== */}
@@ -991,7 +1358,7 @@ export const WalkInPage: React.FC = () => {
               </div>
               <button
                 onClick={() => setShowQueueModal(false)}
-                className="p-1 rounded-lg text-gray-400 hover:text-white hover:bg-white/10"
+                className="p-1 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -1016,7 +1383,7 @@ export const WalkInPage: React.FC = () => {
                     >
                       <div className="flex items-center justify-between">
                         <span className="font-bold text-white font-sans text-sm">
-                          {item.payload.attendeeName} ({item.payload.attendeePhone})
+                          {item.payload.attendeeName}{item.payload.attendeePhone ? ` (${item.payload.attendeePhone})` : ''}
                         </span>
                         <span
                           className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${

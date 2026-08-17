@@ -2855,8 +2855,8 @@ export async function createApp() {
         }
       }
 
-      if (!eventId || !tierId || !attendeeName || !attendeePhone) {
-        return res.status(400).json({ success: false, error: "Event, ticket tier, attendee name, and phone are required." });
+      if (!eventId || !tierId || !attendeeName) {
+        return res.status(400).json({ success: false, error: "Event, ticket tier, and attendee name are required." });
       }
       if (!Array.isArray(selectedSeats) || selectedSeats.length > 100) {
         return res.status(400).json({ success: false, error: "Invalid seat selection." });
@@ -2883,8 +2883,11 @@ export async function createApp() {
       }
             // Seat array validation (basic shape/size) runs early; final GA handling
       // happens after the event is loaded below.
-      if (!String(attendeeName).trim() || !/^[0-9+\s()-]{7,20}$/.test(String(attendeePhone).trim())) {
-        return res.status(400).json({ success: false, error: "Attendee name and a valid phone number are required." });
+      // Walk-in phone numbers are optional for general admission counters;
+      // when supplied, they must still match the supported format.
+      const trimmedPhone = String(attendeePhone || "").trim();
+      if (!String(attendeeName).trim() || (trimmedPhone && !/^[0-9+\s()-]{7,20}$/.test(trimmedPhone))) {
+        return res.status(400).json({ success: false, error: "Attendee name is required, and any supplied phone number must be a valid 7-20 digit number." });
       }
       const adminToken = await getAdminAuthToken();
       const eventSnap = await rtdbGet(`events/${eventId}`, adminToken);
@@ -2946,7 +2949,7 @@ export async function createApp() {
       const customerDetails = {
         name: String(attendeeName).trim(),
         email: attendeeEmail?.trim() || `${String(attendeeName).toLowerCase().replace(/[^a-z0-9]+/g, '') || 'guest'}@walkin.ashvish`,
-        phone: String(attendeePhone).trim(),
+        phone: trimmedPhone || "",
       };
       const lineAmount = Number(tier.price) * quantity;
       // Manager-gated discount override (Item 6): the frontend posts a
@@ -4624,6 +4627,46 @@ app.get("/api/counter/events/:eventId/seats", requireRole(["counter_staff", "eve
     });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message || "Could not load seat availability." });
+  }
+});
+
+// Merchant UPI configuration for the counter's dynamic payment QR.
+// The counter embeds the final order total into the QR URI, so the customer's
+// UPI app always receives an exact-amount payment request. Stored at
+// app_config/merchant_upi with shape { vpa, name }.
+app.get("/api/merchant-upi", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
+  try {
+    const configSnap = await rtdbGet("app_config/merchant_upi", await getAdminAuthToken());
+    const config = (configSnap.data || {}) as { vpa?: string; name?: string };
+    return res.status(200).json({ success: true, vpa: config.vpa || "", name: config.name || "" });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || "Could not load merchant UPI config." });
+  }
+});
+
+app.put("/api/merchant-upi", requireRole(["super_admin"]), async (req: any, res) => {
+  try {
+    const rawVpa = String(req.body?.vpa || "").trim();
+    const rawName = String(req.body?.name || "").trim();
+    if (!rawVpa) {
+      return res.status(400).json({ success: false, error: "A merchant UPI ID (VPA) is required." });
+    }
+    if (!/^[A-Za-z0-9.\-_]{2,64}@[A-Za-z0-9.\-_]{2,64}$/.test(rawVpa) || rawVpa.length > 129) {
+      return res.status(400).json({ success: false, error: "The UPI ID must look like 'merchant@upi' (letters, digits, . _ - only)." });
+    }
+    const name = rawName.slice(0, 25) || undefined;
+    await rtdbSet("app_config/merchant_upi", { vpa: rawVpa, ...(name ? { name } : {}) }, await getAdminAuthToken());
+    await writeAuditEntry({
+      actorId: req.user.uid,
+      actorRole: req.user.rbacRole,
+      action: "config.merchant_upi.updated",
+      entityType: "config",
+      entityId: "merchant_upi",
+      afterState: { vpa: rawVpa, name },
+    });
+    return res.status(200).json({ success: true, vpa: rawVpa, name: name || "" });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || "Could not save merchant UPI config." });
   }
 });
 
