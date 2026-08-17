@@ -310,13 +310,20 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
           }
           // Normalize incomplete records (e.g. missing posterUrl/coverUrl) so
           // image renders and property access can never throw at runtime.
+          // Internal/dev image URLs (localhost, loopback, relative dev ports)
+          // stored in the database from a legacy environment also fall back —
+          // they cannot load on the public site.
           const DEFAULT_POSTER =
             'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&q=80&w=800';
+          const isInternalUrl = (u: unknown) => {
+            const s = String(u || '');
+            return !s || /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]|\[0:0:0:0:0:0:0:1\])(:\d+)?\//i.test(s) || /^\/(?!\/)/.test(s);
+          };
           const sanitized = dbList.map((e) => ({
             ...e,
             status: e.status || 'published',
-            posterUrl: e.posterUrl || DEFAULT_POSTER,
-            coverUrl: e.coverUrl || e.posterUrl || DEFAULT_POSTER,
+            posterUrl: isInternalUrl(e.posterUrl) ? DEFAULT_POSTER : (e.posterUrl || DEFAULT_POSTER),
+            coverUrl: isInternalUrl(e.coverUrl) || !e.coverUrl ? (isInternalUrl(e.posterUrl) ? DEFAULT_POSTER : (e.posterUrl || DEFAULT_POSTER)) : e.coverUrl,
             title: e.title || 'Untitled Event',
             startingPrice: typeof e.startingPrice === 'number' ? e.startingPrice : 0,
             rating: typeof e.rating === 'number' ? e.rating : 0,

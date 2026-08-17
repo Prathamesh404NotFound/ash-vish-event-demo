@@ -2259,9 +2259,6 @@ export async function createApp() {
       if (pendingOrder.userId !== owner.ownerId) {
         return res.status(403).json({ success: false, error: "Not your order." });
       }
-      if (pendingOrder.paymentMethod !== "razorpay") {
-        return res.status(409).json({ success: false, error: "This order was not created for Razorpay payment." });
-      }
 
       // Reconcile with Razorpay: fetch the actual payment and match order id + amount.
       const paymentRes = await fetchRazorpayPayment(paymentId);
@@ -2269,10 +2266,42 @@ export async function createApp() {
         return res.status(400).json({ success: false, error: paymentRes.error || "Could not verify payment." });
       }
       const payment = paymentRes.payment;
-      if (!payment || !payment.order_id || payment.order_id !== pendingOrder.rzpOrderId) {
+      if (!payment || !payment.order_id) {
+        return res.status(400).json({ success: false, error: "Payment record is incomplete at the gateway." });
+      }
+      // Reconciliation: prefer the direct mapping (payment.order_id === our
+      // pending order's rzpOrderId). When retries created a newer pending order
+      // (with a newer Razorpay order) but the buyer completed payment on the
+      // earlier Razorpay order, scan the pending orders for the one the
+      // gateway actually charged and fulfill that one instead.
+      let fulfillOrder: any = null;
+      let fulfillOrderId: string = "";
+      if (payment.order_id === pendingOrder.rzpOrderId && pendingOrder.userId === owner.ownerId) {
+        fulfillOrder = pendingOrder;
+        fulfillOrderId = orderId;
+      } else {
+        const allPending: any = (await rtdbGet("pending_orders", authToken)).data || {};
+        for (const [candidateId, candidate] of Object.entries(allPending) as [string, any][]) {
+          if (candidate?.rzpOrderId === payment.order_id && candidate?.userId === owner.ownerId) {
+            fulfillOrder = candidate;
+            fulfillOrderId = candidateId;
+            break;
+          }
+        }
+      }
+      if (!fulfillOrder) {
         return res.status(400).json({ success: false, error: "Payment does not belong to this order." });
       }
-      const captured = payment.amount === pendingOrder.rzpAmount &&
+      if (fulfillOrderId !== orderId) {
+        // Supersede the stale pending order from a retried checkout attempt so
+        // a second verification cannot double-charge logic or confuse holds.
+        await rtdbUpdate(`pending_orders/${orderId}`, { supersededBy: fulfillOrderId, supersededAt: new Date().toISOString() }, authToken);
+      }
+      const pendingOrderFinal: any = fulfillOrder;
+      if (pendingOrderFinal.paymentMethod !== "razorpay") {
+        return res.status(409).json({ success: false, error: "This order was not created for Razorpay payment." });
+      }
+      const captured = payment.amount === pendingOrderFinal.rzpAmount &&
         (payment.status === "captured" || payment.status === "authorized") &&
         !payment.refunded;
       if (!captured) {
@@ -2288,18 +2317,17 @@ export async function createApp() {
       }
 
       // Re-quote server-side (coupon-aware) as a last sanity check before fulfillment.
-      const eventRes = await rtdbGet(`events/${pendingOrder.eventId}`, authToken);
+      const eventRes = await rtdbGet(`events/${pendingOrderFinal.eventId}`, authToken);
       const eventData = eventRes.data;
       if (!eventData) {
         return res.status(404).json({ success: false, error: "Event no longer available." });
       }
-      const quoteResult = computeReservationQuote(eventData, pendingOrder.seatIds, pendingOrder.quantity, pendingOrder.tierId);
-      const expectedMinor = Math.max(0, quoteResult.quote.totalMinor - (pendingOrder.couponDiscountMinor || 0));
-      if (pendingOrder.amountMinor && pendingOrder.amountMinor !== expectedMinor) {
+      const quoteResult = computeReservationQuote(eventData, pendingOrderFinal.seatIds, pendingOrderFinal.quantity, pendingOrderFinal.tierId);
+      const expectedMinor = Math.max(0, quoteResult.quote.totalMinor - (pendingOrderFinal.couponDiscountMinor || 0));
+      if (pendingOrderFinal.amountMinor && pendingOrderFinal.amountMinor !== expectedMinor) {
         return res.status(400).json({ success: false, error: "Quote changed since order creation. Please restart checkout." });
       }
-
-      const result = await finalizeBookingServerSide(orderId, "razorpay", paymentId, authToken);
+      const result = await finalizeBookingServerSide(fulfillOrderId || orderId, "razorpay", paymentId, authToken);
       if (!result.success) {
         return res.status(409).json({ success: false, error: result.error || "Failed to complete booking." });
       }
