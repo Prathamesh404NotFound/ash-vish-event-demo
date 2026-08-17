@@ -114,6 +114,10 @@ export interface EventItem {
   isEventPublic?: boolean;
   /** Event ID of the original listing this event was cloned from. */
   clonedFrom?: string;
+  /** Custom Google Maps URL override (falls back to an address-based query when unset). */
+  mapsUrl?: string;
+  /** Human-readable presenter/organizer line shown on the event detail page. */
+  presentedBy?: string;
 }
 
 export type UserRole = 'customer' | 'admin' | 'ticket_counter' | 'organizer';

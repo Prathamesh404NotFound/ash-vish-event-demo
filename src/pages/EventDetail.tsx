@@ -183,7 +183,7 @@ export const EventDetail: React.FC<EventDetailProps> = ({
                   Organized By
                 </span>
                 <span className="text-xs sm:text-sm font-semibold text-white block mt-0.5">
-                  {event.organizer}
+                  {event.presentedBy || event.organizer}
                 </span>
                 <span className="text-xs text-emerald-400 font-medium">Verified Partner</span>
               </div>
@@ -343,7 +343,7 @@ export const EventDetail: React.FC<EventDetailProps> = ({
                   <span className="font-heading font-bold text-sm text-white">{event.venue}</span>
                   <span className="text-xs text-gray-400">{event.address}</span>
                   <a
-                    href={`https://maps.google.com/?q=${encodeURIComponent(event.address)}`}
+                    href={event.mapsUrl || `https://maps.google.com/?q=${encodeURIComponent(event.address)}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="mt-2 text-xs font-semibold text-[#D4AF37] hover:underline"

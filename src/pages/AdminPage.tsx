@@ -17,12 +17,14 @@ import {
 } from 'lucide-react';
 import { useBooking } from '../contexts/BookingContext';
 import { EventItem, EventCategory } from '../types';
+import { EventEditor } from '../components/admin/EventEditor';
 
 export const AdminPage: React.FC = () => {
-  const { events, myTickets, addEvent, deleteEvent, scanTicketQR } = useBooking();
+  const { events, myTickets, addEvent, updateEvent, deleteEvent, scanTicketQR, showToast } = useBooking();
 
   const [activeTab, setActiveTab] = useState<'dashboard' | 'events' | 'scanner' | 'bookings'>('dashboard');
-  const [showAddModal, setShowAddModal] = useState(false);
+  const [editorMode, setEditorMode] = useState<'create' | 'edit' | null>(null);
+  const [editorEvent, setEditorEvent] = useState<EventItem | null>(null);
 
   // Scanner state
   const [scanInput, setScanInput] = useState('');
@@ -35,53 +37,53 @@ export const AdminPage: React.FC = () => {
   // Attendees table search
   const [attendeeSearch, setAttendeeSearch] = useState('');
 
-  // New Event Form State
-  const [newTitle, setNewTitle] = useState('');
-  const [newSubtitle, setNewSubtitle] = useState('');
-  const [newCategory, setNewCategory] = useState<EventCategory>('concert');
-  const [newDate, setNewDate] = useState('Oct 28, 2026');
-  const [newTime, setNewTime] = useState('08:00 PM');
-  const [newVenue, setNewVenue] = useState('Madison Square Garden');
-  const [newCity, setNewCity] = useState('New York');
-  const [newPrice, setNewPrice] = useState(75);
-  const [newPoster, setNewPoster] = useState(
-    'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&q=80&w=800'
-  );
+  // Event Editor (full CRUD — create + edit)
+  const openEditorCreate = () => {
+    setEditorEvent(null);
+    setEditorMode('create');
+  };
+  const openEditorEdit = (evt: EventItem) => {
+    setEditorEvent(evt);
+    setEditorMode('edit');
+  };
+  const closeEditor = () => {
+    setEditorEvent(null);
+    setEditorMode(null);
+  };
+  const handleSaveEvent = async (
+    draft: Omit<EventItem, 'id' | 'rating' | 'reviewsCount'>
+  ): Promise<void> => {
+    if (editorMode === 'edit' && editorEvent) {
+      // Preserve id, rating seed and review count from the existing record.
+      await updateEvent({
+        ...editorEvent,
+        ...draft,
+        id: editorEvent.id,
+        rating: editorEvent.rating,
+        reviewsCount: editorEvent.reviewsCount,
+      });
+    } else {
+      await addEvent({
+        ...draft,
+        rating: 5.0,
+        reviewsCount: 0,
+      });
+    }
+  };
 
-  const handleCreateEvent = (e: React.FormEvent) => {
-    e.preventDefault();
-    addEvent({
-      title: newTitle,
-      subtitle: newSubtitle,
-      category: newCategory,
-      date: newDate,
-      time: newTime,
-      venue: newVenue,
-      address: `${newVenue}, ${newCity}`,
-      city: newCity,
-      startingPrice: newPrice,
-      posterUrl: newPoster,
-      coverUrl: newPoster,
-      organizer: 'Ash-vish Events Official Direct',
-      description: 'Newly created event via Admin Management Console.',
-      artists: [{ id: '1', name: 'Headline Act', role: 'Main Stage', image: newPoster }],
-      ticketTiers: [
-        {
-          id: 't_gen',
-          name: 'General Pass',
-          price: newPrice,
-          description: 'Standard Entry Pass',
-          totalInventory: 300,
-          remainingInventory: 300,
-          perks: ['Standard Entry'],
-        },
-      ],
-      gallery: [newPoster],
-      faqs: [{ question: 'When do doors open?', answer: '60 minutes before showtime.' }],
+  // Duplicate an existing event (deep clone with a fresh id)
+  const handleDuplicateEvent = (evt: EventItem) => {
+    setEditorEvent({
+      ...JSON.parse(JSON.stringify({ ...evt, id: undefined })),
+      id: `evt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      title: `${evt.title} (Copy)`,
+      status: 'draft',
+      isFeatured: false,
+      isTrending: false,
+      isPopularThisWeek: false,
+      clonedFrom: evt.id,
     });
-
-    setShowAddModal(false);
-    alert('Event created successfully!');
+    setEditorMode('edit');
   };
 
   const handleRunScan = async () => {
@@ -214,7 +216,7 @@ export const AdminPage: React.FC = () => {
           <div className="flex justify-between items-center">
             <h3 className="font-heading font-bold text-xl text-white">Live Events Inventory</h3>
             <button
-              onClick={() => setShowAddModal(true)}
+              onClick={openEditorCreate}
               className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black font-bold text-xs flex items-center gap-2 shadow-lg shadow-[#D4AF37]/20"
             >
               <Plus className="w-4 h-4" />
@@ -257,12 +259,33 @@ export const AdminPage: React.FC = () => {
                     </td>
                     <td className="p-4 font-bold text-[#D4AF37]">${evt.startingPrice}</td>
                     <td className="p-4 text-right">
-                      <button
-                        onClick={() => deleteEvent(evt.id)}
-                        className="p-2 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          onClick={() => openEditorEdit(evt)}
+                          title="Edit event (all fields)"
+                          className="p-2 rounded-lg bg-[#D4AF37]/10 text-[#D4AF37] hover:bg-[#D4AF37]/20"
+                        >
+                          <Edit className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => handleDuplicateEvent(evt)}
+                          title="Duplicate event"
+                          className="p-2 rounded-lg bg-purple-500/10 text-purple-400 hover:bg-purple-500/20"
+                        >
+                          <Plus className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (window.confirm(`Delete "${evt.title}"? This cannot be undone.`)) {
+                              deleteEvent(evt.id);
+                            }
+                          }}
+                          title="Delete event"
+                          className="p-2 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -421,88 +444,15 @@ export const AdminPage: React.FC = () => {
         </div>
       )}
 
-
-      {/* Create Event Modal */}
-      {showAddModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in">
-          <div className="w-full max-w-lg bg-[#141414] border border-white/10 rounded-3xl p-6 space-y-4 shadow-2xl">
-            <div className="flex justify-between items-center border-b border-white/10 pb-3">
-              <h3 className="font-heading font-bold text-lg text-white">Create New Event Listing</h3>
-              <button onClick={() => setShowAddModal(false)} className="text-gray-400 hover:text-white">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleCreateEvent} className="space-y-3 text-xs">
-              <div>
-                <label className="text-gray-300 font-semibold block mb-1">Event Title</label>
-                <input
-                  type="text"
-                  required
-                  value={newTitle}
-                  onChange={(e) => setNewTitle(e.target.value)}
-                  className="w-full bg-[#1C1C1C] border border-white/10 rounded-xl px-3 py-2 text-white"
-                />
-              </div>
-
-              <div>
-                <label className="text-gray-300 font-semibold block mb-1">Subtitle</label>
-                <input
-                  type="text"
-                  value={newSubtitle}
-                  onChange={(e) => setNewSubtitle(e.target.value)}
-                  className="w-full bg-[#1C1C1C] border border-white/10 rounded-xl px-3 py-2 text-white"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-gray-300 font-semibold block mb-1">Category</label>
-                  <select
-                    value={newCategory}
-                    onChange={(e) => setNewCategory(e.target.value as any)}
-                    className="w-full bg-[#1C1C1C] border border-white/10 rounded-xl px-3 py-2 text-white"
-                  >
-                    <option value="concert">Concert</option>
-                    <option value="comedy">Comedy</option>
-                    <option value="sports">Sports</option>
-                    <option value="theatre">Theatre</option>
-                    <option value="festival">Festival</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-gray-300 font-semibold block mb-1">Starting Price ($)</label>
-                  <input
-                    type="number"
-                    value={newPrice}
-                    onChange={(e) => setNewPrice(Number(e.target.value))}
-                    className="w-full bg-[#1C1C1C] border border-white/10 rounded-xl px-3 py-2 text-white"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="text-gray-300 font-semibold block mb-1">Poster Image URL</label>
-                <input
-                  type="url"
-                  value={newPoster}
-                  onChange={(e) => setNewPoster(e.target.value)}
-                  className="w-full bg-[#1C1C1C] border border-white/10 rounded-xl px-3 py-2 text-white"
-                />
-              </div>
-
-              <button
-                type="submit"
-                className="w-full py-3 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black font-extrabold text-sm shadow-md mt-2"
-              >
-                Publish Event Listing
-              </button>
-            </form>
-          </div>
-        </div>
+      {/* Full event editor (create + edit + duplicate) */}
+      {editorMode && (
+        <EventEditor
+          mode={editorMode}
+          existing={editorEvent}
+          onSave={handleSaveEvent}
+          onClose={closeEditor}
+        />
       )}
-
     </div>
   );
 };

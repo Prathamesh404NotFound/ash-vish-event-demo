@@ -91,6 +91,15 @@ export const AdminEvents: React.FC = () => {
     },
   ]);
 
+  // Extended customizations (Prompt C: full-field event CRUD)
+  const [scheduleText, setScheduleText] = useState('');
+  const [faqsText, setFaqsText] = useState('');
+  const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
+  const [mapsUrl, setMapsUrl] = useState('');
+  const [presentedBy, setPresentedBy] = useState('');
+  const [isFeatured, setIsFeatured] = useState(false);
+  const [isTrending, setIsTrending] = useState(false);
+
   // Upload & Validation States
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -219,6 +228,13 @@ export const AdminEvents: React.FC = () => {
         perksText: 'VIP Lounge, Dedicated Bar, Reserved Parking',
       },
     ]);
+    setScheduleText('');
+    setFaqsText('');
+    setGalleryUrls([]);
+    setMapsUrl('');
+    setPresentedBy('');
+    setIsFeatured(false);
+    setIsTrending(false);
     setFormError(null);
     setUploadError(null);
     setShowModal(true);
@@ -246,6 +262,17 @@ export const AdminEvents: React.FC = () => {
     setScheduledPublishAt(evt.scheduledPublishAt || '');
     setScheduledUnpublishAt(evt.scheduledUnpublishAt || '');
     setUsesSeatMap(evt.usesSeatMap !== false);
+    setMapsUrl(evt.mapsUrl || '');
+    setPresentedBy(evt.presentedBy || '');
+    setIsFeatured(!!evt.isFeatured);
+    setIsTrending(!!evt.isTrending);
+    setGalleryUrls(evt.gallery || []);
+    setScheduleText((evt.schedule || [])
+      .map((s) => [s.time, s.title, s.description].map((x) => (x || '').toString()).join(' | '))
+      .join('\n'));
+    setFaqsText((evt.faqs || [])
+      .map((f) => `${f.question} :: ${f.answer}`)
+      .join('\n'));
 
     if (evt.ticketTiers && evt.ticketTiers.length > 0) {
       setTiers(
@@ -428,6 +455,32 @@ export const AdminEvents: React.FC = () => {
       perks: t.perksText.split(',').map((p) => p.trim()).filter(Boolean),
     }));
 
+    // Parse schedule lines: "time | title | description" (description optional)
+    const formattedSchedule = scheduleText
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const parts = line.split('|').map((p) => p.trim()).filter(Boolean);
+        return {
+          time: parts[0] || '',
+          title: parts[1] || '',
+          description: parts.slice(2).join(' | ').trim(),
+        };
+      });
+
+    // Parse FAQ lines: "question :: answer"
+    const formattedFaqs = faqsText
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const [question, ...rest] = line.split('::').map((p) => p.trim());
+        return { question: question || '', answer: rest.join(' :: ') || '' };
+      });
+
+    const formattedGallery = galleryUrls.map((u) => u.trim()).filter(Boolean);
+
     const eventPayload = {
       title: title.trim(),
       subtitle: subtitle.trim() || `${category.toUpperCase()} Event in ${city}`,
@@ -446,11 +499,18 @@ export const AdminEvents: React.FC = () => {
       description: description.trim() || 'Official event pass booking via Ash-vish Events platform.',
       artists: [{ id: 'a1', name: title.trim(), role: 'Main Stage', image: posterUrl }],
       ticketTiers: formattedTiers,
-      gallery: [posterUrl, coverUrl].filter(Boolean),
-      faqs: [
-        { question: 'When do doors open?', answer: '60 minutes prior to scheduled start time.' },
-        { question: 'Are digital QR passes accepted?', answer: 'Yes, present your digital QR pass at the ticket counter for scanning.' },
-      ],
+      gallery: formattedGallery.length > 0 ? formattedGallery : [posterUrl, coverUrl].filter(Boolean),
+      faqs: formattedFaqs.length > 0
+        ? formattedFaqs.filter((f) => f.question || f.answer)
+        : [
+            { question: 'When do doors open?', answer: '60 minutes prior to scheduled start time.' },
+            { question: 'Are digital QR passes accepted?', answer: 'Yes, present your digital QR pass at the ticket counter for scanning.' },
+          ],
+      schedule: formattedSchedule.length > 0 ? formattedSchedule : undefined,
+      mapsUrl: mapsUrl.trim() || undefined,
+      presentedBy: presentedBy.trim() || undefined,
+      isFeatured,
+      isTrending,
       rating: 4.9,
       reviewsCount: 12,
       scheduledPublishAt: scheduledPublishAt ? new Date(scheduledPublishAt).toISOString() : null,
@@ -945,6 +1005,117 @@ export const AdminEvents: React.FC = () => {
                     Leave blank if the event has no extra inclusions.
                   </p>
                 </div>
+
+                {/* Extended customizations: presenter, maps link, featured flags */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-gray-300 font-bold block mb-1">Presented By / Organized By Line</label>
+                    <input
+                      type="text"
+                      value={presentedBy}
+                      onChange={(e) => setPresentedBy(e.target.value)}
+                      placeholder="e.g. DYP Hospitality Pvt Ltd & The Sayaji Kolhapur"
+                      className="w-full bg-[#1C1C1C] border border-white/10 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-[#D4AF37]"
+                    />
+                    <p className="text-[11px] text-gray-500 mt-1">Optional. Overwrites “Organized By” display on the event page.</p>
+                  </div>
+                  <div>
+                    <label className="text-gray-300 font-bold block mb-1">Google Maps URL</label>
+                    <input
+                      type="url"
+                      value={mapsUrl}
+                      onChange={(e) => setMapsUrl(e.target.value)}
+                      placeholder="e.g. https://maps.app.goo.gl/..."
+                      className="w-full bg-[#1C1C1C] border border-white/10 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-[#D4AF37]"
+                    />
+                    <p className="text-[11px] text-gray-500 mt-1">Optional. Overrides the default address-based map link.</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="p-4 rounded-xl bg-[#1C1C1C] border border-white/10">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <label className="text-gray-300 font-bold block mb-0.5">Featured Headliner</label>
+                        <p className="text-[11px] text-gray-500">Show in the hero / featured section on the home page.</p>
+                      </div>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={isFeatured}
+                        onClick={() => setIsFeatured((v) => !v)}
+                        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors cursor-pointer ${
+                          isFeatured ? 'bg-[#D4AF37]' : 'bg-gray-600'
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                            isFeatured ? 'translate-x-6' : 'translate-x-1'
+                          }`}
+                        />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="p-4 rounded-xl bg-[#1C1C1C] border border-white/10">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <label className="text-gray-300 font-bold block mb-0.5">Trending Flag</label>
+                        <p className="text-[11px] text-gray-500">Include in the Trending Shows section.</p>
+                      </div>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={isTrending}
+                        onClick={() => setIsTrending((v) => !v)}
+                        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors cursor-pointer ${
+                          isTrending ? 'bg-[#D4AF37]' : 'bg-gray-600'
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                            isTrending ? 'translate-x-6' : 'translate-x-1'
+                          }`}
+                        />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-gray-300 font-bold block mb-1">Showtime Schedule</label>
+                  <textarea
+                    rows={3}
+                    value={scheduleText}
+                    onChange={(e) => setScheduleText(e.target.value)}
+                    placeholder={"One line per item: time | title | description\ne.g. 07:30 PM | Doors Open | Registration & Welcome\n08:00 PM | Live Band | Sufi performances"}
+                    className="w-full bg-[#1C1C1C] border border-white/10 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-[#D4AF37]"
+                  />
+                  <p className="text-[11px] text-gray-500 mt-1">Optional. Shown as the showtime schedule on the event page.</p>
+                </div>
+
+                <div>
+                  <label className="text-gray-300 font-bold block mb-1">Frequently Asked Questions</label>
+                  <textarea
+                    rows={3}
+                    value={faqsText}
+                    onChange={(e) => setFaqsText(e.target.value)}
+                    placeholder={"One FAQ per line: question :: answer\ne.g. When do doors open? :: 60 minutes before showtime\nIs parking free? :: Yes, complimentary parking for guests"}
+                    className="w-full bg-[#1C1C1C] border border-white/10 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-[#D4AF37]"
+                  />
+                  <p className="text-[11px] text-gray-500 mt-1">Optional. Leave blank to use the default FAQ set.</p>
+                </div>
+
+                <div>
+                  <label className="text-gray-300 font-bold block mb-1">Gallery Image URLs</label>
+                  <textarea
+                    rows={3}
+                    value={galleryUrls.join('\n')}
+                    onChange={(e) => setGalleryUrls(e.target.value.split('\n').map((u) => u.trim()).filter(Boolean))}
+                    placeholder={"One URL per line\nhttps://..."}
+                    className="w-full bg-[#1C1C1C] border border-white/10 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-[#D4AF37]"
+                  />
+                  <p className="text-[11px] text-gray-500 mt-1">Optional. Falls back to poster & cover if left empty.</p>
+                </div>
               </div>
 
               {/* Section 2: Date, Time & Venue */}
@@ -979,6 +1150,17 @@ export const AdminEvents: React.FC = () => {
                       value={time}
                       onChange={(e) => setTime(e.target.value)}
                       placeholder="e.g. 07:30 PM"
+                      className="w-full bg-[#1C1C1C] border border-white/10 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-[#D4AF37]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-gray-300 font-bold block mb-1">Full Address</label>
+                    <input
+                      type="text"
+                      value={address}
+                      onChange={(e) => setAddress(e.target.value)}
+                      placeholder="e.g. The Sayaji, DYP City Mall, Kolhapur"
                       className="w-full bg-[#1C1C1C] border border-white/10 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-[#D4AF37]"
                     />
                   </div>
