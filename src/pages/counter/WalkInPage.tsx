@@ -134,7 +134,14 @@ export const WalkInPage: React.FC = () => {
   const [overrideReason, setOverrideReason] = useState('');
   const [isOverrideLoading, setIsOverrideLoading] = useState(false);
   const [overrideError, setOverrideError] = useState('');
-  const isApprover = (user as any)?.rbacRole === 'super_admin' || (user as any)?.rbacRole === 'event_manager';
+  // The frontend user profile exposes the legacy Firebase role
+  // ('admin' / 'ticket_counter' / 'organizer' / 'customer'); the RBAC
+  // hierarchy (super_admin, event_manager, ...) is enforced server-side via
+  // requireRole, so gating UI here to the legacy 'admin' role keeps the
+  // settings visible for every staff member who manages the counter.
+  const userRole: string = (user as any)?.role || '';
+  const userRbac: string = (user as any)?.rbacRole || '';
+  const isApprover = userRole === 'admin' || ['super_admin', 'event_manager'].includes(userRbac);
 
   // Active staff shift attribution.
   const [activeShiftId, setActiveShiftId] = useState<string | null>(null);
