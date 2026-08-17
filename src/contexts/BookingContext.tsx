@@ -5,6 +5,7 @@ import { useAuth } from './AuthContext';
 import { EventItem, Ticket, TicketTier, BookingRecord, Coupon, EventReview, OrganizerAccount } from '../types';
 import { safeFetch, getApiUrl, SafeFetchResponse } from '../lib/api';
 import { rtdbGet, rtdbSet, rtdbDelete, rtdbUpdate } from '../lib/rtdb';
+import { isSeatBasedEvent } from '../lib/seatMap';
 
 export interface CheckoutSession {
   event: EventItem;
@@ -305,7 +306,7 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
           setReservation(null);
           setQuote(null);
           if (currentCheckout?.event.id) {
-            setBookingStep(currentCheckout.event.seatMap ? 2 : 1);
+            setBookingStep(isSeatBasedEvent(currentCheckout.event) ? 2 : 1);
           }
           setReservationError(res.ok ? (data.error || 'Your seat hold is no longer valid.') : 'Could not verify your seat hold with the server.');
         }
@@ -859,12 +860,18 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         ...newEventData,
         rating: 5.0,
         reviewsCount: 0,
-        seatMap: newEventData.seatMap || {
-          rows: 6,
-          cols: 8,
-          aisleAfterCols: [4],
-          tierByRow: { '1-2': 'VIP Skybox Lounge', '3-6': 'General Admission' },
-        },
+        // Only attach a default seat map when the admin has NOT explicitly
+        // disabled seating for this event.
+        ...(newEventData.usesSeatMap === false
+          ? {}
+          : {
+              seatMap: newEventData.seatMap || {
+                rows: 6,
+                cols: 8,
+                aisleAfterCols: [4],
+                tierByRow: { '1-2': 'VIP Skybox Lounge', '3-6': 'General Admission' },
+              },
+            }),
       }),
     });
     const data = response.data || {};

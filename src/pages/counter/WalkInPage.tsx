@@ -30,6 +30,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { Ticket as TicketType } from '../../types';
 import { SeatMap } from '../../components/SeatMap';
 import { safeFetch } from '../../lib/api';
+import { isSeatBasedEvent } from '../../lib/seatMap';
 import { authenticatedApiHeaders } from '../../lib/authHeaders';
 import {
   QueuedWalkInSale,
@@ -128,7 +129,7 @@ export const WalkInPage: React.FC = () => {
 
   // --- Real-time seat map refresh (every 5 seconds while online) ---
   useEffect(() => {
-    if (!selectedEvent?.seatMap) return;
+    if (!isSeatBasedEvent(selectedEvent)) return;
     const interval = window.setInterval(() => {
       if (navigator.onLine) {
         setSeatRefreshKey((k) => k + 1);
@@ -136,7 +137,7 @@ export const WalkInPage: React.FC = () => {
       }
     }, 5000);
     return () => window.clearInterval(interval);
-  }, [selectedEvent?.seatMap, selectedEvent?.id]);
+  }, [isSeatBasedEvent(selectedEvent), selectedEvent?.id]);
 
   // Track stale seconds elapsed
   useEffect(() => {
@@ -206,7 +207,7 @@ export const WalkInPage: React.FC = () => {
     setSeatSearch(value);
     setSearchError('');
     const match = /^([A-Za-z])-?(\d{1,2})$/i.exec(value.trim());
-    if (!match || !selectedEvent?.seatMap) return;
+    if (!match || !selectedEvent?.seatMap) return; // seat-search only applies to seat-based events
     const row = match[1].toUpperCase().charCodeAt(0) - 64;
     const col = parseInt(match[2], 10);
     if (row < 1 || col < 1 || col > (selectedEvent.seatMap.cols || 8)) {
@@ -302,7 +303,7 @@ export const WalkInPage: React.FC = () => {
     setErrorBanner('');
     if (!attendeeName.trim() || !attendeePhone.trim()) return;
 
-    if (selectedEvent?.seatMap && selectedSeats.length === 0) {
+    if (selectedEvent && isSeatBasedEvent(selectedEvent) && selectedSeats.length === 0) {
       setErrorBanner('Please select seats on the seat map for this walk-in booking.');
       return;
     }
@@ -663,8 +664,8 @@ export const WalkInPage: React.FC = () => {
             </div>
           )}
 
-          {/* 3. Seat Map Selection */}
-          {selectedEvent?.seatMap ? (
+          {/* 3. Seat Map Selection (or GA quantity when admin disabled seating) */}
+          {selectedEvent && isSeatBasedEvent(selectedEvent) ? (
             <div className="space-y-3 p-4 rounded-2xl bg-black/40 border border-white/10">
               <div className="flex items-center justify-between">
                 <label className="block text-xs font-bold text-[#D4AF37] uppercase tracking-wider flex items-center gap-2">
@@ -962,7 +963,7 @@ export const WalkInPage: React.FC = () => {
             <button
               ref={confirmButtonRef}
               type="submit"
-              disabled={isSubmitting || !attendeeName || !attendeePhone || (selectedEvent?.seatMap && selectedSeats.length === 0) || !paymentsValid}
+              disabled={isSubmitting || !attendeeName || !attendeePhone || (selectedEvent && isSeatBasedEvent(selectedEvent) && selectedSeats.length === 0) || !paymentsValid}
               className="py-3.5 px-8 rounded-2xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] hover:brightness-110 disabled:opacity-50 text-black font-extrabold text-sm shadow-lg shadow-[#D4AF37]/25 transition-all flex items-center gap-2 cursor-pointer disabled:cursor-not-allowed"
             >
               <span>{isSubmitting ? 'Processing Booking...' : connection === 'lost' ? 'Save Sale Offline' : 'Confirm Walk-In Pass'}</span>

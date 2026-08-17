@@ -250,7 +250,10 @@ function computeReservationQuote(
   tierId: string
 ): { quote: ReservationQuote; seatMapVersion: number; tier?: any } {
   const tiers: any[] = normalizeTiers(eventData.ticketTiers);
-  const seatMap = eventData.seatMap;
+  // Admin toggle: usesSeatMap=false forces general admission even when a seat
+  // map was previously configured on the event.
+  const seatMapEnabled = eventData.usesSeatMap !== false && Boolean(eventData.seatMap);
+  const seatMap = seatMapEnabled ? eventData.seatMap : undefined;
   let subtotalMinor = 0;
   const tier = tiers.find((t: any) => t.id === tierId);
 
@@ -1731,10 +1734,12 @@ export async function createApp() {
         return res.status(409).json({ success: false, error: `Event is ${eventData.status || "unavailable"}.` });
       }
 
-      const normalizedSeats = normalizeSeatIds(seatIds || []);
+      let normalizedSeats = normalizeSeatIds(seatIds || []);
       if (normalizedSeats.length > 0 && normalizedSeats.length !== quantity) {
         return res.status(400).json({ success: false, error: "Number of selected seats must equal the requested quantity." });
       }
+      // Admin toggle: usesSeatMap=false forces general admission — no seats.
+      if (eventData.usesSeatMap === false) normalizedSeats = [];
 
       let quoteResult;
       try {
@@ -1962,9 +1967,6 @@ export async function createApp() {
       if (!Number.isInteger(quantity) || quantity < 1 || quantity > MAX_TICKETS_PER_RESERVATION) {
         return res.status(400).json({ success: false, error: `Quantity must be between 1 and ${MAX_TICKETS_PER_RESERVATION}.` });
       }
-      if (seatIds.length !== quantity) {
-        return res.status(400).json({ success: false, error: "Number of selected seats must equal the requested quantity." });
-      }
       // Load event for inventory and quote
       const eventRes = await rtdbGet(`events/${record.eventId}`, authToken);
       const eventData = eventRes.data;
@@ -1978,6 +1980,13 @@ export async function createApp() {
         return res.status(400).json({ success: false, error: e.message });
       }
       const tier = quoteResult.tier;
+      // Seat-based vs general-admission decision: a GA event (admin toggle
+      // usesSeatMap=false) takes a quantity only — no seat IDs are involved.
+      const isSeatBasedEvent = eventData.usesSeatMap !== false && Boolean(eventData.seatMap);
+      if (!isSeatBasedEvent) seatIds = [];
+      if (seatIds.length !== quantity) {
+        return res.status(400).json({ success: false, error: "Number of selected seats must equal the requested quantity." });
+      }
       const addedCount = seatIds.filter((s) => !record.seatIds.includes(s)).length;
       if (tier && (tier.remainingInventory ?? 0) < addedCount) {
         return res.status(409).json({ success: false, error: `Only ${tier.remainingInventory ?? 0} tickets remain in this tier.` });
@@ -2614,6 +2623,9 @@ export async function createApp() {
         const t = Date.parse(String(event.scheduledUnpublishAt));
         if (Number.isNaN(t)) return res.status(400).json({ success: false, error: "scheduledUnpublishAt must be a valid ISO 8601 date/time." });
       }
+      if (event.usesSeatMap !== undefined && typeof event.usesSeatMap !== 'boolean') {
+        return res.status(400).json({ success: false, error: "usesSeatMap must be a boolean. When false the event runs a general-admission flow without a seat layout." });
+      }
       if (Array.isArray(event.ticketTiers)) {
         for (const tier of event.ticketTiers) {
           if (tier) {
@@ -2688,6 +2700,9 @@ export async function createApp() {
       if (body.scheduledUnpublishAt !== undefined) {
         const t = Date.parse(String(body.scheduledUnpublishAt));
         if (Number.isNaN(t)) return res.status(400).json({ success: false, error: "scheduledUnpublishAt must be a valid ISO 8601 date/time." });
+      }
+      if (body.usesSeatMap !== undefined && typeof body.usesSeatMap !== 'boolean') {
+        return res.status(400).json({ success: false, error: "usesSeatMap must be a boolean. When false the event runs a general-admission flow without a seat layout." });
       }
       if (Array.isArray(body.ticketTiers)) {
         for (const tier of body.ticketTiers) {
@@ -2846,6 +2861,7 @@ export async function createApp() {
       if (!Array.isArray(selectedSeats) || selectedSeats.length > 100) {
         return res.status(400).json({ success: false, error: "Invalid seat selection." });
       }
+
       if (rawCouponCode && typeof rawCouponCode !== "string") {
         return res.status(400).json({ success: false, error: "Invalid coupon code." });
       }
@@ -2865,16 +2881,11 @@ export async function createApp() {
           return res.status(400).json({ success: false, error: "Every split payment must carry a positive amount." });
         }
       }
-      // Server-side validation (Item 6): quantity is a positive integer (seat
-      // count), and the walk-in may never exceed tier capacity or the platform
-      // ceiling of 100 walk-in tickets per counter transaction.
-      const quantity = selectedSeats.length || 1;
-      const quantityError = validatePositiveInteger(quantity, 100);
-      if (quantityError) return res.status(400).json({ success: false, error: quantityError });
+            // Seat array validation (basic shape/size) runs early; final GA handling
+      // happens after the event is loaded below.
       if (!String(attendeeName).trim() || !/^[0-9+\s()-]{7,20}$/.test(String(attendeePhone).trim())) {
         return res.status(400).json({ success: false, error: "Attendee name and a valid phone number are required." });
       }
-
       const adminToken = await getAdminAuthToken();
       const eventSnap = await rtdbGet(`events/${eventId}`, adminToken);
       const event = eventSnap.data as any;
@@ -2882,6 +2893,17 @@ export async function createApp() {
       if (!event || !tier) {
         return res.status(404).json({ success: false, error: "Event or ticket tier not found." });
       }
+      // Admin toggle: usesSeatMap=false forces general admission — no seats.
+      // Quantity for GA walk-ins comes from the client (default 1); seat-based
+      // events still derive quantity from the seat selection.
+      const gaEvent = event.usesSeatMap === false;
+      const finalSeats: string[] = gaEvent ? [] : selectedSeats;
+      // Server-side validation (Item 6): quantity is a positive integer (seat
+      // count), and the walk-in may never exceed tier capacity or the platform
+      // ceiling of 100 walk-in tickets per counter transaction.
+      const quantity = Math.max(1, Number(req.body?.quantity) || finalSeats.length || 1);
+      const quantityError = validatePositiveInteger(quantity, 100);
+      if (quantityError) return res.status(400).json({ success: false, error: quantityError });
       // Server-side validation: the tier price rechecked live from the event
       // record; tier capacity is checked against remaining inventory before
       // the transaction that also deducts inventory (double-checked there).
@@ -2955,7 +2977,7 @@ export async function createApp() {
         orderId,
         eventId,
         tierId,
-        seatIds: selectedSeats,
+        seatIds: finalSeats,
         quantity,
         customerDetails,
         userId: 'walk_in_guest',
@@ -3581,6 +3603,8 @@ export async function createApp() {
       if (!event) return res.status(404).json({ success: false, error: "Event not found." });
       const tier = normalizeTiers(event.ticketTiers).find((t: any) => t.id === tierId);
       if (!tier) return res.status(400).json({ success: false, error: "Invalid ticket tier." });
+      // Admin toggle: usesSeatMap=false forces general admission — no seats.
+      const finalSeats = event.usesSeatMap === false ? [] : selectedSeats;
       const priceError = validateNonNegativePrice(tier.price);
       if (priceError) return res.status(400).json({ success: false, error: `Tier '${tier.name}': ${priceError}` });
 
@@ -3603,8 +3627,8 @@ export async function createApp() {
       // Seat locking (Item 4): seats are claimed via the shared atomic path;
       // any unavailable seat aborts the whole order and releases claims.
       const orderId = `manual_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
-      const claim = selectedSeats.length > 0
-        ? await claimSeatsAtomically(adminToken, eventId, selectedSeats, orderId, `manual_${req.user.uid}`)
+      const claim = finalSeats.length > 0
+        ? await claimSeatsAtomically(adminToken, eventId, finalSeats, orderId, `manual_${req.user.uid}`)
         : { committed: true };
       if (!claim.committed) {
         return res.status(409).json({ success: false, error: "One or more selected seats are no longer available." });
@@ -3620,7 +3644,7 @@ export async function createApp() {
       // ticket issuance, canonical orders record, confirmation email) is
       // reused identically to all other channels.
       await rtdbSet(`pending_orders/${orderId}`, {
-        orderId, eventId, tierId, seatIds: selectedSeats, quantity,
+        orderId, eventId, tierId, seatIds: finalSeats, quantity,
         customerDetails, userId: `manual_${req.user.uid}`,
         amount, discount: discountAmount, couponCode: couponCodeUpper,
         createdAt: new Date().toISOString(),
@@ -3629,7 +3653,7 @@ export async function createApp() {
 
       const result = await finalizeBookingServerSide(orderId, `manual_${String(paymentMethod).slice(0, 32)}`, `manual_payment_${orderId}`, adminToken, couponCodeUpper);
       if (!result.success) {
-        for (const rolledId of selectedSeats) await releaseSeat(adminToken, eventId, rolledId, { reservationId: orderId }).catch(() => {});
+        for (const rolledId of finalSeats) await releaseSeat(adminToken, eventId, rolledId, { reservationId: orderId }).catch(() => {});
         return res.status(409).json({ success: false, error: result.error || "Manual order could not be completed." });
       }
       await writeAuditEntry({

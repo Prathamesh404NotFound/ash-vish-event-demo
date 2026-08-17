@@ -9,6 +9,7 @@ import { rtdb, auth } from '../lib/firebase';
 import { SeatMap } from '../components/SeatMap';
 import { safeFetch, getApiUrl } from '../lib/api';
 import { useRazorpay } from '../hooks/useRazorpay';
+import { isSeatBasedEvent } from '../lib/seatMap';
 
 interface CheckoutWizardProps {
   onBack: () => void;
@@ -110,7 +111,9 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
   }
 
   const { event, tier, quantity, selectedSeats } = currentCheckout;
-  const hasSeatMap = Boolean(event.seatMap);
+  // Admin-controlled: usesSeatMap=false forces general admission even when
+  // a seat map is configured on the event.
+  const hasSeatMap = isSeatBasedEvent(event);
   const seatSelectionStep = hasSeatMap ? 2 : 1;
   const attendeeStep = seatSelectionStep + 1;
   const reviewStep = attendeeStep + 1;

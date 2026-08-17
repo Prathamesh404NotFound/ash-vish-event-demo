@@ -88,6 +88,13 @@ export interface EventItem {
   faqs: FAQ[];
   schedule?: EventScheduleItem[];
   seatMap?: SeatMapConfig;
+  /**
+   * Admin-controlled toggle. When explicitly `false`, the event runs a
+   * general-admission (walk-up) flow: no seat selection step, no seat map.
+   * `undefined`/`true` keeps the classic seat-based flow whenever a seat
+   * map is configured. Default: true.
+   */
+  usesSeatMap?: boolean;
   isFeatured?: boolean;
   isTrending?: boolean;
   isPopularThisWeek?: boolean;

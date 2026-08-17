@@ -49,6 +49,7 @@ export const AdminEvents: React.FC = () => {
   const [editingEventId, setEditingEventId] = useState<string | null>(null);
 
   // Form State
+  const [usesSeatMap, setUsesSeatMap] = useState(true);
   const [title, setTitle] = useState('');
   const [subtitle, setSubtitle] = useState('');
   const [description, setDescription] = useState('');
@@ -195,6 +196,7 @@ export const AdminEvents: React.FC = () => {
     setOrganizer('Ash-vish Events Official');
     setPosterUrl('https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&q=80&w=800');
     setCoverUrl('https://images.unsplash.com/photo-1470225620780-dba8ba36b745?auto=format&fit=crop&q=80&w=1200');
+    setUsesSeatMap(true);
     setTiers([
       {
         id: 'tier_gen_' + Date.now(),
@@ -241,6 +243,7 @@ export const AdminEvents: React.FC = () => {
 
     setScheduledPublishAt(evt.scheduledPublishAt || '');
     setScheduledUnpublishAt(evt.scheduledUnpublishAt || '');
+    setUsesSeatMap(evt.usesSeatMap !== false);
 
     if (evt.ticketTiers && evt.ticketTiers.length > 0) {
       setTiers(
@@ -450,6 +453,10 @@ export const AdminEvents: React.FC = () => {
       reviewsCount: 12,
       scheduledPublishAt: scheduledPublishAt ? new Date(scheduledPublishAt).toISOString() : null,
       scheduledUnpublishAt: scheduledUnpublishAt ? new Date(scheduledUnpublishAt).toISOString() : null,
+      // Admin-controlled seat-map toggle. The admin panel always sends the
+      // boolean so both directions (seat-based <-> general admission) work:
+      // editing an existing event may restore seating after it was disabled.
+      usesSeatMap,
     };
 
     if (editingEventId) {
@@ -472,6 +479,17 @@ export const AdminEvents: React.FC = () => {
       ...evt,
       status: newStatus,
     });
+  };
+
+  // Quick seat-map toggle directly from list table: flip between seat-based
+  // checkout and general admission (quantity only).
+  const handleQuickSeatMapToggle = async (evt: EventItem) => {
+    const next = evt.usesSeatMap === false ? true : false;
+    try {
+      await updateEvent({ ...evt, usesSeatMap: next });
+    } catch {
+      /* error already surfaced via showToast */
+    }
   };
 
   // Filtering
@@ -671,6 +689,18 @@ export const AdminEvents: React.FC = () => {
                       <td className="p-4 text-right">
                         <div className="flex items-center justify-end gap-2">
                           <button
+                            onClick={() => handleQuickSeatMapToggle(evt)}
+                            className={`p-2 rounded-xl border transition-all cursor-pointer flex items-center gap-1 text-[11px] font-bold ${
+                              evt.usesSeatMap !== false
+                                ? 'bg-[#D4AF37]/10 hover:bg-[#D4AF37]/20 border-[#D4AF37]/30 text-[#D4AF37]'
+                                : 'bg-white/5 hover:bg-white/10 border-white/10 text-gray-400 hover:text-gray-200'
+                            }`}
+                            title={evt.usesSeatMap !== false ? 'Seat selection is ON — click to switch this event to general admission (quantity only)' : 'General admission is ON — click to restore seat selection'}
+                          >
+                            <Armchair className="w-3.5 h-3.5" />
+                            <span className="hidden sm:inline">{evt.usesSeatMap !== false ? 'Seats ON' : 'GA Only'}</span>
+                          </button>
+                          <button
                             onClick={() => navigate('/admin/seatmap')}
                             className="p-2 rounded-xl bg-[#D4AF37]/10 hover:bg-[#D4AF37]/20 border border-[#D4AF37]/30 text-[#D4AF37] transition-all cursor-pointer flex items-center gap-1 text-[11px] font-bold"
                             title="Configure Event Seat Map"
@@ -814,6 +844,40 @@ export const AdminEvents: React.FC = () => {
                       <option value="sold_out">🟣 Sold Out</option>
                       <option value="cancelled">🔴 Cancelled</option>
                     </select>
+                  </div>
+
+                  {/* Admin-controlled seat map toggle */}
+                  <div className="p-4 rounded-xl bg-[#1C1C1C] border border-white/10">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <label className="text-gray-300 font-bold block mb-0.5">Seat Map / Seat Selection</label>
+                        <p className="text-[11px] text-gray-500 leading-snug">
+                          Turn off for events that don't need a seat layout — attendees pick ticket
+                          quantity only (general admission). Events that ARE already on the seat map
+                          keep their map.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={usesSeatMap}
+                        onClick={() => setUsesSeatMap((v) => !v)}
+                        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors cursor-pointer ${
+                          usesSeatMap ? 'bg-[#D4AF37]' : 'bg-gray-600'
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                            usesSeatMap ? 'translate-x-6' : 'translate-x-1'
+                          }`}
+                        />
+                      </button>
+                    </div>
+                    <p className={`text-[11px] mt-2 ${usesSeatMap ? 'text-[#D4AF37]' : 'text-gray-400'}`}>
+                      {usesSeatMap
+                        ? 'ON — attendees select exact seats on the map during checkout.'
+                        : 'OFF — general admission, quantity only. No seat-selection step.'}
+                    </p>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

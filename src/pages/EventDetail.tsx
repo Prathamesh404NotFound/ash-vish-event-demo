@@ -22,6 +22,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { EventCard } from '../components/EventCard';
 import { EventReviewsSection } from '../components/EventReviewsSection';
 import { formatINR } from '../utils/formatters';
+import { isSeatBasedEvent } from '../lib/seatMap';
 import { useSEO } from '../hooks/useSEO';
 
 interface EventDetailProps {
@@ -238,9 +239,13 @@ export const EventDetail: React.FC<EventDetailProps> = ({
                   One Simple Price
                 </span>
                 <span className="font-heading font-bold text-lg text-white block mt-0.5">
-                  {formatINR(flatPrice)} per ticket — all seats
+                  {formatINR(flatPrice)} per ticket — all {isSeatBasedEvent(event) ? "seats" : "guests"}
                 </span>
-                <p className="text-xs text-gray-400 mt-0.5">Choose your exact seat on the map during checkout.</p>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {isSeatBasedEvent(event)
+                    ? "Choose your exact seat on the map during checkout."
+                    : "General admission — pick your tickets during checkout; no seat selection."}
+                </p>
               </div>
             </div>
             <div className="text-left sm:text-right">
@@ -359,7 +364,11 @@ export const EventDetail: React.FC<EventDetailProps> = ({
                   {formatINR(flatPrice)}
                 </span>
               </div>
-              <p className="text-xs text-gray-400 mt-1">Same price for every seat — pick yours on the map during checkout.</p>
+              <p className="text-xs text-gray-400 mt-1">
+                {isSeatBasedEvent(event)
+                  ? "Same price for every seat — pick yours on the map during checkout."
+                  : "General admission — no seat selection, quantity only."}
+              </p>
             </div>
 
             {/* Quantity Stepper */}
