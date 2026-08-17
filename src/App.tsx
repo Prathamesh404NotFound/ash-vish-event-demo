@@ -47,7 +47,9 @@ function MainLayout() {
   return (
     <div className="min-h-screen bg-[#090909] text-gray-100 font-sans flex flex-col justify-between selection:bg-[#D4AF37] selection:text-black">
       <Navbar onOpenSearch={() => navigate('/events')} />
-      <main className="flex-1">
+      {/* The navbar is a fixed floating card; reserve clearance so no page
+          content ever renders underneath it regardless of its own padding. */}
+      <main className="flex-1 pt-[100px] sm:pt-[104px]">
         <Outlet />
       </main>
       <Footer setActiveTab={(path) => navigate(path === 'home' ? '/' : `/${path}`)} />
