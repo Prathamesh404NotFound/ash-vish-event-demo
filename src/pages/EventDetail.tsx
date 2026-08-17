@@ -7,6 +7,7 @@ import {
   Share2,
   Heart,
   Star,
+  Sparkles,
   CheckCircle2,
   Ticket,
   ChevronDown,
@@ -224,6 +225,49 @@ export const EventDetail: React.FC<EventDetailProps> = ({
                     </div>
                   </div>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {/* What's Included (event perks + tier perks) */}
+          {(event.perks?.length > 0 || event.ticketTiers[0]?.perks?.length > 0) && (
+            <div className="space-y-3">
+              <h3 className="font-heading font-bold text-xl text-white flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-[#D4AF37]" />
+                <span>What&apos;s Included</span>
+              </h3>
+
+              <div className="p-5 rounded-2xl bg-[#141414] border border-[#D4AF37]/20 grid grid-cols-1 sm:grid-cols-2 gap-5">
+                {event.perks && event.perks.length > 0 && (
+                  <div className="space-y-2">
+                    <span className="text-[10px] uppercase tracking-widest font-bold text-gray-500 flex items-center gap-1.5">
+                      <Sparkles className="w-3 h-3 text-[#D4AF37]" /> Event Perks
+                    </span>
+                    <ul className="space-y-2">
+                      {event.perks.map((perk) => (
+                        <li key={perk} className="flex items-start gap-2.5 text-xs text-gray-300">
+                          <CheckCircle2 className="w-4 h-4 text-[#D4AF37] shrink-0 mt-0.5" />
+                          <span>{perk}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {event.ticketTiers[0]?.perks?.length > 0 && (
+                  <div className="space-y-2">
+                    <span className="text-[10px] uppercase tracking-widest font-bold text-gray-500 flex items-center gap-1.5">
+                      <Star className="w-3 h-3 text-[#D4AF37]" /> {event.ticketTiers[0].name} Benefits
+                    </span>
+                    <ul className="space-y-2">
+                      {event.ticketTiers[0].perks.map((perk) => (
+                        <li key={perk} className="flex items-start gap-2.5 text-xs text-gray-300">
+                          <Star className="w-4 h-4 text-[#D4AF37] shrink-0 mt-0.5" />
+                          <span>{perk}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
             </div>
           )}

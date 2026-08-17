@@ -88,6 +88,8 @@ export interface EventItem {
   faqs: FAQ[];
   schedule?: EventScheduleItem[];
   seatMap?: SeatMapConfig;
+  /** Event-level perks/features shown beside the seat map and on the event detail page. */
+  perks?: string[];
   /**
    * Admin-controlled toggle. When explicitly `false`, the event runs a
    * general-admission (walk-up) flow: no seat selection step, no seat map.

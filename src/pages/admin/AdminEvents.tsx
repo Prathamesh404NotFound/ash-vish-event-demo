@@ -50,6 +50,7 @@ export const AdminEvents: React.FC = () => {
 
   // Form State
   const [usesSeatMap, setUsesSeatMap] = useState(true);
+  const [perksText, setPerksText] = useState('');
   const [title, setTitle] = useState('');
   const [subtitle, setSubtitle] = useState('');
   const [description, setDescription] = useState('');
@@ -197,6 +198,7 @@ export const AdminEvents: React.FC = () => {
     setPosterUrl('https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&q=80&w=800');
     setCoverUrl('https://images.unsplash.com/photo-1470225620780-dba8ba36b745?auto=format&fit=crop&q=80&w=1200');
     setUsesSeatMap(true);
+    setPerksText('Complimentary Welcome Kit, Live DJ After-Party, Free Parking');
     setTiers([
       {
         id: 'tier_gen_' + Date.now(),
@@ -457,6 +459,9 @@ export const AdminEvents: React.FC = () => {
       // boolean so both directions (seat-based <-> general admission) work:
       // editing an existing event may restore seating after it was disabled.
       usesSeatMap,
+      // Event-level perks/features surfaced in the "What's Included" panel
+      // beside the seat map during checkout and on the public event page.
+      perks: perksText.split(',').map((p) => p.trim()).filter(Boolean),
     };
 
     if (editingEventId) {
@@ -924,6 +929,21 @@ export const AdminEvents: React.FC = () => {
                     placeholder="Event description..."
                     className="w-full bg-[#1C1C1C] border border-white/10 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-[#D4AF37]"
                   />
+                </div>
+
+                <div>
+                  <label className="text-gray-300 font-bold block mb-1">Perks & Features (What Attendees Get — Comma Separated)</label>
+                  <textarea
+                    rows={2}
+                    value={perksText}
+                    onChange={(e) => setPerksText(e.target.value)}
+                    placeholder="e.g. Complimentary Welcome Kit, Free Parking, Live DJ After-Party, Food & Beverage Credits"
+                    className="w-full bg-[#1C1C1C] border border-white/10 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-[#D4AF37]"
+                  />
+                  <p className="text-[11px] text-gray-500 mt-1">
+                    Shown in the “What&apos;s Included” panel beside the seat map during checkout and on the event page.
+                    Leave blank if the event has no extra inclusions.
+                  </p>
                 </div>
               </div>
 

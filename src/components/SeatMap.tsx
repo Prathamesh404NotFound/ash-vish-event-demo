@@ -7,6 +7,8 @@ import { Armchair, CheckCircle, AlertCircle, Sparkles, Clock, Ticket, ShieldChec
 import { chooseSeatSelection, findContiguousSeatBlock } from '../lib/contiguousSeatSelection';
 
 interface SeatMapProps {
+  /** Render the map in a condensed, space-saving layout. */
+  compact?: boolean;
   eventId: string;
   seatMapConfig: SeatMapConfig;
   requiredQuantity: number;
@@ -29,7 +31,7 @@ interface SeatMapProps {
 
 const HOLD_EXPIRY_MS = 10 * 60 * 1000; // 10 minutes hold expiry
 
-export const SeatMap: React.FC<SeatMapProps> = ({
+export const SeatMap: React.FC<SeatMapProps> = ({ compact = false,
   eventId,
   seatMapConfig,
   requiredQuantity,
@@ -283,7 +285,7 @@ export const SeatMap: React.FC<SeatMapProps> = ({
     <div className="bg-[#121212] border border-[#D4AF37]/20 rounded-3xl overflow-hidden shadow-2xl animate-in fade-in space-y-0">
       
       {/* Top Event Info Bar */}
-      <div className="bg-[#1A1A1A] border-b border-[#D4AF37]/10 p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+      <div className={`bg-[#1A1A1A] border-b border-[#D4AF37]/10 ${compact ? 'p-3 sm:p-4' : 'p-4 sm:p-5'} flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4`}>
         <div className="flex items-center gap-3">
           <div className="p-2.5 rounded-xl bg-[#D4AF37]/10 border border-[#D4AF37]/20 text-[#D4AF37]">
             <Clock className="w-5 h-5" />
@@ -356,10 +358,10 @@ export const SeatMap: React.FC<SeatMapProps> = ({
       </div>
 
       {/* Main Cinema Seating Grid */}
-      <div className="seat-map-viewport relative h-[360px] sm:h-[480px] bg-[#0A0A0A] border-y border-[#D4AF37]/15 select-none">
+      <div className={`seat-map-viewport relative ${compact ? 'h-[260px] sm:h-[340px]' : 'h-[360px] sm:h-[480px]'} bg-[#0A0A0A] border-y border-[#D4AF37]/15 select-none`}>
         {/* The Seating Grid Board */}
-        <div className="min-w-max w-full flex flex-col items-center p-3 sm:p-4 select-none">
-          <div className="min-w-[480px] max-w-3xl mx-auto flex flex-col items-center space-y-4 sm:space-y-6">
+        <div className={`min-w-max w-full flex flex-col items-center ${compact ? 'p-2 sm:p-3' : 'p-3 sm:p-4'} select-none`}>
+          <div className={`min-w-[480px] max-w-3xl mx-auto flex flex-col items-center ${compact ? 'scale-90 space-y-3 sm:space-y-4' : 'space-y-4 sm:space-y-6'}`}>
             {Array.from({ length: rows }).map((_, rIdx) => {
               const rowNum = rIdx + 1;
               const rowLabel = String.fromCharCode(64 + rowNum); // A, B, C...

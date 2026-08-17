@@ -7,6 +7,7 @@ import { formatINR } from '../utils/formatters';
 import { ref, get } from 'firebase/database';
 import { rtdb, auth } from '../lib/firebase';
 import { SeatMap } from '../components/SeatMap';
+import { PerksSection } from '../components/PerksSection';
 import { safeFetch, getApiUrl } from '../lib/api';
 import { useRazorpay } from '../hooks/useRazorpay';
 import { isSeatBasedEvent } from '../lib/seatMap';
@@ -687,21 +688,25 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
             <p className="text-xs text-gray-400">
               The map updates live — if another buyer takes a seat, you will see it instantly. Select {quantity} seat(s) to hold them.
             </p>
-            <SeatMap
-              eventId={event.id}
-              seatMapConfig={event.seatMap}
-              requiredQuantity={quantity}
-              selectedSeatIds={selectedSeats || []}
-              onSeatsSelected={(seats) => selectTicketsForCheckout(event, tier, quantity, seats)}
-              currentUserId={user?.id || 'anon_user'}
-              ticketTiers={tier ? [tier] : event.ticketTiers}
-              eventDate={event.date}
-              eventTime={event.time}
-              seatProjection={seatProjection}
-              onReservationError={(msg) => setSubmitError(msg)}
-              reservationStatus={reservation?.status}
-              reservationOwnerId={reservation?.ownerId}
-            />
+            <div className="grid grid-cols-1 xl:grid-cols-[1fr_280px] gap-4 items-start">
+              <SeatMap
+                compact
+                eventId={event.id}
+                seatMapConfig={event.seatMap}
+                requiredQuantity={quantity}
+                selectedSeatIds={selectedSeats || []}
+                onSeatsSelected={(seats) => selectTicketsForCheckout(event, tier, quantity, seats)}
+                currentUserId={user?.id || 'anon_user'}
+                ticketTiers={tier ? [tier] : event.ticketTiers}
+                eventDate={event.date}
+                eventTime={event.time}
+                seatProjection={seatProjection}
+                onReservationError={(msg) => setSubmitError(msg)}
+                reservationStatus={reservation?.status}
+                reservationOwnerId={reservation?.ownerId}
+              />
+              <PerksSection event={event} tier={tier} />
+            </div>
             <div className="pt-3 border-t border-white/5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs">
               <div className="text-gray-400">
                 Required: <span className="text-white font-bold">{quantity}</span> seat(s) •
