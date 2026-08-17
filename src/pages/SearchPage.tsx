@@ -29,15 +29,29 @@ export const SearchPage: React.FC<SearchPageProps> = ({
     searchQuery: '',
     category: initialCategory,
     city: 'all',
-    priceMax: 500,
+    priceMax: 10000,
     dateFilter: 'all',
     sortBy: 'featured',
   });
 
   const [showMobileFilters, setShowMobileFilters] = useState(false);
 
-  // Available cities
-  const cities = ['all', 'New York', 'Los Angeles', 'Chicago', 'Miami'];
+  // Available cities — dynamically derived from live events so any city
+  // where an event is hosted appears in the filter list automatically.
+  const cities = useMemo(() => {
+    const list = ['all', ...Array.from(new Set(events.map((e) => e.city).filter(Boolean)))];
+    return list.length === 1 ? ['all'] : list;
+  }, [events]);
+
+  // Slider bounds: compute the maximum live event price and round up to a
+  // clean step so no real event is ever filtered out at max position.
+  const priceBounds = useMemo(() => {
+    const prices = events.map((e) => Number(e.startingPrice) || 0);
+    const maxPrice = prices.length ? Math.max(...prices) : 1000;
+    const ceil = Math.ceil(maxPrice / 1000) * 1000;
+    return { min: 100, max: Math.max(ceil, 5000), step: 100, defaultValue: Math.max(ceil, 5000) };
+  }, [events]);
+
   const categories: (EventCategory | 'all')[] = ['all', 'concert', 'comedy', 'sports', 'theatre', 'festival'];
 
   // Filtered & Sorted events computation
@@ -85,7 +99,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
       searchQuery: '',
       category: 'all',
       city: 'all',
-      priceMax: 500,
+      priceMax: priceBounds.max,
       dateFilter: 'all',
       sortBy: 'featured',
     });
@@ -186,13 +200,13 @@ export const SearchPage: React.FC<SearchPageProps> = ({
               <label className="font-bold text-gray-300 uppercase tracking-wider">
                 Max Price
               </label>
-              <span className="font-bold text-[#D4AF37]">${filters.priceMax}</span>
+              <span className="font-bold text-[#D4AF37]">₹{filters.priceMax.toLocaleString('en-IN')}</span>
             </div>
             <input
               type="range"
-              min="50"
-              max="500"
-              step="10"
+              min={String(priceBounds.min)}
+              max={String(priceBounds.max)}
+              step={String(priceBounds.step)}
               value={filters.priceMax}
               onChange={(e) => setFilters((prev) => ({ ...prev, priceMax: Number(e.target.value) }))}
               className="w-full accent-[#D4AF37] cursor-pointer"
