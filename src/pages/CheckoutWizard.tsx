@@ -558,7 +558,7 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
   // Render
   // ------------------------------------------------------------------
   return (
-    <div className="pb-28 md:pb-12 pt-20 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6 sm:space-y-8 animate-in fade-in">
+    <div className="pb-24 md:pb-12 pt-20 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6 sm:space-y-8 animate-in fade-in">
       {/* Header with step progress */}
       <div className="flex flex-col xl:flex-row items-start xl:items-center justify-between gap-4 border-b border-white/10 pb-5 sm:pb-6">
         <div className="flex items-center gap-3">

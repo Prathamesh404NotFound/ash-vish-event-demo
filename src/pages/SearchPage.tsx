@@ -92,7 +92,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
   };
 
   return (
-    <div className="pb-24 pt-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8 animate-in fade-in">
+    <div className="pb-16 pt-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8 animate-in fade-in">
       
       {/* Search Bar & Header */}
       <div className="space-y-4">

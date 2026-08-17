@@ -18,7 +18,7 @@ export const MyTicketsPage: React.FC<MyTicketsPageProps> = ({ onExploreEvents })
   const displayTickets = activeTab === 'upcoming' ? upcomingTickets : pastTickets;
 
   return (
-    <div className="pb-24 pt-20 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8 animate-in fade-in">
+    <div className="pb-16 pt-20 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8 animate-in fade-in">
       
       {/* Page Title */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/10 pb-6">

@@ -24,7 +24,7 @@ export const ProfilePage: React.FC = () => {
   };
 
   return (
-    <div className="pb-24 pt-20 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8 animate-in fade-in">
+    <div className="pb-16 pt-20 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8 animate-in fade-in">
       
       {/* Page Title */}
       <div className="border-b border-white/10 pb-6">

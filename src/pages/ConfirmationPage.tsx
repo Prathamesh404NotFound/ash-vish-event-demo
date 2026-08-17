@@ -38,7 +38,7 @@ export const ConfirmationPage: React.FC<ConfirmationPageProps> = ({
   }
 
   return (
-    <div className="pb-24 pt-20 max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8 animate-in fade-in">
+    <div className="pb-16 pt-20 max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8 animate-in fade-in">
       
       {/* Success Badge Banner */}
       <div className="text-center space-y-3">

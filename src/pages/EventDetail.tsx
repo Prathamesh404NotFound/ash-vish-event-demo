@@ -67,7 +67,7 @@ export const EventDetail: React.FC<EventDetailProps> = ({
   };
 
   return (
-    <div className="pb-24 pt-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-10 animate-in fade-in">
+    <div className="pb-16 pt-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8 animate-in fade-in">
       
       {/* Navigation Header */}
       <div className="flex items-center justify-between">
@@ -136,7 +136,7 @@ export const EventDetail: React.FC<EventDetailProps> = ({
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
         
         {/* Left Column */}
-        <div className="lg:col-span-8 space-y-10">
+        <div className="lg:col-span-8 space-y-8">
           
           {/* Info Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 p-5 rounded-2xl bg-[#141414] border border-white/10">

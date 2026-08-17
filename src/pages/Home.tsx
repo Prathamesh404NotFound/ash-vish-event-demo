@@ -67,10 +67,10 @@ export const Home: React.FC<HomeProps> = ({
   };
 
   return (
-    <div className="space-y-16 pb-12">
+    <div className="space-y-12 pb-12">
       
       {/* ----------------- CINEMATIC HERO SECTION ----------------- */}
-      <section className="relative min-h-[85vh] sm:min-h-[88vh] flex items-end justify-start overflow-hidden rounded-b-[36px] bg-[#070707]">
+      <section className={`relative min-h-[52vh] sm:min-h-[60vh] flex ${currentHeroEvent ? 'items-end' : 'items-center'} justify-start overflow-hidden rounded-b-[36px] bg-[#070707]`}>
         {/* Hero Background Poster Image */}
         <div className="absolute inset-0">
           {currentHeroEvent ? (
@@ -88,7 +88,7 @@ export const Home: React.FC<HomeProps> = ({
         </div>
 
                 {/* Hero Content Container */}
-        <div className="relative z-10 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pb-16 pt-32">
+        <div className="relative z-10 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pb-12 pt-20">
           {currentHeroEvent ? (
           <div className="max-w-2xl space-y-6">
             {/* Category Eyebrow */}
@@ -158,7 +158,7 @@ export const Home: React.FC<HomeProps> = ({
             </div>
           )}
 
-          <div className="mt-12 flex items-center gap-3">
+          <div className="mt-8 flex items-center gap-3">
             {featuredEvents.map((_, idx) => (
               <button
                 key={idx}
