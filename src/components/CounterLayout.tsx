@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Ticket, QrCode, UserPlus, LogOut, ArrowLeft, ShieldCheck, Sparkles } from 'lucide-react';
+import { Ticket, QrCode, UserPlus, LogOut, ArrowLeft, ShieldCheck, Sparkles, Clock, ShoppingBag } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 export const CounterLayout: React.FC = () => {
@@ -15,6 +15,12 @@ export const CounterLayout: React.FC = () => {
       description: "Live entry counts and event status"
     },
     {
+      title: "Shift Management",
+      path: "/counter/shift",
+      icon: Clock,
+      description: "Drawer float & cash reconciliation"
+    },
+    {
       title: "Scan Ticket QR",
       path: "/counter/scan",
       icon: QrCode,
@@ -25,6 +31,12 @@ export const CounterLayout: React.FC = () => {
       path: "/counter/walk-in",
       icon: UserPlus,
       description: "Manual cash & counter bookings"
+    },
+    {
+      title: "Orders & Actions",
+      path: "/counter/orders",
+      icon: ShoppingBag,
+      description: "Reprint, void & exchange seats"
     }
   ];
 

@@ -19,6 +19,7 @@ const ALLOWED_PUBLIC = new Set([
   "/api/reservations",
   "/api/reservations/:reservationId",
   "/api/reservations/:reservationId/renew",
+  "/api/reservations/:reservationId/extend",
   "/api/reservations/:reservationId/seats",
   "/api/reservations/:reservationId/selection",
   "/api/reservations/:reservationId/attendee",

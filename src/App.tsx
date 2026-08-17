@@ -35,10 +35,14 @@ import { AdminReviews } from './pages/admin/AdminReviews';
 import { AdminOrganizers } from './pages/admin/AdminOrganizers';
 import { OrganizerDashboard } from './pages/OrganizerDashboard';
 
+import { AdminUsers } from './pages/admin/AdminUsers';
+
 // Ticket Counter Dashboard Shell & Pages
 import { CounterLayout } from './components/CounterLayout';
 import { CounterOverview } from './pages/counter/CounterOverview';
 import { WalkInPage } from './pages/counter/WalkInPage';
+import { ShiftPage } from './pages/counter/ShiftPage';
+import { CounterOrders } from './pages/counter/CounterOrders';
 
 // Main Public Customer Shell Layout
 function MainLayout() {
@@ -225,6 +229,7 @@ export default function App() {
               }
             >
               <Route index element={<AdminDashboard />} />
+              <Route path="users" element={<AdminUsers />} />
               <Route path="events" element={<AdminEvents />} />
               <Route path="organizers" element={<AdminOrganizers />} />
               <Route path="seatmap" element={<AdminSeatMapBuilder />} />
@@ -247,8 +252,10 @@ export default function App() {
               }
             >
               <Route index element={<CounterOverview />} />
+              <Route path="shift" element={<ShiftPage />} />
               <Route path="scan" element={<QRScanner />} />
               <Route path="walk-in" element={<WalkInPage />} />
+              <Route path="orders" element={<CounterOrders />} />
               <Route path="*" element={<Navigate to="/counter" replace />} />
             </Route>
 

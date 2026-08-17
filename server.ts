@@ -55,8 +55,9 @@ async function sendMail(options: { to: string; subject: string; text: string; ht
     return { ok: true, mode: "no-mail" };
   }
   try {
+    // @ts-ignore
     const nodemailer = await import("nodemailer");
-    const transport = nodemailer.createTransport({
+    const transport = (nodemailer as any).createTransport({
       host: smtpConfig!.host,
       port: smtpConfig!.port,
       secure: smtpConfig!.port === 465,
@@ -1186,10 +1187,13 @@ export async function createApp() {
   function toRbacRole(firebaseRole: string): RbacRole | null {
     switch (firebaseRole) {
       case "admin":
+      case "super_admin":
         return "super_admin";
       case "organizer":
+      case "event_manager":
         return "event_manager";
       case "ticket_counter":
+      case "counter_staff":
         return "counter_staff";
       case "auditor":
         return "auditor";
@@ -2823,7 +2827,19 @@ export async function createApp() {
 
   app.post("/api/walk-in-bookings", verifyRole(['admin', 'ticket_counter']), async (req: any, res) => {
     try {
-      const { eventId, tierId, attendeeName, attendeePhone, attendeeEmail, selectedSeats = [], paymentMethod = 'cash', couponCode: rawCouponCode, payments: rawPayments, discountOverride: rawOverride, shiftId } = req.body || {};
+      const { eventId, tierId, attendeeName, attendeePhone, attendeeEmail, selectedSeats = [], paymentMethod = 'cash', couponCode: rawCouponCode, payments: rawPayments, discountOverride: rawOverride, shiftId, idempotencyKey } = req.body || {};
+
+      // Idempotency: same key returns the same completed result
+      const idKey = idempotencyKey ? String(idempotencyKey).trim() : null;
+      let idHash: string | null = null;
+      if (idKey) {
+        idHash = hashIdempotencyKey(idKey);
+        const existing = idempotencyResults.get(idHash);
+        if (existing && existing.result) {
+          return res.status(200).json({ success: true, idempotent: true, ...existing.result });
+        }
+      }
+
       if (!eventId || !tierId || !attendeeName || !attendeePhone) {
         return res.status(400).json({ success: false, error: "Event, ticket tier, attendee name, and phone are required." });
       }
@@ -2978,6 +2994,9 @@ export async function createApp() {
           ...(shiftCode ? { shiftId: shiftCode } : {}),
         },
       });
+      if (idHash) {
+        idempotencyResults.set(idHash, { createdAt: Date.now(), result: { ticket: result.ticket, booking: result.booking } });
+      }
       return res.status(201).json({ success: true, ticket: result.ticket, booking: result.booking });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err.message || "Could not create walk-in booking." });
@@ -3254,6 +3273,48 @@ export async function createApp() {
   // modify staff roles. The staff record is keyed by a Firebase Auth uid
   // (a Firebase user must exist first; the record grants the role).
   // ============================================================
+  // Lookup user by email to retrieve Firebase UID before adding staff role
+  app.get("/api/staff/lookup", requireRole(["super_admin"]), async (req: any, res) => {
+    try {
+      const email = typeof req.query.email === "string" ? req.query.email.trim().toLowerCase() : "";
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return res.status(400).json({ success: false, error: "A valid email address query parameter is required." });
+      }
+
+      const adminToken = await getAdminAuthToken();
+      // Look up user in RTDB users node
+      const usersSnap = await rtdbGet("users", adminToken);
+      const usersDict = (usersSnap.data || {}) as Record<string, any>;
+      let foundUser: any = null;
+
+      for (const [uid, uData] of Object.entries(usersDict)) {
+        const u = (uData || {}) as any;
+        if (String(u.email || "").toLowerCase() === email) {
+          foundUser = {
+            uid,
+            email: u.email,
+            displayName: u.name || u.displayName || u.email?.split("@")[0] || "User",
+          };
+          break;
+        }
+      }
+
+      if (!foundUser) {
+        return res.status(404).json({
+          success: false,
+          error: "No account found for that email — they must sign up first before being granted a staff role",
+        });
+      }
+
+      return res.status(200).json({
+        success: true,
+        user: foundUser,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || "Failed to lookup staff user." });
+    }
+  });
+
   app.get("/api/staff", requireRole(["super_admin", "auditor"]), async (req: any, res) => {
     try {
       const snap = await rtdbGet("staff", req.user.idToken);
@@ -3273,7 +3334,7 @@ export async function createApp() {
       if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email))) {
         return res.status(400).json({ success: false, error: "A valid email is required." });
       }
-      const allowedRoles = ["admin", "ticket_counter", "auditor"];
+      const allowedRoles = ["admin", "event_manager", "ticket_counter", "auditor"];
       if (!role || !allowedRoles.includes(String(role))) {
         return res.status(400).json({ success: false, error: `Role must be one of: ${allowedRoles.join(", ")}.` });
       }
@@ -3309,7 +3370,7 @@ export async function createApp() {
       if (status !== undefined && !["active", "suspended"].includes(String(status))) {
         return res.status(400).json({ success: false, error: "Status must be 'active' or 'suspended'." });
       }
-      const allowedRoles = ["admin", "ticket_counter", "auditor"];
+      const allowedRoles = ["admin", "event_manager", "ticket_counter", "auditor"];
       if (role !== undefined && !allowedRoles.includes(String(role))) {
         return res.status(400).json({ success: false, error: `Role must be one of: ${allowedRoles.join(", ")}.` });
       }
@@ -4280,8 +4341,18 @@ app.get("/api/counter/shifts", requireRole(["counter_staff", "auditor", "event_m
   try {
     const rbacRole = (req.user.rbacRole as string) || "counter_staff";
     const isAdmin = rbacRole === "super_admin" || rbacRole === "event_manager";
-    const shifts = await fetchCounterShifts(await getAdminAuthToken(), req.user.uid, isAdmin);
-    return res.status(200).json({ success: true, shifts: Object.values(shifts) });
+    const adminToken = await getAdminAuthToken();
+    const shifts = await fetchCounterShifts(adminToken, req.user.uid, isAdmin);
+    const shiftList = await Promise.all(
+      Object.values(shifts).map(async (s: any) => {
+        if (s.status === "open") {
+          const liveTotals = await computeShiftCashTotals(adminToken, s).catch(() => null);
+          return { ...s, liveTotals };
+        }
+        return s;
+      })
+    );
+    return res.status(200).json({ success: true, shifts: shiftList });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message || "Could not list shifts." });
   }

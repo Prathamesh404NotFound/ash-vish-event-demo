@@ -1,11 +1,12 @@
 import React from 'react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Ticket, ShieldCheck, LayoutDashboard, Calendar, Users, QrCode, Settings, ArrowLeft, Tag, MessageSquare, Armchair, Building2, BarChart3 } from 'lucide-react';
+import { Ticket, ShieldCheck, LayoutDashboard, Calendar, Users, QrCode, Settings, ArrowLeft, Tag, MessageSquare, Armchair, Building2, BarChart3, UserCheck } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 export const AdminLayoutPage: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const isSuperAdmin = user?.role === 'admin' || (user as any)?.rbacRole === 'super_admin';
 
   const navItems = [
     {
@@ -13,6 +14,13 @@ export const AdminLayoutPage: React.FC = () => {
       path: "/admin",
       icon: LayoutDashboard,
       description: "Metrics & revenue analytics"
+    },
+    {
+      title: "Users & Roles",
+      path: "/admin/users",
+      icon: UserCheck,
+      description: "Manage staff accounts & RBAC",
+      superAdminOnly: true,
     },
     {
       title: "Event CRUD Inventory",
@@ -68,7 +76,7 @@ export const AdminLayoutPage: React.FC = () => {
       icon: Settings,
       description: "Permissions & configurations"
     }
-  ];
+  ].filter((item) => !item.superAdminOnly || isSuperAdmin);
 
   return (
     <div className="min-h-screen bg-[#0A0A0A] text-white flex flex-col md:flex-row">

@@ -1,11 +1,43 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { UserPlus, Ticket, CheckCircle2, DollarSign, Phone, User, Calendar, ArrowRight, Printer, Search, CreditCard, QrCode, Armchair, AlertCircle, WifiOff, Plus, Minus, Trash2, ShieldCheck, RefreshCw } from 'lucide-react';
+import {
+  UserPlus,
+  Ticket,
+  CheckCircle2,
+  DollarSign,
+  Phone,
+  User,
+  Calendar,
+  ArrowRight,
+  Printer,
+  Search,
+  CreditCard,
+  QrCode,
+  Armchair,
+  AlertCircle,
+  WifiOff,
+  Plus,
+  Minus,
+  Trash2,
+  ShieldCheck,
+  RefreshCw,
+  Layers,
+  X,
+  AlertTriangle,
+  Clock,
+} from 'lucide-react';
 import { useBooking } from '../../contexts/BookingContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { Ticket as TicketType } from '../../types';
 import { SeatMap } from '../../components/SeatMap';
 import { safeFetch } from '../../lib/api';
 import { authenticatedApiHeaders } from '../../lib/authHeaders';
+import {
+  QueuedWalkInSale,
+  enqueueOfflineSale,
+  getQueuedSales,
+  removeQueuedSale,
+  syncOfflineWalkInQueue,
+} from '../../lib/offlineQueue';
 
 type PaymentEntry = { method: 'cash' | 'card' | 'upi'; amount: number };
 type ConnectionState = 'online' | 'lost' | 'retrying';
@@ -37,6 +69,18 @@ export const WalkInPage: React.FC = () => {
   const [seatSearch, setSeatSearch] = useState('');
   const [searchError, setSearchError] = useState('');
 
+  // Client-side idempotency key generated once per sale attempt
+  const [idempotencyKey, setIdempotencyKey] = useState<string>(() => `idemp_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`);
+
+  // Offline queue state
+  const [queuedSales, setQueuedSales] = useState<QueuedWalkInSale[]>([]);
+  const [showQueueModal, setShowQueueModal] = useState(false);
+  const [offlineToast, setOfflineToast] = useState<string>('');
+
+  // Stale snapshot tracking for offline seat map
+  const [lastLiveRefresh, setLastLiveRefresh] = useState<number>(Date.now());
+  const [secondsAgo, setSecondsAgo] = useState<number>(0);
+
   // Manager-gated discount override state.
   const [discountAmount, setDiscountAmount] = useState<number>(0);
   const [overrideApproved, setOverrideApproved] = useState<{ actorId: string; actorName: string; amount: number } | null>(null);
@@ -65,14 +109,68 @@ export const WalkInPage: React.FC = () => {
   const selectedEvent = events.find((e) => e.id === selectedEventId) || events[0];
   const selectedTier = selectedEvent?.ticketTiers.find((t) => t.id === selectedTierId) || selectedEvent?.ticketTiers[0];
 
-  // --- Real-time seat map refresh (every 5 seconds while the event has a seat map) ---
+  // Refresh Queue from IndexedDB
+  const refreshQueue = useCallback(async () => {
+    const q = await getQueuedSales();
+    setQueuedSales(q);
+  }, []);
+
+  // Background sync runner
+  const triggerSync = useCallback(async () => {
+    if (!navigator.onLine) return;
+    const res = await syncOfflineWalkInQueue((confirmedTicket, queueItem) => {
+      setOfflineToast(`Offline sale for ${queueItem.payload.attendeeName} confirmed! Ticket #${confirmedTicket.ticketNumber}`);
+    });
+    if (res.synced > 0 || res.conflicts > 0) {
+      refreshQueue();
+    }
+  }, [refreshQueue]);
+
+  // --- Real-time seat map refresh (every 5 seconds while online) ---
   useEffect(() => {
     if (!selectedEvent?.seatMap) return;
     const interval = window.setInterval(() => {
-      setSeatRefreshKey((k) => k + 1);
+      if (navigator.onLine) {
+        setSeatRefreshKey((k) => k + 1);
+        setLastLiveRefresh(Date.now());
+      }
     }, 5000);
     return () => window.clearInterval(interval);
   }, [selectedEvent?.seatMap, selectedEvent?.id]);
+
+  // Track stale seconds elapsed
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setSecondsAgo(Math.max(0, Math.floor((Date.now() - lastLiveRefresh) / 1000)));
+    }, 1000);
+    return () => window.clearInterval(interval);
+  }, [lastLiveRefresh]);
+
+  // --- Load queue and sync listeners on mount ---
+  useEffect(() => {
+    refreshQueue();
+
+    const onOnline = () => {
+      setConnection('online');
+      setErrorBanner('');
+      triggerSync();
+    };
+    const onOffline = () => setConnection('lost');
+
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+
+    // Periodic 30s background sync
+    const syncInterval = window.setInterval(() => {
+      triggerSync();
+    }, 30000);
+
+    return () => {
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
+      window.clearInterval(syncInterval);
+    };
+  }, [refreshQueue, triggerSync]);
 
   // --- Load any open shift for attribution ---
   useEffect(() => {
@@ -84,7 +182,7 @@ export const WalkInPage: React.FC = () => {
         const openShift = (res.data?.shifts || []).find((s: any) => s.status === 'open' && (!s.staffId || s.staffId === user?.uid));
         setActiveShiftId(openShift ? openShift.shiftId : null);
       } catch {
-        /* shift loading is best-effort — never blocks the sale flow */
+        /* shift loading is best-effort */
       } finally {
         if (!cancelled) setShiftsLoaded(true);
       }
@@ -100,6 +198,7 @@ export const WalkInPage: React.FC = () => {
 
   const refreshSeats = useCallback(() => {
     setSeatRefreshKey((k) => k + 1);
+    setLastLiveRefresh(Date.now());
   }, []);
 
   // --- Quick seat search: jump to a seat by label (e.g. "A-5") ---
@@ -213,6 +312,49 @@ export const WalkInPage: React.FC = () => {
     }
 
     setIsSubmitting(true);
+
+    const salePayload = {
+      eventId: selectedEventId,
+      tierId: selectedTierId,
+      attendeeName: attendeeName.trim(),
+      attendeePhone: attendeePhone.trim(),
+      scannedByStaffId: user?.name || 'Counter Operator',
+      selectedSeats: selectedSeats.length > 0 ? selectedSeats : undefined,
+      paymentMethod: payments[0]?.method || 'cash',
+      payments,
+      discountOverride: overrideApproved
+        ? {
+            overrideId: `${Date.now()}`,
+            discountAmount: overrideApproved.amount,
+            actorId: overrideApproved.actorId,
+            reason: overrideReason.trim(),
+          }
+        : undefined,
+      shiftId: activeShiftId || undefined,
+      idempotencyKey,
+    };
+
+    // If browser is explicitly offline, enqueue directly without network call
+    if (!navigator.onLine) {
+      try {
+        await enqueueOfflineSale({
+          idempotencyKey,
+          payload: salePayload,
+          eventTitle: selectedEvent?.title,
+          tierName: selectedTier?.name,
+          totalAmount: netTotal,
+        });
+        setConnection('lost');
+        setErrorBanner('Saved offline — will complete automatically when connection returns.');
+        await refreshQueue();
+      } catch (err: any) {
+        setErrorBanner('Failed to save sale offline: ' + err.message);
+      } finally {
+        setIsSubmitting(false);
+      }
+      return;
+    }
+
     try {
       const ticket = await createWalkInBooking(
         selectedEventId,
@@ -222,17 +364,41 @@ export const WalkInPage: React.FC = () => {
         user?.name || 'Counter Operator',
         selectedSeats.length > 0 ? selectedSeats : undefined,
         payments[0]?.method || 'cash',
-        { payments, discountOverride: overrideApproved ? { overrideId: `${Date.now()}`, discountAmount: overrideApproved.amount, actorId: overrideApproved.actorId, reason: overrideReason.trim() } : undefined, shiftId: activeShiftId || undefined }
+        {
+          payments,
+          discountOverride: overrideApproved
+            ? {
+                overrideId: `${Date.now()}`,
+                discountAmount: overrideApproved.amount,
+                actorId: overrideApproved.actorId,
+                reason: overrideReason.trim(),
+              }
+            : undefined,
+          shiftId: activeShiftId || undefined,
+          idempotencyKey,
+        }
       );
       setIssuedTicket(ticket);
       setConnection('online');
     } catch (err: any) {
       console.error('Walk-in ticket issue error:', err);
-      // Network or server failure after seats were locked: holds still expire per
-      // the 10-minute TTL, and the UI must show a clear, specific error state.
-      if (!navigator.onLine || /network|fetch/i.test(String(err?.message || ''))) {
-        setConnection('lost');
-        setErrorBanner('Connection lost — the seat was not sold. Your held seats will release automatically after 10 minutes. Please retry when you are back online.');
+      // If network / fetch failure: save safely into durable IndexedDB queue
+      const isNetworkDrop = !navigator.onLine || /network|fetch|failed to fetch/i.test(String(err?.message || ''));
+      if (isNetworkDrop) {
+        try {
+          await enqueueOfflineSale({
+            idempotencyKey,
+            payload: salePayload,
+            eventTitle: selectedEvent?.title,
+            tierName: selectedTier?.name,
+            totalAmount: netTotal,
+          });
+          setConnection('lost');
+          setErrorBanner('Saved offline — will complete automatically when connection returns.');
+          await refreshQueue();
+        } catch (qErr: any) {
+          setErrorBanner('Connection lost and could not save offline: ' + qErr.message);
+        }
       } else {
         setErrorBanner(err?.message || 'The sale could not be completed. The seats were not sold — please retry.');
       }
@@ -253,49 +419,73 @@ export const WalkInPage: React.FC = () => {
     setOverrideReason('');
     setOverrideError('');
     setErrorBanner('');
+    // Generate a fresh idempotencyKey for the new transaction
+    setIdempotencyKey(`idemp_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`);
     refreshSeats();
     seatSearchInputRef.current?.focus();
   };
 
-  // When online status changes, clear the connection-lost banner.
-  useEffect(() => {
-    const onOnline = () => { setConnection('online'); setErrorBanner(''); };
-    const onOffline = () => setConnection('lost');
-    window.addEventListener('online', onOnline);
-    window.addEventListener('offline', onOffline);
-    return () => {
-      window.removeEventListener('online', onOnline);
-      window.removeEventListener('offline', onOffline);
-    };
-  }, []);
+  const pendingCount = queuedSales.filter((s) => s.status === 'pending' || s.status === 'syncing').length;
+  const conflictCount = queuedSales.filter((s) => s.status === 'conflict').length;
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
       {/* Header */}
-      <div className="flex items-center gap-3 p-6 rounded-3xl bg-[#141414] border border-white/10">
-        <div className="w-10 h-10 rounded-2xl bg-[#D4AF37]/10 border border-[#D4AF37]/30 flex items-center justify-center text-[#D4AF37]">
-          <UserPlus className="w-5 h-5" />
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-6 rounded-3xl bg-[#141414] border border-white/10">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-2xl bg-[#D4AF37]/10 border border-[#D4AF37]/30 flex items-center justify-center text-[#D4AF37]">
+            <UserPlus className="w-5 h-5" />
+          </div>
+          <div className="flex-1">
+            <h1 className="font-heading font-extrabold text-xl text-white">Counter Walk-In Ticket Issuance</h1>
+            <p className="text-gray-400 text-xs mt-0.5">
+              Issue physical passes & live seat reservations directly with cash, card, or UPI.
+            </p>
+          </div>
         </div>
-        <div className="flex-1">
-          <h1 className="font-heading font-extrabold text-xl text-white">Counter Walk-In Ticket Issuance</h1>
-          <p className="text-gray-400 text-xs mt-0.5">
-            Issue physical passes & live seat reservations directly for walk-in guests with cash, card, or UPI.
-          </p>
-        </div>
-        <div className="hidden sm:flex flex-col items-end gap-1">
-          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10px] font-bold uppercase tracking-wider ${
+
+        <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+          {/* Offline Queue Badge & Modal Trigger */}
+          {queuedSales.length > 0 && (
+            <button
+              onClick={() => setShowQueueModal(true)}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                conflictCount > 0
+                  ? 'bg-red-500/20 text-red-300 border-red-500/40 animate-pulse'
+                  : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+              }`}
+            >
+              <Layers className="w-3.5 h-3.5" />
+              <span>
+                {pendingCount > 0 ? `${pendingCount} Queued` : ''}
+                {conflictCount > 0 ? ` • ${conflictCount} Need Attention` : ''}
+              </span>
+            </button>
+          )}
+
+          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-[11px] font-bold uppercase tracking-wider ${
             connection === 'online'
               ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
               : 'bg-red-500/10 text-red-400 border-red-500/30'
           }`}>
-            <WifiOff className="w-3 h-3" />
-            {connection === 'online' ? 'Connected' : 'Connection lost'}
-          </span>
-          <span className="text-[10px] text-gray-500 font-mono">
-            F: seat search • C: confirm • N: new sale
+            <WifiOff className="w-3.5 h-3.5" />
+            {connection === 'online' ? 'Connected' : 'Offline Mode'}
           </span>
         </div>
       </div>
+
+      {/* Offline Toast Notification */}
+      {offlineToast && (
+        <div className="p-4 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs flex items-center justify-between gap-3 animate-in fade-in shadow-lg">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span className="font-semibold">{offlineToast}</span>
+          </div>
+          <button onClick={() => setOfflineToast('')} className="p-1 text-emerald-400 hover:text-white">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       {issuedTicket ? (
         /* Success Issued Ticket Card */
@@ -369,24 +559,25 @@ export const WalkInPage: React.FC = () => {
         <form onSubmit={handleIssueWalkIn} className="p-6 md:p-8 rounded-3xl bg-[#141414] border border-white/10 space-y-6">
           {(errorBanner || connection === 'lost') && (
             <div className={`p-4 rounded-2xl border text-xs flex items-start gap-3 ${
-              connection === 'lost'
+              errorBanner.includes('Saved offline')
+                ? 'bg-amber-500/10 border-amber-500/40 text-amber-200'
+                : connection === 'lost'
                 ? 'bg-red-500/10 border-red-500/40 text-red-300'
                 : 'bg-amber-500/10 border-amber-500/40 text-amber-200'
             }`}>
               <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
               <div className="flex-1">
-                {connection === 'lost' ? (
-                  <span><strong>Connection lost — seat was not sold.</strong> Please retry when you are back online. Held seats release automatically after 10 minutes.</span>
-                ) : (
-                  <span>{errorBanner}</span>
-                )}
+                <span>{errorBanner || 'Connection offline — all sales will be saved to the durable local queue and auto-synced upon reconnection.'}</span>
                 {connection === 'lost' && (
                   <button
                     type="button"
-                    onClick={() => { setConnection('retrying'); setErrorBanner(''); }}
-                    className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/20 text-red-200 font-bold hover:bg-red-500/30 transition-all"
+                    onClick={() => {
+                      setConnection('retrying');
+                      triggerSync();
+                    }}
+                    className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 text-white font-bold hover:bg-white/20 transition-all"
                   >
-                    <RefreshCw className="w-3.5 h-3.5" /> Retry connection
+                    <RefreshCw className="w-3.5 h-3.5" /> Retry Connection & Sync
                   </button>
                 )}
               </div>
@@ -394,7 +585,7 @@ export const WalkInPage: React.FC = () => {
           )}
 
           {activeShiftId && (
-            <div className="px-3 py-2 rounded-xl bg-[#D4AF37]/5 border border-[#D4AF37]/20 text-[11px] text-[#F3E5AB] flex items-center gap-2">
+            <div className="px-3.5 py-2.5 rounded-xl bg-[#D4AF37]/5 border border-[#D4AF37]/20 text-[11px] text-[#F3E5AB] flex items-center gap-2">
               <ShieldCheck className="w-3.5 h-3.5" />
               This sale is attributed to your open shift (cash reconciliation will include it).
             </div>
@@ -472,7 +663,7 @@ export const WalkInPage: React.FC = () => {
             </div>
           )}
 
-          {/* 3. Seat Map Selection (If Event has SeatMap) */}
+          {/* 3. Seat Map Selection */}
           {selectedEvent?.seatMap ? (
             <div className="space-y-3 p-4 rounded-2xl bg-black/40 border border-white/10">
               <div className="flex items-center justify-between">
@@ -498,7 +689,17 @@ export const WalkInPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* Quick seat search (barcode-scanner / keyboard friendly) */}
+              {/* Stale snapshot warning if connection is down */}
+              {connection === 'lost' && (
+                <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center gap-2">
+                  <Clock className="w-4 h-4 shrink-0" />
+                  <span>
+                    Offline seat map — showing snapshot as of <strong>{secondsAgo}s ago</strong> (may be stale).
+                  </span>
+                </div>
+              )}
+
+              {/* Quick seat search */}
               <div className="flex items-center gap-3">
                 <div className="relative flex-1">
                   <input
@@ -514,7 +715,7 @@ export const WalkInPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={refreshSeats}
-                  className="px-3.5 py-3 rounded-xl bg-[#222] border border-white/10 text-gray-300 text-xs font-bold hover:border-[#D4AF37] hover:text-white transition-all flex items-center gap-1.5 shrink-0"
+                  className="px-3.5 py-3 rounded-xl bg-[#222] border border-white/10 text-gray-300 text-xs font-bold hover:border-[#D4AF37] hover:text-white transition-all flex items-center gap-1.5 shrink-0 cursor-pointer"
                   title="Refresh seat availability now"
                 >
                   <RefreshCw className="w-4 h-4" /> Refresh
@@ -645,7 +846,7 @@ export const WalkInPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => autofillRemaining(index)}
-                    className="px-2.5 py-3 rounded-xl bg-[#222] border border-white/10 text-gray-400 text-[10px] font-bold hover:border-[#D4AF37] hover:text-white transition-all"
+                    className="px-2.5 py-3 rounded-xl bg-[#222] border border-white/10 text-gray-400 text-[10px] font-bold hover:border-[#D4AF37] hover:text-white transition-all cursor-pointer"
                     title="Fill with remaining balance"
                   >
                     Fill
@@ -654,7 +855,7 @@ export const WalkInPage: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => removePaymentRow(index)}
-                      className="w-10 h-10 rounded-xl bg-[#1C1C1C] border border-red-500/30 text-red-400 hover:bg-red-500/10 flex items-center justify-center transition-all"
+                      className="w-10 h-10 rounded-xl bg-[#1C1C1C] border border-red-500/30 text-red-400 hover:bg-red-500/10 flex items-center justify-center transition-all cursor-pointer"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -667,7 +868,7 @@ export const WalkInPage: React.FC = () => {
               <button
                 type="button"
                 onClick={addPaymentRow}
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#222] border border-white/10 text-gray-300 text-xs font-bold hover:border-[#D4AF37] hover:text-white transition-all"
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#222] border border-white/10 text-gray-300 text-xs font-bold hover:border-[#D4AF37] hover:text-white transition-all cursor-pointer"
               >
                 <Plus className="w-3.5 h-3.5" /> Add payment method
               </button>
@@ -682,7 +883,7 @@ export const WalkInPage: React.FC = () => {
             </div>
           </div>
 
-          {/* 6. Manager-gated discount override (only for managers) */}
+          {/* 6. Manager Discount Override */}
           {isApprover && (
             <div className="space-y-3 p-4 rounded-2xl bg-[#D4AF37]/5 border border-[#D4AF37]/25">
               <label className="block text-xs font-bold text-[#D4AF37] uppercase tracking-wider flex items-center gap-2">
@@ -764,11 +965,123 @@ export const WalkInPage: React.FC = () => {
               disabled={isSubmitting || !attendeeName || !attendeePhone || (selectedEvent?.seatMap && selectedSeats.length === 0) || !paymentsValid}
               className="py-3.5 px-8 rounded-2xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] hover:brightness-110 disabled:opacity-50 text-black font-extrabold text-sm shadow-lg shadow-[#D4AF37]/25 transition-all flex items-center gap-2 cursor-pointer disabled:cursor-not-allowed"
             >
-              <span>{isSubmitting ? 'Processing Booking...' : 'Confirm Walk-In Pass'}</span>
+              <span>{isSubmitting ? 'Processing Booking...' : connection === 'lost' ? 'Save Sale Offline' : 'Confirm Walk-In Pass'}</span>
               <ArrowRight className="w-4 h-4 stroke-[2.5]" />
             </button>
           </div>
         </form>
+      )}
+
+      {/* ======================================================== */}
+      {/* OFFLINE QUEUE & CONFLICT RESOLUTION MODAL */}
+      {/* ======================================================== */}
+      {showQueueModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
+          <div className="w-full max-w-2xl p-6 rounded-3xl bg-[#141414] border border-white/10 space-y-5 shadow-2xl max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-white/10 pb-4 shrink-0">
+              <div className="flex items-center gap-2.5">
+                <Layers className="w-5 h-5 text-[#D4AF37]" />
+                <div>
+                  <h3 className="font-heading font-bold text-base text-white">Offline Walk-In Sync Queue</h3>
+                  <p className="text-gray-400 text-xs">
+                    {queuedSales.length} total local transactions pending or requiring resolution.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowQueueModal(false)}
+                className="p-1 rounded-lg text-gray-400 hover:text-white hover:bg-white/10"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-3 pr-1">
+              {queuedSales.length === 0 ? (
+                <div className="p-8 text-center text-gray-500 text-xs">
+                  Offline queue is empty. All sales are synced!
+                </div>
+              ) : (
+                queuedSales.map((item) => {
+                  const isConflict = item.status === 'conflict';
+                  return (
+                    <div
+                      key={item.id}
+                      className={`p-4 rounded-2xl border text-xs space-y-2 ${
+                        isConflict
+                          ? 'bg-red-500/10 border-red-500/30 text-red-200'
+                          : 'bg-black/40 border-white/10 text-gray-300'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-white font-sans text-sm">
+                          {item.payload.attendeeName} ({item.payload.attendeePhone})
+                        </span>
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                            isConflict
+                              ? 'bg-red-500/20 text-red-300 border border-red-500/40'
+                              : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                          }`}
+                        >
+                          {item.status}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 text-[11px] text-gray-400">
+                        <p>Event: <strong className="text-white">{item.eventTitle || item.payload.eventId}</strong></p>
+                        <p>Amount: <strong className="text-[#D4AF37]">₹{item.totalAmount ?? '—'}</strong></p>
+                        {item.payload.selectedSeats && item.payload.selectedSeats.length > 0 && (
+                          <p>Seats: <strong className="text-white font-mono">{item.payload.selectedSeats.join(', ')}</strong></p>
+                        )}
+                        <p>Queued: {new Date(item.timestamp).toLocaleTimeString()}</p>
+                      </div>
+
+                      {isConflict && (
+                        <div className="p-2.5 rounded-xl bg-red-950/60 border border-red-500/30 text-red-300 text-[11px] space-y-1">
+                          <p className="font-bold flex items-center gap-1.5">
+                            <AlertTriangle className="w-3.5 h-3.5 text-red-400" />
+                            <span>Conflict Reason:</span>
+                          </p>
+                          <p>{item.conflictReason || 'Seat is no longer available.'}</p>
+                        </div>
+                      )}
+
+                      <div className="flex items-center justify-end gap-2 pt-1">
+                        <button
+                          onClick={async () => {
+                            await removeQueuedSale(item.id);
+                            await refreshQueue();
+                          }}
+                          className="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-400 hover:text-red-300 text-[11px] font-semibold transition-all cursor-pointer"
+                        >
+                          Discard / Refund
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="flex items-center justify-between border-t border-white/10 pt-4 shrink-0">
+              <button
+                onClick={triggerSync}
+                className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black font-extrabold text-xs flex items-center gap-2 hover:brightness-110 cursor-pointer"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Sync Now</span>
+              </button>
+
+              <button
+                onClick={() => setShowQueueModal(false)}
+                className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 text-xs font-semibold cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
