@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Ticket, Sparkles, ShieldCheck } from 'lucide-react';
+import { Sparkles, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 export const AuthPage: React.FC = () => {
@@ -31,17 +31,19 @@ export const AuthPage: React.FC = () => {
         {/* Left Side: Cinematic Event Graphic */}
         <div className="hidden lg:flex lg:col-span-6 relative p-12 flex-col justify-between overflow-hidden bg-[#090909]">
           <img
-            src="https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&q=80&w=1200"
-            alt="Concert stage"
+            src="/og-image.jpg"
+            alt="AV Events branding"
             className="absolute inset-0 w-full h-full object-cover filter brightness-[0.4] contrast-[1.1]"
           />
           <div className="absolute inset-0 bg-gradient-to-t from-[#090909] via-black/40 to-transparent" />
 
           {/* Top Logo */}
           <div className="relative z-10 flex items-center gap-2">
-            <div className="w-9 h-9 rounded-xl bg-[#D4AF37] text-black font-bold flex items-center justify-center shadow-lg">
-              <Ticket className="w-5 h-5 stroke-[2.5]" />
-            </div>
+            <img
+              src="/favicon-192.png"
+              alt="AV Events Logo"
+              className="w-9 h-9 rounded-xl object-cover bg-white shadow-lg"
+            />
             <span className="font-heading font-extrabold text-2xl text-white">
               Ash-vish<span className="text-[#D4AF37]"> events</span>
             </span>

@@ -50,9 +50,11 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSearch }) => {
 
             {/* Logo */}
             <Link to="/" className="flex items-center gap-2.5 cursor-pointer group">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#FFF6D6] via-[#D4AF37] to-[#C5A059] flex items-center justify-center text-black font-bold shadow-lg shadow-[#D4AF37]/30 group-hover:scale-105 transition-transform duration-200">
-                <Ticket className="w-5 h-5 stroke-[2.5]" />
-              </div>
+              <img
+                src="/favicon-192.png"
+                alt="AV Events Logo"
+                className="w-10 h-10 rounded-xl object-cover bg-white shadow-lg shadow-[#D4AF37]/30 group-hover:scale-105 transition-transform duration-200"
+              />
               <div className="flex flex-col">
                 <span className="font-heading font-extrabold text-lg sm:text-xl tracking-tight text-white leading-none">
                   Ash-vish<span className="text-[#D4AF37]"> events</span>
