@@ -476,6 +476,7 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
       identityHeaders,
       quoteAppliedCoupon?.code || null,
       {
+        reservationRef: { get current() { return reservation?.reservationId ?? null; } },
         getDisplayName: () => attendeeName || 'Tickets',
         getEventTitle: () => event.title || 'Event',
         getPrefill: () => ({
@@ -498,7 +499,15 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
           if (!result.success) {
             setIsProcessing(false);
             if (result.paymentStatus === 'created') {
+              // Payment was initiated but never captured — money never left
+              // the buyer's account. Seats stay held.
               setSubmitError(result.error || 'Payment is still pending. Complete the payment in the checkout window.');
+            } else if (result.refundConfirmed) {
+              // Captured payment but the seat could not be confirmed — the
+              // server automatically refunded. Seats are released.
+              setSubmitError(result.error || 'Payment refunded — seat no longer available. Please choose different seats or retry.');
+            } else if (result.error && result.error.includes('contact support')) {
+              setSubmitError(result.error);
             } else {
               setSubmitError(result.error || 'Payment verification failed. Your seats are still held — please retry.');
             }
@@ -969,7 +978,11 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
                     >
                       <RefreshCw className="w-3 h-3" /> Try booking again
                     </button>
-                    <span className="text-gray-400 text-[10px]">Your seats stay held — no need to start over.</span>
+                    <span className="text-gray-400 text-[10px]">
+                      {submitError.includes('refunded') || submitError.includes('contact support')
+                        ? 'Seats were released — choose different seats or reselect yours.'
+                        : 'Your seats stay held — no need to start over.'}
+                    </span>
                   </div>
                 )}
               </div>

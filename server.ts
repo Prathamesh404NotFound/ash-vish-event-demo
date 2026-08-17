@@ -12,6 +12,7 @@ import {
   isTestMode,
   createRazorpayOrder,
   fetchRazorpayPayment,
+  refundRazorpayPayment,
   verifyWebhookSignature,
   KEY_ID as razorpayKeyId,
 } from "./src/lib/payment/razorpay.js";
@@ -974,7 +975,7 @@ async function finalizeBookingServerSide(
       }
     }
 
-    const processedOrder = {
+    const processedOrder: any = {
       orderId,
       ticketId,
       bookingId,
@@ -983,6 +984,7 @@ async function finalizeBookingServerSide(
       booking: newBookingRecord,
       processedAt: new Date().toISOString()
     };
+    if (paymentId) processedOrder.paymentId = paymentId;
     await rtdbSet(`processed_orders/${orderId}`, processedOrder, authToken);
     await rtdbDelete(`pending_orders/${orderId}`, authToken);
 
@@ -1668,7 +1670,7 @@ export async function createApp() {
     // so reservations created under the old scheme still resolve during use.
     const raw = `${req.ip || req.socket?.remoteAddress || "unknown"}|${req.headers["user-agent"] || "unknown"}|${headerSession}`;
     const legacyCompositeGuest = "guest_" + crypto.createHash("sha256").update(raw).digest("hex").slice(0, 16);
-    return { ownerId: sessionIdGuest || legacyCompositeGuest, authenticated: false };
+    return { ownerId: sessionIdGuest || legacyCompositeGuest, authenticated: false, guestOwnerId: sessionIdGuest || undefined };
   }
 
   /**
@@ -1816,6 +1818,12 @@ export async function createApp() {
   app.post("/api/reservations/:reservationId/renew", async (req, res) => {
     try {
       const owner = await resolveReservationOwner(req);
+      // Guard ordering: reject requests with no verifiable identity BEFORE
+      // any database lookup — the caller must never learn whether a
+      // reservation id exists or what its status is. Guest sessions are only
+      // valid when the caller presents an X-Session-Id header (set by the
+      // checkout page); an anonymous curl request has neither.
+      if (!owner.ownerId || (!owner.authenticated && !owner.guestOwnerId)) return res.status(403).json({ success: false, error: "Authentication required." });
       const authToken = await getAdminAuthToken();
       const record = (await rtdbGet(`reservations/${req.params.reservationId}`, authToken)).data as ReservationRecord | null;
       if (!record) return res.status(404).json({ success: false, error: "Reservation not found." });
@@ -1846,6 +1854,56 @@ export async function createApp() {
     } catch (err: any) {
       console.error("[RESERVATION RENEW ERROR]", err.message || err);
       return res.status(500).json({ success: false, error: "Failed to renew reservation." });
+    }
+  });
+
+  // -- Item: hold keepalive during payment -------------------------------
+  // Razorpay UPI/OTP flows can exceed the 10-minute hold. While the checkout
+  // modal is open, the client polls this endpoint (every ~2 minutes) to keep
+  // the reservation and its seat holds alive. Same ceiling as /renew (4x TTL),
+  // owner-checked, and a 90-second cooldown prevents abuse.
+  app.post("/api/reservations/:reservationId/extend", async (req, res) => {
+    try {
+      const owner = await resolveReservationOwner(req);
+      // Guard ordering: reject requests with no verifiable identity BEFORE
+      // any database lookup — the caller must never learn whether a
+      // reservation id exists or what its status is. Guest sessions are only
+      // valid when the caller presents an X-Session-Id header (set by the
+      // checkout page); an anonymous curl request has neither.
+      if (!owner.ownerId || (!owner.authenticated && !owner.guestOwnerId)) return res.status(403).json({ success: false, error: "Authentication required." });
+      const authToken = await getAdminAuthToken();
+      const record = (await rtdbGet(`reservations/${req.params.reservationId}`, authToken)).data as any | null;
+      if (!record) return res.status(404).json({ success: false, error: "Reservation not found." });
+      if (!isReservationOwner(record, owner)) return res.status(403).json({ success: false, error: "Not your reservation." });
+      if (record.status !== "active") return res.status(409).json({ success: false, error: `Reservation is ${record.status} and cannot be extended.` });
+      const now = Date.now();
+      if (now > record.expiresAt) {
+        record.status = "expired";
+        await rtdbUpdate(`reservations/${record.reservationId}`, { status: "expired" }, authToken);
+        return res.status(409).json({ success: false, error: "Reservation has expired. Please reselect your seats." });
+      }
+      const maxExpiresAt = record.createdAt + (RESERVATION_HOLD_TTL_MS * 4);
+      const newExpiresAt = Math.min(
+        Math.max(now + RESERVATION_HOLD_TTL_MS, record.expiresAt + RESERVATION_HOLD_TTL_MS),
+        maxExpiresAt
+      );
+      if (newExpiresAt <= record.expiresAt) {
+        return res.status(409).json({ success: false, error: "Maximum reservation extensions reached. Please complete payment." });
+      }
+      const lastExt = record.lastExtensionAt || 0;
+      if (now - lastExt < 90 * 1000) {
+        return res.json({ success: true, expiresAt: record.expiresAt, serverNow: now, keptAlive: true, throttleRemainingMs: Math.max(0, 90 * 1000 - (now - lastExt)) });
+      }
+      if (record.seatIds && record.seatIds.length > 0) {
+        for (const seatId of record.seatIds) {
+          rtdbUpdate(`seats/${record.eventId}/${seatId}`, { holdExpiresAt: newExpiresAt, heldBy: record.ownerId, status: "held", heldAt: record.heldAt || now }, authToken).catch(() => {});
+        }
+      }
+      await rtdbUpdate(`reservations/${record.reservationId}`, { expiresAt: newExpiresAt, lastExtensionAt: now }, authToken);
+      return res.json({ success: true, expiresAt: newExpiresAt, serverNow: now, keptAlive: true });
+    } catch (err: any) {
+      console.error("[RESERVATION EXTEND ERROR]", err.message || err);
+      return res.status(500).json({ success: false, error: "Failed to extend reservation." });
     }
   });
 
@@ -2245,10 +2303,17 @@ export async function createApp() {
       }
       const authToken = await getAdminAuthToken();
 
-      // Idempotency: already fulfilled.
+      // Idempotency: already fulfilled (direct lookup and payment-id scan — a
+      // duplicate submission must never return 409, always success).
       const processedRes = await rtdbGet(`processed_orders/${orderId}`, authToken);
       if (processedRes.data) {
         return res.json({ success: true, ticket: processedRes.data.ticket, booking: processedRes.data.booking, alreadyProcessed: true });
+      }
+      const allProcessed: any = (await rtdbGet("processed_orders", authToken)).data || {};
+      for (const [, entry] of Object.entries(allProcessed) as [string, any][]) {
+        if (entry && entry.paymentId === paymentId) {
+          return res.json({ success: true, ticket: entry.ticket, booking: entry.booking, alreadyProcessed: true });
+        }
       }
 
       const pendingRes = await rtdbGet(`pending_orders/${orderId}`, authToken);
@@ -2263,7 +2328,11 @@ export async function createApp() {
       // Reconcile with Razorpay: fetch the actual payment and match order id + amount.
       const paymentRes = await fetchRazorpayPayment(paymentId);
       if (!paymentRes.ok) {
-        return res.status(400).json({ success: false, error: paymentRes.error || "Could not verify payment." });
+        return res.status(400).json({
+          success: false,
+          error: "Payment could not be verified, please contact support with order ID " + orderId + ".",
+          paymentId,
+        });
       }
       const payment = paymentRes.payment;
       if (!payment || !payment.order_id) {
@@ -2316,20 +2385,89 @@ export async function createApp() {
         });
       }
 
+      // SAFETY NET: if the payment was actually captured but fulfillment fails
+      // (e.g. the seat hold expired during checkout and another buyer took the
+      // seat), refund the buyer immediately. A captured payment must never be
+      // held by the platform without a ticket and without a refund.
+      const refundForConflict = async (reason: string): Promise<{ refunded: boolean; refundId?: string }> => {
+        try {
+          const refundRes = await refundRazorpayPayment({
+            paymentId,
+            amountPaise: pendingOrderFinal.rzpAmount,
+            reason: `ash-events: ${reason}`,
+          });
+          if (refundRes.ok) {
+            console.log(`[RAZORPAY REFUND] refunded ${paymentId}: ${refundRes.id} (${reason})`);
+            await rtdbUpdate(`pending_orders/${fulfillOrderId}`, {
+              refundId: refundRes.id,
+              refundStatus: refundRes.status || "processed",
+              refundReason: reason,
+              refundedAt: new Date().toISOString(),
+            }, authToken).catch(() => {});
+            return { refunded: true, refundId: refundRes.id };
+          }
+          // Refund initiation failed: record it and surface an actionable message.
+          console.error(`[RAZORPAY REFUND FAILED] ${paymentId}: ${refundRes.error}`);
+          await rtdbUpdate(`pending_orders/${fulfillOrderId}`, {
+            refundAttempted: false,
+            refundError: refundRes.error || "Refund initiation failed",
+            refundReason: reason,
+            refundAttemptedAt: new Date().toISOString(),
+          }, authToken).catch(() => {});
+          return { refunded: false };
+        } catch (rErr: any) {
+          console.error("[RAZORPAY REFUND ERROR]", rErr.message || rErr);
+          return { refunded: false };
+        }
+      };
+
       // Re-quote server-side (coupon-aware) as a last sanity check before fulfillment.
-      const eventRes = await rtdbGet(`events/${pendingOrderFinal.eventId}`, authToken);
-      const eventData = eventRes.data;
-      if (!eventData) {
-        return res.status(404).json({ success: false, error: "Event no longer available." });
+      const eventRes2 = await rtdbGet(`events/${pendingOrderFinal.eventId}`, authToken);
+      const eventData2 = eventRes2.data;
+      if (!eventData2) {
+        // Captured payment + event gone: refund immediately (never 409 a
+        // captured payment without a refund path).
+        const refund = await refundForConflict("Event no longer available after payment");
+        return res.status(409).json({
+          success: false,
+          error: refund.refunded
+            ? "Payment refunded — the event is no longer available. Please contact support if the refund does not appear."
+            : "The event is no longer available and the automatic refund could not be initiated. Please contact support with order ID " + fulfillOrderId + ".",
+          refundConfirmed: refund.refunded,
+          refundId: refund.refundId,
+          paymentId,
+        });
       }
-      const quoteResult = computeReservationQuote(eventData, pendingOrderFinal.seatIds, pendingOrderFinal.quantity, pendingOrderFinal.tierId);
-      const expectedMinor = Math.max(0, quoteResult.quote.totalMinor - (pendingOrderFinal.couponDiscountMinor || 0));
-      if (pendingOrderFinal.amountMinor && pendingOrderFinal.amountMinor !== expectedMinor) {
-        return res.status(400).json({ success: false, error: "Quote changed since order creation. Please restart checkout." });
+      const quoteResult2 = computeReservationQuote(eventData2, pendingOrderFinal.seatIds, pendingOrderFinal.quantity, pendingOrderFinal.tierId);
+      const expectedMinor2 = Math.max(0, quoteResult2.quote.totalMinor - (pendingOrderFinal.couponDiscountMinor || 0));
+      if (pendingOrderFinal.amountMinor && pendingOrderFinal.amountMinor !== expectedMinor2) {
+        const refund = await refundForConflict("Quote changed since payment capture");
+        return res.status(409).json({
+          success: false,
+          error: refund.refunded
+            ? "Payment refunded — pricing changed during checkout. Please restart checkout and pay the current price."
+            : "Pricing changed during checkout and the automatic refund could not be initiated. Please contact support with order ID " + fulfillOrderId + ".",
+          refundConfirmed: refund.refunded,
+          refundId: refund.refundId,
+          paymentId,
+        });
       }
+
       const result = await finalizeBookingServerSide(fulfillOrderId || orderId, "razorpay", paymentId, authToken);
       if (!result.success) {
-        return res.status(409).json({ success: false, error: result.error || "Failed to complete booking." });
+        // Captured payment but seats could not be booked (real conflict:
+        // hold expired during checkout / seat taken by another buyer).
+        const refund = await refundForConflict("Seat no longer available after payment: " + (result.error || "fulfillment failed").slice(0, 120));
+        return res.status(409).json({
+          success: false,
+          error: refund.refunded
+            ? "Payment refunded — seat no longer available. Please choose different seats or retry."
+            : "Seat no longer available and the automatic refund could not be initiated. Please contact support with order ID " + fulfillOrderId + ".",
+          refundConfirmed: refund.refunded,
+          refundId: refund.refundId,
+          seatsStillHeld: false,
+          paymentId,
+        });
       }
       return res.json({
         success: true,

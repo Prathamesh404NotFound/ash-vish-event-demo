@@ -42,7 +42,55 @@ interface RazorpayVerifyResponse {
   booking?: any;
   alreadyProcessed?: boolean;
   paymentStatus?: string;
+  refundConfirmed?: boolean;
+  refundId?: string;
+  seatsStillHeld?: boolean;
   error?: string;
+}
+
+/**
+ * Hold keepalive while the Razorpay modal is open (Item: keepalive). UPI/OTP
+ * flows can exceed the 10-minute seat hold; polling /extend every ~2 minutes
+ * keeps the reservation and its seats held for as long as checkout is in
+ * progress (capped server-side at 4x the hold TTL).
+ */
+const KEEPALIVE_INTERVAL_MS = 2 * 60 * 1000;
+
+function startHoldKeepalive(
+  reservationId: string | null,
+  reservationRef: { current: string | null },
+  identityHeaders: (() => Promise<Record<string, string>>) | null,
+  onKeepaliveError: () => void
+): () => void {
+  let stopped = false;
+  let timer: ReturnType<typeof setInterval> | null = null;
+  // First poll fires after the initial interval to avoid spamming right after
+  // the hold was already extended at order creation.
+  const tick = async () => {
+    if (stopped) return;
+    const id = reservationRef.current || reservationId;
+    if (!id) return;
+    try {
+      const res = await safeFetch<any>('/api/reservations/' + encodeURIComponent(id) + '/extend', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(await identityHeaders()) },
+        body: JSON.stringify({ keepalive: true }),
+      });
+      if (!res.ok && res.status !== 409) {
+        // A 409 here means the reservation legitimately expired — the post-
+        // payment verify call will report the real seat status to the buyer.
+        onKeepaliveError();
+      }
+    } catch {
+      // Network blips during polling are not surfaced: the hold either stays
+      // alive or the post-payment verify path handles the true state.
+    }
+  };
+  timer = setInterval(tick, KEEPALIVE_INTERVAL_MS);
+  return () => {
+    stopped = true;
+    if (timer) clearInterval(timer);
+  };
 }
 
 export interface RazorpaySession {
@@ -155,6 +203,9 @@ export function useRazorpay() {
       booking: res.data?.booking,
       alreadyProcessed: res.data?.alreadyProcessed,
       paymentStatus: res.data?.paymentStatus,
+      refundConfirmed: Boolean(res.data?.refundConfirmed),
+      refundId: res.data?.refundId || undefined,
+      seatsStillHeld: Boolean(res.data?.seatsStillHeld),
       error: res.data?.error || (res.ok ? undefined : `Payment verification failed (${res.status}).`),
     };
   }, []);
@@ -169,6 +220,11 @@ export function useRazorpay() {
       getDisplayName: () => string;
       getEventTitle: () => string;
       getPrefill: () => RazorpayPrefill;
+    },
+    keepaliveOptions?: {
+      reservationId: string | null;
+      reservationRef: { current: string | null };
+      identityHeaders: () => Promise<Record<string, string>>;
     }
   ) => {
     if (!session.orderId || !session.rzpOrderId || !/^rzp_(test|live)_[A-Za-z0-9]+$/.test(session.rzpKey) || !Number.isInteger(session.amountMinor) || session.amountMinor <= 0) {
@@ -183,6 +239,22 @@ export function useRazorpay() {
     if (modalOpenRef.current) return;
     modalOpenRef.current = true;
     errorHandledRef.current = false;
+
+    // Hold keepalive: keep the seat reservation alive while the checkout
+    // modal stays open (every ~2 minutes, owner-checked, server-capped).
+    // keepaliveIdentityHeaders is supplied by the caller via the third argument
+    // of pay()/openCheckout(); it must resolve lazily so the headers are fresh
+    // for each poll (session token can rotate while the modal is open).
+    const stopKeepalive = keepaliveOptions?.reservationRef && keepaliveOptions.identityHeaders
+      ? startHoldKeepalive(
+          keepaliveOptions.reservationId,
+          keepaliveOptions.reservationRef,
+          keepaliveOptions.identityHeaders,
+          () => { /* expiry will surface through the post-payment verify call */ }
+        )
+      : null;
+    // Store so all exit paths below can stop it.
+    (handlers as any).__stopKeepalive = stopKeepalive;
 
     let options: any;
     try {
@@ -202,6 +274,7 @@ export function useRazorpay() {
         description: `${handlers.getEventTitle()} — ${handlers.getDisplayName()}`,
         handler: (resp: { razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature?: string }) => {
           modalOpenRef.current = false;
+          if ((handlers as any).__stopKeepalive) (handlers as any).__stopKeepalive();
           if (!resp?.razorpay_payment_id) {
             handlers.onError('Payment completed but no payment id was returned.');
             return;
@@ -211,6 +284,7 @@ export function useRazorpay() {
         modal: {
           ondismiss: () => {
             modalOpenRef.current = false;
+            if ((handlers as any).__stopKeepalive) (handlers as any).__stopKeepalive();
             if (!errorHandledRef.current) handlers.onClose();
           },
           animation: true,
@@ -241,12 +315,14 @@ export function useRazorpay() {
       const rzp = new window.Razorpay(options);
       rzp.on('payment.failed', (resp: any) => {
         modalOpenRef.current = false;
+        if ((handlers as any).__stopKeepalive) (handlers as any).__stopKeepalive();
         errorHandledRef.current = true;
         const reason = resp?.error?.description || resp?.error?.reason || 'Payment failed.';
         handlers.onError(reason);
       });
       rzp.on('window.close', () => {
         modalOpenRef.current = false;
+        if ((handlers as any).__stopKeepalive) (handlers as any).__stopKeepalive();
         if (!errorHandledRef.current) handlers.onClose();
       });
       // open() can throw synchronously (e.g., expired session token → 400).
@@ -269,7 +345,8 @@ export function useRazorpay() {
       getDisplayName: () => string;
       getEventTitle: () => string;
       getPrefill: () => RazorpayPrefill;
-    }
+    },
+    options?: { reservationRef?: { current: string | null } }
   ) => {
     if (isProcessing || retryCountRef.current > maxRetries) return;
     setIsProcessing(true);
@@ -281,7 +358,15 @@ export function useRazorpay() {
       handlers.onError(createError || 'Could not start payment.');
       return;
     }
-    openCheckout(currentSession, handlers);
+    openCheckout(
+      currentSession,
+      handlers,
+      {
+        reservationId,
+        reservationRef: options?.reservationRef || { current: reservationId },
+        identityHeaders,
+      }
+    );
   }, [createOrder, openCheckout, isProcessing]);
 
   return {

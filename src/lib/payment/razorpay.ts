@@ -128,6 +128,30 @@ export async function fetchRazorpayPayment(paymentId: string): Promise<{ ok: boo
   return { ok: true, payment: res.data };
 }
 
+/** Refund a Razorpay payment. If amountPaise is omitted, the full payment is refunded. */
+export async function refundRazorpayPayment(params: {
+  paymentId: string;
+  amountPaise?: number;
+  reason?: string;
+  speed?: "normal" | "optimum";
+}): Promise<{ ok: boolean; id?: string; status?: string; error?: string }> {
+  if (!params.paymentId || !/^pay_[A-Za-z0-9]+$/.test(params.paymentId)) {
+    return { ok: false, error: "Invalid payment id format." };
+  }
+  const body: any = { speed: params.speed || "optimum" };
+  if (params.amountPaise !== undefined) body.amount = params.amountPaise;
+  if (params.reason) body.notes = { reason: params.reason.slice(0, 200), app: "ash-vish-events" };
+  const res = await razorpayRequest(
+    "POST",
+    `/payments/${encodeURIComponent(params.paymentId)}/refund`,
+    body
+  );
+  if (!res.ok) {
+    return { ok: false, error: res.error || "Refund request failed." };
+  }
+  return { ok: true, id: res.data?.id, status: res.data?.status };
+}
+
 /** Verify a Razorpay webhook signature. The signature is HMAC-SHA256 of the RAW body with KEY_SECRET. */
 export function verifyWebhookSignature(rawBody: string | Buffer, signature: string | undefined): boolean {
   if (!signature || !KEY_SECRET) return false;
