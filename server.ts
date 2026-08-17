@@ -2842,7 +2842,7 @@ export async function createApp() {
 
   app.post("/api/walk-in-bookings", verifyRole(['admin', 'ticket_counter']), async (req: any, res) => {
     try {
-      const { eventId, tierId, attendeeName, attendeePhone, attendeeEmail, selectedSeats = [], paymentMethod = 'cash', couponCode: rawCouponCode, payments: rawPayments, discountOverride: rawOverride, shiftId, idempotencyKey } = req.body || {};
+      const { eventId, tierId, attendeeName, attendeePhone, attendeeEmail, selectedSeats = [], paymentMethod = 'cash', couponCode: rawCouponCode, payments: rawPayments, discountOverride: rawOverride, shiftId, idempotencyKey, counterId: rawCounterId } = req.body || {};
 
       // Idempotency: same key returns the same completed result
       const idKey = idempotencyKey ? String(idempotencyKey).trim() : null;
@@ -2945,6 +2945,35 @@ export async function createApp() {
         }
       }
 
+      // Optional counter station tracking (Counter Management Panel): when a
+      // counterId is supplied, the counter must exist, be active, and the
+      // staff member must be authorized to run it (super admins bypass).
+      const rawCid = String(rawCounterId || "").trim();
+      let counterName = "";
+      let counterUpi = { vpa: "", name: "" };
+      if (rawCid) {
+        const actorRbac = (req.user.rbacRole as string) || "";
+        const counterSnap = await rtdbGet(`counters/${rawCid}`, await getAdminAuthToken());
+        const counter = counterSnap.data as any;
+        if (!counter || counter.status === "inactive") {
+          return res.status(400).json({ success: false, error: "Selected counter is invalid or inactive." });
+        }
+        const staffUid = req.user.uid || "";
+        const assignedIds = Array.isArray(counter.assignedStaffIds) ? counter.assignedStaffIds : [];
+        if (actorRbac !== "super_admin" && !assignedIds.includes(staffUid)) {
+          return res.status(403).json({ success: false, error: "You are not authorized to operate this counter." });
+        }
+        counterName = String(counter.name || "").slice(0, 40);
+        const mUpi = (counter.merchantUpi || {}) as any;
+        counterUpi = { vpa: String(mUpi?.vpa || ""), name: String(mUpi?.name || "") };
+        if (!counterUpi.vpa) {
+          // Counter falls back to the global merchant UPI config.
+          const globalSnap = await rtdbGet("app_config/merchant_upi", await getAdminAuthToken());
+          const gUpi = (globalSnap.data || {}) as any;
+          counterUpi = { vpa: String(gUpi?.vpa || ""), name: String(gUpi?.name || "") };
+        }
+      }
+
       const orderId = `walkin_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
       const customerDetails = {
         name: String(attendeeName).trim(),
@@ -2992,6 +3021,8 @@ export async function createApp() {
         ...(splitPayments.length > 0 ? { payments: splitPayments, totalPaid: lineAmount - discountAmount } : {}),
         ...(discountOverrideRecord ? { discountOverride: discountOverrideRecord } : {}),
         ...(shiftCode ? { shiftId: shiftCode, staffShiftId: shiftCode } : {}),
+        ...(rawCid ? { counterId: rawCid, counterName } : {}),
+        ...(counterUpi.vpa ? { counterMerchantUpi: counterUpi } : {}),
       }, adminToken);
 
       const result = await finalizeBookingServerSide(
@@ -3017,6 +3048,7 @@ export async function createApp() {
           ...(splitPayments.length > 0 ? { payments: splitPayments } : {}),
           ...(discountOverrideRecord ? { discountOverride: discountOverrideRecord } : {}),
           ...(shiftCode ? { shiftId: shiftCode } : {}),
+          ...(rawCid ? { counterId: rawCid, counterName } : {}),
         },
       });
       if (idHash) {
@@ -3340,7 +3372,9 @@ export async function createApp() {
     }
   });
 
-  app.get("/api/staff", requireRole(["super_admin", "auditor"]), async (req: any, res) => {
+  // event_manager added so counter administrators can browse staff when
+  // assigning them to ticket-counter stations.
+  app.get("/api/staff", requireRole(["super_admin", "auditor", "event_manager"]), async (req: any, res) => {
     try {
       const snap = await rtdbGet("staff", req.user.idToken);
       const staffList = Object.entries(snap.data || {}).map(([uid, data]: [string, any]) => ({ uid, ...data }));
@@ -4667,6 +4701,303 @@ app.put("/api/merchant-upi", requireRole(["super_admin"]), async (req: any, res)
     return res.status(200).json({ success: true, vpa: rawVpa, name: name || "" });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message || "Could not save merchant UPI config." });
+  }
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// Ticket-counter stations management (named counters, e.g. "Gate A").
+// Each counter can carry its own merchant UPI ID (overrides the global
+// app_config/merchant_upi) and an allow-list of staff authorized to run it.
+// Counters live at RTDB path counters/<counterId>.
+// ──────────────────────────────────────────────────────────────────────
+
+const COUNTER_VPA_RE = /^[A-Za-z0-9.\-_]{2,64}@[A-Za-z0-9.\-_]{2,64}$/;
+
+app.get("/api/admin/counters", requireRole(["event_manager", "super_admin"]), async (req: any, res) => {
+  try {
+    const snap = await rtdbGet("counters", await getAdminAuthToken());
+    const nodes = (snap.data || {}) as Record<string, any>;
+    const counters = Object.entries(nodes).map(([id, c]) => ({
+      id,
+      name: String(c?.name || "").slice(0, 40),
+      venue: String(c?.venue || "").slice(0, 60),
+      status: c?.status === "inactive" ? "inactive" : "active",
+      merchantUpi: { vpa: String(c?.merchantUpi?.vpa || ""), name: String(c?.merchantUpi?.name || "") },
+      assignedStaffIds: Array.isArray(c?.assignedStaffIds) ? c.assignedStaffIds : [],
+      createdAt: String(c?.createdAt || ""),
+      updatedAt: String(c?.updatedAt || ""),
+    }));
+    counters.sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+    return res.status(200).json({ success: true, counters });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || "Could not list counters." });
+  }
+});
+
+app.post("/api/admin/counters", requireRole(["super_admin"]), async (req: any, res) => {
+  try {
+    const rawName = String(req.body?.name || "").trim();
+    if (rawName.length < 2 || rawName.length > 40) {
+      return res.status(400).json({ success: false, error: "Counter name must be 2-40 characters." });
+    }
+    const rawVenue = String(req.body?.venue || "").trim().slice(0, 60);
+    const rawStaff = Array.isArray(req.body?.assignedStaffIds) ? req.body.assignedStaffIds : [];
+    const staffIds: string[] = rawStaff.filter((s: any) => /^[a-zA-Z0-9_\-]{1,128}$/.test(String(s))).map(String).slice(0, 50);
+    // Validate staff IDs exist only when provided (best-effort); unknown IDs
+    // are dropped so a partial assignment never fails a create.
+    const token = await getAdminAuthToken();
+    const now = new Date().toISOString();
+    const counterId = `counter_${Date.now()}_${crypto.randomBytes(3).toString("hex")}`;
+    const record = {
+      name: rawName,
+      ...(rawVenue ? { venue: rawVenue } : {}),
+      status: "active",
+      assignedStaffIds: staffIds,
+      merchantUpi: {},
+      createdAt: now,
+      updatedAt: now,
+      createdBy: req.user.uid,
+    };
+    await rtdbSet(`counters/${counterId}`, record, token);
+    await writeAuditEntry({
+      actorId: req.user.uid,
+      actorRole: req.user.rbacRole,
+      action: "counter.created",
+      entityType: "counter",
+      entityId: counterId,
+      afterState: record,
+    });
+    return res.status(201).json({ success: true, counter: { id: counterId, ...record } });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || "Could not create counter." });
+  }
+});
+
+app.put("/api/admin/counters/:counterId", requireRole(["super_admin"]), async (req: any, res) => {
+  try {
+    const { counterId } = req.params;
+    const token = await getAdminAuthToken();
+    const existing = (await rtdbGet(`counters/${counterId}`, token)).data as any;
+    if (!existing) {
+      return res.status(404).json({ success: false, error: "Counter not found." });
+    }
+    const body = req.body || {};
+    let name: string | undefined;
+    if (body.name !== undefined) {
+      name = String(body.name).trim();
+      if (name.length < 2 || name.length > 40) {
+        return res.status(400).json({ success: false, error: "Counter name must be 2-40 characters." });
+      }
+    }
+    const venue = body.venue !== undefined ? String(body.venue).trim().slice(0, 60) : undefined;
+    let status: string | undefined;
+    if (body.status !== undefined) {
+      status = String(body.status);
+      if (status !== "active" && status !== "inactive") {
+        return res.status(400).json({ success: false, error: "Status must be 'active' or 'inactive'." });
+      }
+    }
+    // Per-counter UPI: { vpa, name } sets it; explicit null/undefined-omitted
+    // keys or an empty vpa clears the override (counter falls back to the
+    // global app_config/merchant_upi).
+    let merchantUpi: { vpa?: string; name?: string } | null | undefined;
+    if (body.merchantUpi === null) {
+      merchantUpi = null;
+    } else if (body.merchantUpi !== undefined && typeof body.merchantUpi === "object") {
+      const rawVpa = String(body.merchantUpi?.vpa || "").trim();
+      if (rawVpa) {
+        if (!COUNTER_VPA_RE.test(rawVpa) || rawVpa.length > 129) {
+          return res.status(400).json({ success: false, error: "The UPI ID must look like 'merchant@upi' (letters, digits, . _ - only)." });
+        }
+        merchantUpi = { vpa: rawVpa };
+        const rawName = String(body.merchantUpi?.name || "").trim();
+        if (rawName) merchantUpi.name = rawName.slice(0, 25);
+      } else {
+        merchantUpi = null;
+      }
+    }
+    let assignedStaffIds: string[] | undefined;
+    if (body.assignedStaffIds !== undefined) {
+      if (!Array.isArray(body.assignedStaffIds) || body.assignedStaffIds.length > 50) {
+        return res.status(400).json({ success: false, error: "assignedStaffIds must be a list of at most 50 staff IDs." });
+      }
+      const ids: string[] = body.assignedStaffIds.filter((s: any) => /^[a-zA-Z0-9_\-]{1,128}$/.test(String(s))).map(String);
+      // Only unknown IDs are rejected — partial lists must refer to real staff.
+      const known: string[] = [];
+      const unknown: string[] = [];
+      for (const id of ids) {
+        const s = (await rtdbGet(`staff/${id}`, token)).data;
+        (s ? known : unknown).push(id);
+      }
+      if (unknown.length) {
+        return res.status(400).json({ success: false, error: `Unknown staff IDs: ${unknown.join(", ")}.` });
+      }
+      assignedStaffIds = known;
+    }
+    const now = new Date().toISOString();
+    const updated = {
+      ...existing,
+      ...(name !== undefined ? { name } : {}),
+      ...(venue !== undefined ? { venue } : {}),
+      ...(status !== undefined ? { status } : {}),
+      ...(merchantUpi !== undefined ? { merchantUpi: merchantUpi === null ? {} : merchantUpi } : {}),
+      ...(assignedStaffIds !== undefined ? { assignedStaffIds } : {}),
+      updatedAt: now,
+      updatedBy: req.user.uid,
+    };
+    await rtdbSet(`counters/${counterId}`, updated, token);
+    await writeAuditEntry({
+      actorId: req.user.uid,
+      actorRole: req.user.rbacRole,
+      action: "counter.updated",
+      entityType: "counter",
+      entityId: counterId,
+      beforeState: existing,
+      afterState: updated,
+    });
+    return res.status(200).json({ success: true, counter: { id: counterId, ...updated } });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || "Could not update counter." });
+  }
+});
+
+// Batch update: one patch applied to many counters. Fails all-or-nothing
+// during validation, then applies each (non-fatal per-row on transient RTDB
+// errors) and reports per-counter outcomes.
+app.patch("/api/admin/counters", requireRole(["super_admin"]), async (req: any, res) => {
+  try {
+    const body = req.body || {};
+    const counterIds: string[] = Array.isArray(body.counterIds) ? body.counterIds.map(String).slice(0, 100) : [];
+    if (counterIds.length === 0) {
+      return res.status(400).json({ success: false, error: "counterIds must list at least one counter." });
+    }
+    if (counterIds.length !== new Set(counterIds).size) {
+      return res.status(400).json({ success: false, error: "counterIds contains duplicates." });
+    }
+    const patch = body.patch || {};
+    const allowedPatchKeys = ["merchantUpi", "assignedStaffIds", "status"];
+    if (Object.keys(patch).length === 0 || !Object.keys(patch).every((k) => allowedPatchKeys.includes(k))) {
+      return res.status(400).json({ success: false, error: `Patch may only contain: ${allowedPatchKeys.join(", ")}.` });
+    }
+    // Validate merchant UPI patch value once, up front.
+    let patchUpi: { vpa?: string; name?: string } | null = undefined as never;
+    let patchUpiCleared = false;
+    if ("merchantUpi" in patch) {
+      if (patch.merchantUpi === null) {
+        patchUpi = null;
+        patchUpiCleared = true;
+      } else if (patch.merchantUpi && typeof patch.merchantUpi === "object") {
+        const rawVpa = String(patch.merchantUpi?.vpa || "").trim();
+        if (!rawVpa) {
+          patchUpi = null;
+          patchUpiCleared = true;
+        } else if (!COUNTER_VPA_RE.test(rawVpa) || rawVpa.length > 129) {
+          return res.status(400).json({ success: false, error: "The UPI ID must look like 'merchant@upi' (letters, digits, . _ - only)." });
+        } else {
+          patchUpi = { vpa: rawVpa };
+          const rawName = String(patch.merchantUpi?.name || "").trim();
+          if (rawName) patchUpi.name = rawName.slice(0, 25);
+        }
+      } else {
+        return res.status(400).json({ success: false, error: "patch.merchantUpi must be a { vpa, name? } object or null to clear." });
+      }
+    }
+    let patchStatus: string | undefined;
+    if ("status" in patch) {
+      patchStatus = String(patch.status);
+      if (patchStatus !== "active" && patchStatus !== "inactive") {
+        return res.status(400).json({ success: false, error: "patch.status must be 'active' or 'inactive'." });
+      }
+    }
+    let patchStaff: string[] | undefined;
+    if ("assignedStaffIds" in patch) {
+      if (!Array.isArray(patch.assignedStaffIds) || patch.assignedStaffIds.length > 50) {
+        return res.status(400).json({ success: false, error: "patch.assignedStaffIds must list at most 50 staff IDs." });
+      }
+      patchStaff = patch.assignedStaffIds.filter((s: any) => /^[a-zA-Z0-9_\-]{1,128}$/.test(String(s))).map(String);
+      if (patchStaff.length !== patch.assignedStaffIds.length) {
+        return res.status(400).json({ success: false, error: "patch.assignedStaffIds contains invalid staff ID formats." });
+      }
+    }
+    const token = await getAdminAuthToken();
+    // Fail-all-or-nothing: resolve every counter and validate staff first.
+    const records: Array<{ id: string; existing: any }> = [];
+    for (const id of counterIds) {
+      const existing = (await rtdbGet(`counters/${id}`, token)).data;
+      if (!existing) {
+        return res.status(404).json({ success: false, error: `Counter '${id}' not found.` });
+      }
+      records.push({ id, existing });
+    }
+    if (patchStaff !== undefined) {
+      for (const sid of patchStaff) {
+        const s = (await rtdbGet(`staff/${sid}`, token)).data;
+        if (!s) {
+          return res.status(400).json({ success: false, error: `Unknown staff ID in patch: ${sid}.` });
+        }
+      }
+    }
+    // Apply.
+    const now = new Date().toISOString();
+    const outcomes: Array<{ counterId: string; success: boolean; error?: string }> = [];
+    for (const { id, existing } of records) {
+      try {
+        const updated = {
+          ...existing,
+          ...(patchStatus !== undefined ? { status: patchStatus } : {}),
+          ...(patchUpi !== undefined ? { merchantUpi: patchUpi === null ? {} : patchUpi } : {}),
+          ...(patchStaff !== undefined ? { assignedStaffIds: patchStaff } : {}),
+          updatedAt: now,
+          updatedBy: req.user.uid,
+        };
+        await rtdbSet(`counters/${id}`, updated, token);
+        await writeAuditEntry({
+          actorId: req.user.uid,
+          actorRole: req.user.rbacRole,
+          action: "counter.batch_updated",
+          entityType: "counter",
+          entityId: id,
+          beforeState: existing,
+          afterState: updated,
+        });
+        outcomes.push({ counterId: id, success: true });
+      } catch (rowErr: any) {
+        outcomes.push({ counterId: id, success: false, error: rowErr.message || "Could not update counter." });
+      }
+    }
+    return res.status(200).json({ success: true, outcomes });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || "Could not apply batch update." });
+  }
+});
+
+app.delete("/api/admin/counters/:counterId", requireRole(["super_admin"]), async (req: any, res) => {
+  try {
+    const { counterId } = req.params;
+    const token = await getAdminAuthToken();
+    const existing = (await rtdbGet(`counters/${counterId}`, token)).data as any;
+    if (!existing) {
+      return res.status(404).json({ success: false, error: "Counter not found." });
+    }
+    if (existing.status !== "inactive") {
+      // Safety first: deactivate; hard delete only after a clean status flip.
+      const updated = { ...existing, status: "inactive", updatedAt: new Date().toISOString(), updatedBy: req.user.uid };
+      await rtdbSet(`counters/${counterId}`, updated, token);
+      await writeAuditEntry({ actorId: req.user.uid, actorRole: req.user.rbacRole, action: "counter.deactivated", entityType: "counter", entityId: counterId, beforeState: existing, afterState: updated });
+      return res.status(200).json({ success: true, counter: { id: counterId, ...updated }, note: "Counter deactivated. Delete again to remove permanently." });
+    }
+    // Hard delete only when the counter has zero walk-in sales.
+    const salesSnap = await rtdbGet("sales", token);
+    const sales = (salesSnap.data || {}) as Record<string, any>;
+    const saleCount = Object.values(sales).filter((s: any) => s?.counterId === counterId).length;
+    if (saleCount > 0) {
+      return res.status(409).json({ success: false, error: `Cannot delete: counter has ${saleCount} recorded sale(s).` });
+    }
+    await rtdbSet(`counters/${counterId}`, null, token);
+    await writeAuditEntry({ actorId: req.user.uid, actorRole: req.user.rbacRole, action: "counter.deleted", entityType: "counter", entityId: counterId, beforeState: existing });
+    return res.status(200).json({ success: true, note: "Counter removed." });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || "Could not delete counter." });
   }
 });
 

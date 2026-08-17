@@ -131,7 +131,7 @@ interface BookingContextType {
   releaseHeldSeats: (eventId: string, seatIds: string[]) => Promise<void>;
   confirmPurchase: (attendeeDetails: { name: string; email: string; phone: string }, paymentMethod: string, ownerId?: string) => Promise<Ticket>;
   confirmServerPurchasedTicket: (ticket: any, booking: any) => Ticket;
-  createWalkInBooking: (eventId: string, tierId: string, attendeeName: string, attendeePhone: string, scannedByStaffId?: string, selectedSeats?: string[], paymentMethod?: string, options?: { payments?: { method: string; amount: number }[]; discountOverride?: { overrideId: string; discountAmount: number; actorId: string; reason: string }; shiftId?: string; idempotencyKey?: string }) => Promise<Ticket>;
+  createWalkInBooking: (eventId: string, tierId: string, attendeeName: string, attendeePhone: string, scannedByStaffId?: string, selectedSeats?: string[], paymentMethod?: string, options?: { payments?: { method: string; amount: number }[]; discountOverride?: { overrideId: string; discountAmount: number; actorId: string; reason: string }; shiftId?: string; idempotencyKey?: string; quantity?: number; counterId?: string }) => Promise<Ticket>;
   getEventById: (id: string) => EventItem | undefined;
   addEvent: (newEvent: Omit<EventItem, 'id' | 'rating' | 'reviewsCount'>) => void;
   updateEvent: (updatedEvent: EventItem) => void;
@@ -805,7 +805,7 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     scannedByStaffId?: string,
     selectedSeats?: string[],
     paymentMethod: string = 'cash',
-    options?: { payments?: { method: string; amount: number }[]; discountOverride?: { overrideId: string; discountAmount: number; actorId: string; reason: string }; shiftId?: string; idempotencyKey?: string; quantity?: number }
+    options?: { payments?: { method: string; amount: number }[]; discountOverride?: { overrideId: string; discountAmount: number; actorId: string; reason: string }; shiftId?: string; idempotencyKey?: string; quantity?: number; counterId?: string }
   ): Promise<Ticket> => {
     const response = await safeFetch<any>('/api/walk-in-bookings', {
       method: 'POST',
@@ -823,6 +823,7 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         ...(options?.discountOverride ? { discountOverride: options.discountOverride } : {}),
         ...(options?.shiftId ? { shiftId: options.shiftId } : {}),
         ...(options?.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {}),
+        ...(options?.counterId ? { counterId: options.counterId } : {}),
       }),
     });
     const data = response.data || {};

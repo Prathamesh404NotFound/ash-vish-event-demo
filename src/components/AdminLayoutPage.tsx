@@ -71,6 +71,13 @@ export const AdminLayoutPage: React.FC = () => {
       description: "Verify event entry tickets"
     },
     {
+      title: "Ticket Counters",
+      path: "/admin/counters",
+      icon: Armchair,
+      description: "Counter stations, staff & merchant UPI",
+      superAdminOnly: true,
+    },
+    {
       title: "Console Settings",
       path: "/admin/settings",
       icon: Settings,

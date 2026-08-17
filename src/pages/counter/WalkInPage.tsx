@@ -25,6 +25,7 @@ import {
   ExternalLink,
   SlidersHorizontal,
   Settings2,
+  KeyRound,
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { useBooking } from '../../contexts/BookingContext';
@@ -101,6 +102,25 @@ export const WalkInPage: React.FC = () => {
   const [upiFlow, setUpiFlow] = useState<UpiFlowState>('none');
   const [upiConfig, setUpiConfig] = useState<{ vpa: string; name: string } | null>(null);
   const [upiError, setUpiError] = useState('');
+
+  // ---------- Ticket counter station picker ----------
+  const COUNTER_MEMORY_KEY = 'walkin_pos_last_counter';
+  interface WalkInCounter {
+    id: string;
+    name: string;
+    venue: string;
+    status: 'active' | 'inactive';
+    merchantUpi: { vpa: string; name: string };
+    assignedStaffIds: string[];
+  }
+  const [counters, setCounters] = useState<WalkInCounter[]>([]);
+  const [selectedCounterId, setSelectedCounterId] = useState<string>(() => {
+    try {
+      return localStorage.getItem(COUNTER_MEMORY_KEY) || '';
+    } catch {
+      return '';
+    }
+  });
 
   // ---------- General ----------
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -202,6 +222,56 @@ export const WalkInPage: React.FC = () => {
     return () => { cancelled = true; };
   }, []);
 
+  // ---------- Counter stations (for staff operating a named counter) ----------
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const res = await safeFetch<any>('/api/admin/counters', { headers: await authenticatedApiHeaders() });
+        if (!cancelled && res.ok && res.data?.success) {
+          const all: WalkInCounter[] = res.data.counters || [];
+          // Counter staff see only the counters they are assigned to and that
+          // are active; platform admins/super-admins see every active counter.
+          const visible = all.filter((c: WalkInCounter) => {
+            if (c.status !== 'active') return false;
+            if (isApprover) return true;
+            return c.assignedStaffIds.includes(user?.uid || '');
+          });
+          setCounters(visible);
+          // If the persisted choice is no longer available, stay on whatever is
+          // first rather than silently resetting mid-session.
+          setSelectedCounterId((prev) => {
+            if (prev && visible.some((c: WalkInCounter) => c.id === prev)) return prev;
+            if (visible.length > 0) return visible[0].id;
+            return '';
+          });
+        }
+      } catch {
+        /* best-effort; walk-in sales still work without a counter */
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Persist the chosen counter for fast repeat issuance on this device.
+  useEffect(() => {
+    try {
+      if (selectedCounterId) localStorage.setItem(COUNTER_MEMORY_KEY, selectedCounterId);
+      else localStorage.removeItem(COUNTER_MEMORY_KEY);
+    } catch {
+      /* storage unavailable */
+    }
+  }, [selectedCounterId]);
+
+  // Effective UPI: per-counter override when the selected counter carries its
+  // own merchant VPA, otherwise the global merchant UPI config.
+  const selectedCounter = counters.find((c) => c.id === selectedCounterId) || null;
+  const counterHasUpi = Boolean(selectedCounter?.merchantUpi?.vpa);
+  const effectiveUpi = counterHasUpi ? selectedCounter!.merchantUpi : upiConfig;
+  const upiSource = counterHasUpi ? 'counter' : 'global';
+
   // ---------- Real-time seat map refresh ----------
   useEffect(() => {
     if (!isSeatBasedEvent(selectedEvent)) return;
@@ -287,14 +357,14 @@ export const WalkInPage: React.FC = () => {
   const netTotal = Math.max(0, grossTotal - discountAmount);
   const paymentsValid = payments.length > 0 && Math.abs(paymentsSum - netTotal) < 0.01 && payments.every((p) => p.amount > 0);
   const upiUri = paymentMethod === 'upi' && validateUpiParam({
-    vpa: upiConfig?.vpa || '',
-    name: upiConfig?.name,
+    vpa: effectiveUpi?.vpa || '',
+    name: effectiveUpi?.name,
     amount: netTotal,
     note: selectedEvent ? `Walk-in pass: ${selectedEvent.title}` : undefined,
   }).valid
     ? buildUpiPayUri({
-        vpa: upiConfig!.vpa,
-        name: upiConfig?.name,
+        vpa: effectiveUpi!.vpa,
+        name: effectiveUpi?.name,
         amount: netTotal,
         note: selectedEvent ? `Walk-in pass: ${selectedEvent.title}` : undefined,
       })
@@ -305,7 +375,7 @@ export const WalkInPage: React.FC = () => {
   useEffect(() => {
     setUpiFlow('none');
     setUpiError('');
-  }, [paymentMethod, netTotal, upiConfig?.vpa]);
+  }, [paymentMethod, netTotal, effectiveUpi?.vpa]);
 
   const refreshSeats = useCallback(() => {
     setSeatRefreshKey((k) => k + 1);
@@ -516,6 +586,7 @@ export const WalkInPage: React.FC = () => {
               : undefined,
             shiftId: activeShiftId || undefined,
             idempotencyKey,
+            counterId: selectedCounterId || undefined,
           }
         );
         setIssuedTicket(ticket);
@@ -1027,6 +1098,39 @@ export const WalkInPage: React.FC = () => {
           <div className="lg:sticky lg:top-28 space-y-4">
             {/* Total card */}
             <div className="p-5 rounded-3xl bg-[#141414] border border-white/10">
+              {counters.length > 0 && (
+                <div className="mb-4">
+                  <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">
+                    Ticket Counter
+                  </label>
+                  <select
+                    value={selectedCounterId}
+                    onChange={(e) => setSelectedCounterId(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-xl bg-[#1C1C1C] border border-white/10 text-white text-sm focus:outline-none focus:border-[#D4AF37] cursor-pointer appearance-none"
+                  >
+                    <option value="" disabled>
+                      Select a counter station&hellip;
+                    </option>
+                    {counters.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}{c.venue ? ` — ${c.venue}` : ''}
+                        {c.merchantUpi?.vpa ? ' • Counter UPI' : ''}
+                      </option>
+                    ))}
+                  </select>
+                  {selectedCounter && (
+                    <p className="text-[10px] text-gray-500 mt-1.5 flex items-center gap-1">
+                      <Armchair className="w-3 h-3 text-[#D4AF37]" />
+                      Collecting into{' '}
+                      {counterHasUpi ? (
+                        <span className="text-[#F3E5AB]">{selectedCounter.name}&rsquo;s merchant UPI</span>
+                      ) : (
+                        <span className="text-gray-400">global merchant UPI</span>
+                      )}
+                    </p>
+                  )}
+                </div>
+              )}
               <div className="flex items-center justify-between">
                 <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
                   {discountAmount > 0 ? 'Total Due (after discount)' : 'Total Due'}
@@ -1200,8 +1304,8 @@ export const WalkInPage: React.FC = () => {
                 )}
 
                 {validateUpiParam({
-                  vpa: upiConfig?.vpa || '',
-                  name: upiConfig?.name,
+                  vpa: effectiveUpi?.vpa || '',
+                  name: effectiveUpi?.name,
                   amount: netTotal,
                 }).valid ? (
                   <div className="mt-4 flex flex-col items-center">
@@ -1220,17 +1324,22 @@ export const WalkInPage: React.FC = () => {
                         {formatRupee(netTotal)}
                       </p>
                       <p className="text-gray-400 text-xs">
-                        Exact-amount request • {upiConfig?.name || 'merchant'}
+                        Exact-amount request • {effectiveUpi?.name || 'merchant'}
                       </p>
                       <p className="text-gray-500 text-xs font-mono">
-                        {maskedVpa(upiConfig!.vpa)}
+                        {maskedVpa(effectiveUpi!.vpa)}
                       </p>
+                      {counterHasUpi && (
+                        <p className="text-[10px] text-[#F3E5AB]/70 flex items-center justify-center gap-1">
+                          <KeyRound className="w-3 h-3" /> Managed in Admin → Counters • {selectedCounter?.name}
+                        </p>
+                      )}
                     </div>
                     <div className="flex items-center gap-2 mt-4 w-full">
                       <button
                         type="button"
                         onClick={() => {
-                          navigator.clipboard?.writeText(upiConfig!.vpa).then(
+                          navigator.clipboard?.writeText(effectiveUpi!.vpa).then(
                             () => setOfflineToast('UPI ID copied'),
                             () => {}
                           );
