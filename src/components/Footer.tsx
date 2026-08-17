@@ -22,7 +22,7 @@ export const Footer: React.FC<FooterProps> = ({ setActiveTab }) => {
               <img
                 src="/favicon-192.png"
                 alt="AV Events Logo"
-                className="w-9 h-9 rounded-xl object-cover bg-white shadow-lg shadow-[#D4AF37]/25"
+                className="w-9 h-9 rounded-xl object-cover shadow-lg shadow-[#D4AF37]/25"
               />
               <span className="font-heading font-extrabold text-2xl tracking-tight text-white">
                 Ash-vish<span className="text-[#D4AF37]"> events</span>

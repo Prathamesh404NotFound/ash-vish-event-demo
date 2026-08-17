@@ -42,7 +42,7 @@ export const AuthPage: React.FC = () => {
             <img
               src="/favicon-192.png"
               alt="AV Events Logo"
-              className="w-9 h-9 rounded-xl object-cover bg-white shadow-lg"
+              className="w-9 h-9 rounded-xl object-cover shadow-lg"
             />
             <span className="font-heading font-extrabold text-2xl text-white">
               Ash-vish<span className="text-[#D4AF37]"> events</span>

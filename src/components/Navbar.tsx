@@ -53,7 +53,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSearch }) => {
               <img
                 src="/favicon-192.png"
                 alt="AV Events Logo"
-                className="w-10 h-10 rounded-xl object-cover bg-white shadow-lg shadow-[#D4AF37]/30 group-hover:scale-105 transition-transform duration-200"
+                className="w-10 h-10 rounded-xl object-cover shadow-lg shadow-[#D4AF37]/30 group-hover:scale-105 transition-transform duration-200"
               />
               <div className="flex flex-col">
                 <span className="font-heading font-extrabold text-lg sm:text-xl tracking-tight text-white leading-none">
