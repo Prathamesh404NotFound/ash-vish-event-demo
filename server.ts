@@ -5572,7 +5572,7 @@ app.delete("/api/admin/counters/:counterId", requireRole(["super_admin"]), async
   }
 });
 
-  app.get("/sitemap.xml", (req, res) => {
+  app.get(["/sitemap.xml", "/public/sitemap.xml", "/public/sitemap"], (req, res) => {
     res.setHeader("Content-Type", "application/xml; charset=utf-8");
     const publicPath = path.join(process.cwd(), "public", "sitemap.xml");
     const distPath = path.join(process.cwd(), "dist", "sitemap.xml");

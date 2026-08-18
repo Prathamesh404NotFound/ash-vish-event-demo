@@ -12,6 +12,10 @@
       "destination": "/api/[[...route]]"
     },
     {
+      "source": "/public/sitemap(.*)",
+      "destination": "/sitemap.xml"
+    },
+    {
       "source": "/sitemap.xml",
       "destination": "/sitemap.xml"
     },
