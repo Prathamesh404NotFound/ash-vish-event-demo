@@ -664,7 +664,20 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
             </div>
           </div>
           <button
-            onClick={() => setBookingStep(seatSelectionStep)}
+            onClick={async () => {
+              if (hasSeatMap) {
+                setBookingStep(seatSelectionStep);
+              } else {
+                if (!reservation || reservation.status !== 'active') {
+                  try {
+                    await createReservation([]);
+                  } catch {
+                    /* ignore */
+                  }
+                }
+                setBookingStep(attendeeStep);
+              }
+            }}
             className="w-full py-4 rounded-2xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] hover:brightness-110 active:scale-[0.99] text-black font-extrabold text-base flex items-center justify-center gap-2 cursor-pointer"
           >
             Continue to {hasSeatMap ? 'Seat Selection' : 'Attendee Details'} <ArrowRight className="w-5 h-5" />

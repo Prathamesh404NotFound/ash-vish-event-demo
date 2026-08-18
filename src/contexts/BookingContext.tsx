@@ -573,10 +573,11 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
     let res: SafeFetchResponse<any>;
     const tierMatch = reservation?.eventId === event.id && reservation?.tierId === tier.id;
+    const authHeaders = await authenticatedApiHeaders();
     if (reservation && reservation.status === 'active' && tierMatch) {
       res = await safeFetch<any>(`/api/reservations/${reservation.reservationId}/selection`, {
         method: 'PUT',
-        headers: apiHeaders(),
+        headers: authHeaders,
         body: JSON.stringify({ seatIds, quantity }),
         signal: controller.signal,
       });
@@ -584,7 +585,7 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const idempotencyKey = `idem_${getSessionId()}_${event.id}_${tier.id}_${seatIds.slice().sort().join(',')}`;
       res = await safeFetch<any>('/api/reservations', {
         method: 'POST',
-        headers: apiHeaders(),
+        headers: authHeaders,
         body: JSON.stringify({ eventId: event.id, tierId: tier.id, quantity, seatIds, idempotencyKey }),
         signal: controller.signal,
       });
@@ -626,8 +627,9 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const refreshReservation = async (): Promise<ReservationState | null> => {
     if (!reservation) return null;
     try {
+      const authHeaders = await authenticatedApiHeaders();
       const res = await safeFetch<any>(`/api/reservations/${reservation.reservationId}`, {
-        headers: apiHeaders(),
+        headers: authHeaders,
       });
       const data = res.data || {};
       if (!res.ok || !data.success) return null;
@@ -657,9 +659,10 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return;
     }
     try {
+      const authHeaders = await authenticatedApiHeaders();
       await safeFetch(`/api/reservations/${reservation.reservationId}`, {
         method: 'DELETE',
-        headers: apiHeaders(),
+        headers: authHeaders,
       });
     } catch (err) {
       console.warn('Cancel reservation network note:', err);
@@ -669,11 +672,22 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const setAttendeeDetails = async (details: { name: string; email: string; phone: string }): Promise<boolean> => {
-    if (!reservation) return false;
+    let currentRes = reservation;
+    if (!currentRes || currentRes.status !== 'active') {
+      if (currentCheckout) {
+        try {
+          currentRes = await createReservation(currentCheckout.selectedSeats || []);
+        } catch {
+          // If creation fails, we'll try with whatever is available
+        }
+      }
+    }
+    if (!currentRes) return false;
     try {
-      const res = await safeFetch<any>(`/api/reservations/${reservation.reservationId}/attendee`, {
+      const authHeaders = await authenticatedApiHeaders();
+      const res = await safeFetch<any>(`/api/reservations/${currentRes.reservationId}/attendee`, {
         method: 'POST',
-        headers: apiHeaders(),
+        headers: authHeaders,
         body: JSON.stringify(details),
       });
       const data = res.data || {};

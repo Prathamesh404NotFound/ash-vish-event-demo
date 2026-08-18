@@ -224,6 +224,7 @@ interface ReservationRecord {
   quantity: number;
   seatIds: string[]; // normalized, sorted
   ownerId: string;
+  guestOwnerId?: string;
   status: "active" | "confirmed" | "expired" | "released" | "cancelled";
   createdAt: number;
   expiresAt: number;
@@ -1742,8 +1743,13 @@ export async function createApp() {
    * original opaque session id; do not accept an arbitrary owner id from the
    * client. This prevents a valid sign-in from orphaning its in-progress hold.
    */
-  function isReservationOwner(record: ReservationRecord, owner: { ownerId: string; guestOwnerId?: string }): boolean {
-    return record.ownerId === owner.ownerId || Boolean(owner.guestOwnerId && record.ownerId === owner.guestOwnerId);
+  function isReservationOwner(record: ReservationRecord, owner: { ownerId: string; guestOwnerId?: string; uid?: string }): boolean {
+    if (!record || !owner) return false;
+    if (record.ownerId === owner.ownerId) return true;
+    if (owner.guestOwnerId && record.ownerId === owner.guestOwnerId) return true;
+    if (record.guestOwnerId && owner.guestOwnerId && record.guestOwnerId === owner.guestOwnerId) return true;
+    if (owner.uid && record.ownerId === owner.uid) return true;
+    return false;
   }
 
   app.post("/api/reservations", async (req, res) => {
@@ -1829,6 +1835,7 @@ export async function createApp() {
         quantity,
         seatIds: normalizedSeats,
         ownerId: owner.ownerId,
+        guestOwnerId: owner.guestOwnerId,
         status: "active",
         createdAt: now,
         expiresAt: now + RESERVATION_HOLD_TTL_MS,
@@ -2109,7 +2116,7 @@ export async function createApp() {
       const attendee = {
         name: String(name).slice(0, 100),
         email: String(email).slice(0, 150),
-        phone: String(phone).slice(0, 20),
+        phone: String(phone).slice(0, 40),
       };
       await rtdbUpdate(`reservations/${record.reservationId}`, { attendee }, authToken);
       return res.json({ success: true, attendee });
