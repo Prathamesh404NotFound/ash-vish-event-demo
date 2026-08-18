@@ -344,7 +344,7 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
   const handleAdvanceAttendee = async () => {
     setSubmitError('');
     if (!attendeeName.trim() || !attendeeEmail.trim() || !attendeePhone.trim()) {
-      setSubmitError('Please fill in all attendee details to continue.');
+      setSubmitError('Full Name, Email, and WhatsApp Mobile Number are strictly mandatory.');
       return;
     }
     const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(attendeeEmail);
@@ -354,7 +354,7 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
     }
     const phoneDigits = attendeePhone.replace(/\D/g, '');
     if (phoneDigits.length < 10) {
-      setSubmitError('Please enter a valid 10-digit mobile number.');
+      setSubmitError('Please enter a valid 10-digit WhatsApp mobile number.');
       return;
     }
     // Save attendee to server reservation before review.
@@ -788,7 +788,9 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
                   className="w-full bg-[#1C1C1C] border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#D4AF37]" />
               </div>
               <div>
-                <label className="text-xs font-bold text-gray-300 block mb-1">Mobile Number (10-Digit Indian)</label>
+                <label className="text-xs font-bold text-gray-300 block mb-1">
+                  WhatsApp Number (Mandatory for QR Pass Delivery) <span className="text-amber-400">*</span>
+                </label>
                 <input type="tel" required value={attendeePhone} placeholder="+91 98200 12345"
                   onChange={(e) => { setAttendeePhone(e.target.value); setAttendeeDirty(true); }}
                   className="w-full bg-[#1C1C1C] border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#D4AF37]" />

@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { Calendar, MapPin, User, QrCode, Download, CheckCircle, Clock, ExternalLink } from 'lucide-react';
+import { Calendar, MapPin, User, QrCode, Download, CheckCircle, Clock, ExternalLink, MessageSquareCode } from 'lucide-react';
 import { Ticket as TicketType } from '../types';
 import { QRPlaceholder } from './QRPlaceholder';
 import { TicketModal } from './TicketModal';
 import { generateTicketPDF } from '../utils/pdfGenerator';
 import { useBooking } from '../contexts/BookingContext';
+import { sendTicketToWhatsApp } from '../utils/whatsapp';
 
 interface TicketCardProps {
   ticket: TicketType;
@@ -126,10 +127,18 @@ export const TicketCard: React.FC<TicketCardProps> = ({ ticket }) => {
               </div>
             </div>
 
-            <div className="w-full flex flex-col gap-2">
+            <div className="w-full flex flex-col gap-1.5">
+              <button
+                onClick={() => sendTicketToWhatsApp(ticket)}
+                className="w-full py-2 px-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-md shadow-emerald-500/20 transition-all cursor-pointer"
+              >
+                <MessageSquareCode className="w-3.5 h-3.5" />
+                <span>WhatsApp Pass</span>
+              </button>
+
               <button
                 onClick={() => setModalOpen(true)}
-                className="w-full py-2 px-3 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] hover:brightness-110 text-black font-bold text-xs flex items-center justify-center gap-1.5 shadow-md shadow-[#D4AF37]/25 transition-all"
+                className="w-full py-2 px-3 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] hover:brightness-110 text-black font-bold text-xs flex items-center justify-center gap-1.5 shadow-md shadow-[#D4AF37]/25 transition-all cursor-pointer"
               >
                 <QrCode className="w-3.5 h-3.5" />
                 <span>View Full Pass</span>
@@ -138,7 +147,7 @@ export const TicketCard: React.FC<TicketCardProps> = ({ ticket }) => {
               <button
                 onClick={handleDownload}
                 disabled={isDownloading}
-                className="w-full py-2 px-3 rounded-xl bg-[#1C1C1C] hover:bg-[#262626] border border-white/10 text-gray-200 font-semibold text-xs flex items-center justify-center gap-1.5 transition-all"
+                className="w-full py-2 px-3 rounded-xl bg-[#1C1C1C] hover:bg-[#262626] border border-white/10 text-gray-200 font-semibold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
               >
                 <Download className="w-3.5 h-3.5" />
                 <span>{isDownloading ? 'Downloading...' : 'PDF Download'}</span>

@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { X, CheckCircle, MapPin, Calendar, User, Download, Share2, Sparkles, Mail, ShieldCheck } from 'lucide-react';
+import { X, CheckCircle, MapPin, Calendar, User, Download, Share2, Sparkles, Mail, ShieldCheck, MessageSquareCode } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Ticket } from '../types';
 import { QRPlaceholder } from './QRPlaceholder';
 import { generateTicketPDF } from '../utils/pdfGenerator';
 import { useBooking } from '../contexts/BookingContext';
+import { sendTicketToWhatsApp } from '../utils/whatsapp';
 
 import { safeFetch } from '../lib/api';
 
@@ -140,11 +141,19 @@ export const TicketModal: React.FC<TicketModalProps> = ({ ticket, onClose }) => 
         </div>
 
         {/* Action Buttons */}
-        <div className="p-4 bg-[#1C1C1C] grid grid-cols-2 gap-3">
+        <div className="p-4 bg-[#1C1C1C] flex flex-col sm:flex-row gap-2.5">
+          <button
+            onClick={() => sendTicketToWhatsApp(ticket)}
+            className="flex-1 py-2.5 px-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-extrabold text-xs flex items-center justify-center gap-2 shadow-md shadow-emerald-500/20 transition-all cursor-pointer"
+          >
+            <MessageSquareCode className="w-4 h-4" />
+            <span>Send to WhatsApp</span>
+          </button>
+
           <button
             onClick={handleDownloadPDF}
             disabled={isDownloading}
-            className={`py-2.5 px-3 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] hover:brightness-110 text-black font-bold text-xs flex items-center justify-center gap-2 shadow-md shadow-[#D4AF37]/25 transition-all cursor-pointer ${
+            className={`flex-1 py-2.5 px-3 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] hover:brightness-110 text-black font-bold text-xs flex items-center justify-center gap-2 shadow-md shadow-[#D4AF37]/25 transition-all cursor-pointer ${
               isDownloading ? 'opacity-75 cursor-not-allowed' : ''
             }`}
           >
@@ -157,7 +166,7 @@ export const TicketModal: React.FC<TicketModalProps> = ({ ticket, onClose }) => 
             ) : (
               <Download className="w-4 h-4" />
             )}
-            <span>{isDownloading ? 'Generating...' : 'Download PDF'}</span>
+            <span>{isDownloading ? 'Generating...' : 'PDF Pass'}</span>
           </button>
 
           <button
@@ -166,7 +175,7 @@ export const TicketModal: React.FC<TicketModalProps> = ({ ticket, onClose }) => 
             className="py-2.5 px-3 rounded-xl bg-[#141414] hover:bg-[#262626] border border-white/10 text-gray-200 font-semibold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
           >
             <Mail className="w-4 h-4 text-[#D4AF37]" />
-            <span>{emailSending ? 'Sending...' : 'Email Pass'}</span>
+            <span>{emailSending ? 'Sending...' : 'Email'}</span>
           </button>
         </div>
 

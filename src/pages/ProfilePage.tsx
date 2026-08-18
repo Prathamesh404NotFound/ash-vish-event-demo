@@ -182,12 +182,14 @@ export const ProfilePage: React.FC = () => {
 
             <div>
               <label className="text-xs font-bold text-gray-300 block mb-1">
-                Phone Number
+                WhatsApp Mobile Number (Mandatory for QR Pass Delivery) <span className="text-amber-400">*</span>
               </label>
               <div className="relative">
-                <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-400" />
                 <input
                   type="tel"
+                  required
+                  placeholder="+91 98200 12345"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
                   className="w-full bg-[#1C1C1C] border border-white/10 rounded-xl pl-10 pr-4 py-2.5 text-xs text-white focus:outline-none focus:border-[#D4AF37]"

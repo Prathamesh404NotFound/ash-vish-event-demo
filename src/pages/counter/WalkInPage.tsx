@@ -26,12 +26,14 @@ import {
   SlidersHorizontal,
   Settings2,
   KeyRound,
+  MessageSquareCode,
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { useBooking } from '../../contexts/BookingContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { Ticket as TicketType } from '../../types';
 import { SeatMap } from '../../components/SeatMap';
+import { sendTicketToWhatsApp } from '../../utils/whatsapp';
 import { safeFetch } from '../../lib/api';
 import { isSeatBasedEvent } from '../../lib/seatMap';
 import { authenticatedApiHeaders } from '../../lib/authHeaders';
@@ -529,8 +531,13 @@ export const WalkInPage: React.FC = () => {
       nameInputRef.current?.focus();
       return;
     }
-    if (trimmedPhone && !/^[0-9+\s()-]{7,20}$/.test(trimmedPhone)) {
-      setFormError('The mobile number must be 7-20 digits (e.g. 9876543210).');
+    if (!trimmedPhone) {
+      setFormError('WhatsApp Mobile Number is mandatory for sending QR ticket pass.');
+      return;
+    }
+    const phoneDigits = trimmedPhone.replace(/\D/g, '');
+    if (phoneDigits.length < 10) {
+      setFormError('The WhatsApp mobile number must be a valid 10-digit number (e.g. 9820012345).');
       return;
     }
     if (selectedEvent && isSeatBasedEvent(selectedEvent) && selectedSeats.length === 0) {
@@ -677,6 +684,7 @@ export const WalkInPage: React.FC = () => {
   const confirmDisabled =
     isSubmitting ||
     !attendeeName.trim() ||
+    !attendeePhone.trim() ||
     !selectedEvent ||
     !selectedTier ||
     (isSeatBasedEvent(selectedEvent) && selectedSeats.length === 0) ||
@@ -792,10 +800,17 @@ export const WalkInPage: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex items-center justify-center gap-4">
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <button
+              onClick={() => sendTicketToWhatsApp(issuedTicket)}
+              className="py-3 px-6 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-extrabold text-xs flex items-center gap-2 transition-all shadow-lg shadow-emerald-500/25 cursor-pointer"
+            >
+              <MessageSquareCode className="w-4 h-4 stroke-[2.5]" />
+              <span>Send QR Pass to WhatsApp</span>
+            </button>
             <button
               onClick={() => window.print()}
-              className="py-3 px-6 rounded-xl bg-[#222] hover:bg-[#333] text-white font-bold text-xs flex items-center gap-2 border border-white/10 transition-all cursor-pointer"
+              className="py-3 px-5 rounded-xl bg-[#222] hover:bg-[#333] text-white font-bold text-xs flex items-center gap-2 border border-white/10 transition-all cursor-pointer"
             >
               <Printer className="w-4 h-4 text-[#D4AF37]" />
               <span>Print Gate Receipt</span>
@@ -1027,12 +1042,16 @@ export const WalkInPage: React.FC = () => {
               <div className="relative">
                 <input
                   type="tel"
+                  required
                   value={attendeePhone}
-                  onChange={(e) => setAttendeePhone(e.target.value)}
-                  placeholder="Mobile number (Optional)"
+                  onChange={(e) => {
+                    setAttendeePhone(e.target.value);
+                    if (formError.includes('WhatsApp')) setFormError('');
+                  }}
+                  placeholder="WhatsApp Mobile Number (Mandatory) *"
                   className="w-full pl-9 pr-4 py-2.5 rounded-xl bg-[#1C1C1C] border border-white/10 text-white text-sm focus:outline-none focus:border-[#D4AF37] transition-colors"
                 />
-                <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+                <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-400" />
               </div>
             </div>
 
