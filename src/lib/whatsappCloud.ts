@@ -170,6 +170,21 @@ export async function sendTicketCloud(ticket: any, recipientPhone: string): Prom
       const status = response.status;
       console.warn(`[WHATSAPP CLOUD] Received HTTP ${status} error response:`, JSON.stringify(metaError));
 
+      // Template-missing fallback: error 132001 means the custom template
+      // 'ticket_confirmation' has not been created in WhatsApp Manager yet.
+      // Fall back once to the built-in 'hello_world' template (exists in every
+      // account by default) so a message still reaches the attendee immediately.
+      const templateMissing =
+        metaError?.code === 132001 ||
+        (typeof metaError?.message === 'string' && /template name .* does not exist/i.test(metaError.message));
+      if (templateMissing && payload.template.name !== 'hello_world') {
+        console.warn(`[WHATSAPP CLOUD] Custom template missing (132001). Falling back to built-in hello_world.`);
+        payload.template = { name: 'hello_world', language: { code: 'en_US' } };
+        // hello_world takes no body parameters — remove them for the fallback call
+        delete (payload.template as any).components;
+        continue;
+      }
+
       // Retryable statuses: 429, 500, 502, 503
       if (status === 429 || status === 500 || status === 502 || status === 503) {
         lastError = metaError;
