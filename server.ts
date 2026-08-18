@@ -939,6 +939,11 @@ async function finalizeBookingServerSide(
     const tokenSig = crypto.createHmac("sha256", SERVER_HMAC_SECRET).update(tokenPayload).digest("hex").substring(0, 16);
     const signedQrToken = `${isDeferred ? 'ASH_RES' : 'ASH_PASS'}.${Buffer.from(tokenPayload).toString('base64url')}.${tokenSig}`;
 
+    // Generate secure opaque pass slug
+    const passId = crypto.randomBytes(24).toString('base64url');
+    const passSig = crypto.createHmac("sha256", SERVER_HMAC_SECRET).update(`${passId}|${ticketId}`).digest("hex").substring(0, 16);
+    const passSlug = { id: passId, sig: passSig, createdAt: Date.now() };
+
     const newTicket = {
       id: ticketId,
       ticketNumber: ticketNum,
@@ -960,6 +965,7 @@ async function finalizeBookingServerSide(
       attendeeEmail: customerDetails.email,
       attendeePhone: customerDetails.phone,
       qrCodeValue: signedQrToken,
+      passSlug,
       passType: isDeferred ? 'reservation' : 'entry',
       paymentStatus: isDeferred ? 'pending' : 'paid',
       amountDue: isDeferred ? amount : 0,
@@ -994,6 +1000,7 @@ async function finalizeBookingServerSide(
     await rtdbSet(`users/${userId}/tickets/${ticketId}`, newTicket, authToken);
     await rtdbSet(`bookings/${bookingId}`, newBookingRecord, authToken);
     await rtdbSet(`users/${userId}/bookings/${bookingId}`, newBookingRecord, authToken);
+    await rtdbSet(`passes/${passId}`, { ticketId }, authToken);
 
     // The seats were already transitioned to 'booked' in step 3; persist the
     // ticket/booking linkage (idempotent: the book transaction sets ticketId/
@@ -4522,6 +4529,185 @@ export async function createApp() {
       });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * Public Secure Digital Pass Endpoint (:slug/:signature).
+   */
+  app.get('/api/passes/:slug/:signature', async (req: any, res) => {
+    try {
+      const { slug, signature } = req.params;
+      if (!slug || !signature) {
+        return res.status(400).json({ success: false, error: 'INVALID_LINK' });
+      }
+      const adminToken = await getAdminAuthToken();
+      if (!adminToken) {
+        return res.status(500).json({ success: false, error: 'SERVER_ERROR' });
+      }
+      const passSnap = await rtdbGet(`passes/${slug}`, adminToken);
+      const passRef = passSnap.data as any;
+      if (!passRef || !passRef.ticketId) {
+        return res.status(404).json({ success: false, error: 'TICKET_NOT_FOUND' });
+      }
+      const ticketId = passRef.ticketId;
+      const expectedSig = crypto
+        .createHmac('sha256', SERVER_HMAC_SECRET)
+        .update(`${slug}|${ticketId}`)
+        .digest('hex')
+        .substring(0, 16);
+
+      if (signature !== expectedSig) {
+        return res.status(403).json({ success: false, error: 'INVALID_LINK' });
+      }
+
+      const ticketSnap = await rtdbGet(`tickets/${ticketId}`, adminToken);
+      const ticket = ticketSnap.data as any;
+      if (!ticket) {
+        return res.status(404).json({ success: false, error: 'TICKET_NOT_FOUND' });
+      }
+      if (ticket.status === 'cancelled' || ticket.status === 'void') {
+        return res.status(410).json({ success: false, error: 'PASS_CANCELLED', message: 'This ticket has been cancelled.' });
+      }
+
+      // Count opens (best-effort; never fail the response)
+      void rtdbSet(`passes/${slug}/openCount`, (ticket.passOpenedCount || 0) + 1, adminToken).catch(() => {});
+
+      return res.json({
+        success: true,
+        ticket: {
+          ticketNumber: ticket.ticketNumber,
+          eventTitle: ticket.eventTitle,
+          eventPoster: ticket.eventPoster,
+          venue: ticket.venue,
+          city: ticket.city,
+          date: ticket.date,
+          time: ticket.time,
+          tierName: ticket.tierName,
+          seatNumber: ticket.seatNumber,
+          attendeeName: ticket.attendeeName,
+          qrCodeValue: ticket.qrCodeValue,
+          passType: ticket.passType,
+          paymentStatus: ticket.paymentStatus,
+          status: ticket.status,
+          redeemedAt: ticket.redeemedAt || null,
+        },
+      });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: 'SERVER_ERROR' });
+    }
+  });
+
+  /**
+   * Public Secure Digital Pass Endpoint.
+   */
+  app.get("/api/passes/:passId", async (req: any, res) => {
+    try {
+      const { passId } = req.params;
+      const { sig } = req.query;
+      if (!passId || !sig) {
+        return res.status(400).json({ success: false, error: "Missing pass ID or signature." });
+      }
+      const adminToken = await getAdminAuthToken();
+      if (!adminToken) {
+        return res.status(500).json({ success: false, error: "Server authentication error." });
+      }
+      const passSnap = await rtdbGet(`passes/${passId}`, adminToken);
+      const passRecord = passSnap.data as any;
+      if (!passRecord || !passRecord.ticketId) {
+        return res.status(404).json({ success: false, error: "Digital pass not found or expired." });
+      }
+      const ticketId = passRecord.ticketId;
+      const expectedSig = crypto.createHmac("sha256", SERVER_HMAC_SECRET).update(`${passId}|${ticketId}`).digest("hex").substring(0, 16);
+      if (!crypto.timingSafeEqual(Buffer.from(String(sig)), Buffer.from(expectedSig))) {
+        return res.status(403).json({ success: false, error: "Invalid or forged digital pass signature." });
+      }
+      const ticketSnap = await rtdbGet(`tickets/${ticketId}`, adminToken);
+      const ticket = ticketSnap.data as any;
+      if (!ticket) {
+        return res.status(404).json({ success: false, error: "Associated ticket not found." });
+      }
+      if (ticket.status === 'cancelled' || ticket.status === 'void') {
+        return res.status(410).json({ success: false, error: "PASS_CANCELLED", message: "This ticket has been cancelled." });
+      }
+      return res.status(200).json({
+        success: true,
+        pass: {
+          ticketNumber: ticket.ticketNumber,
+          eventTitle: ticket.eventTitle,
+          eventPoster: ticket.eventPoster,
+          tierName: ticket.tierName,
+          seatNumber: ticket.seatNumber,
+          attendeeName: ticket.attendeeName,
+          date: ticket.date,
+          time: ticket.time,
+          venue: ticket.venue,
+          city: ticket.city,
+          qrCodeValue: ticket.qrCodeValue,
+          status: ticket.status,
+          passType: ticket.passType,
+          paymentStatus: ticket.paymentStatus,
+          amountDue: ticket.amountDue,
+          redeemed: ticket.status === 'redeemed',
+          redeemedAt: ticket.redeemedAt || null,
+          redeemedBy: ticket.redeemedBy || null,
+          passSlug: ticket.passSlug || { id: passId, sig },
+        }
+      });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || "Failed to load digital pass." });
+    }
+  });
+
+  /**
+   * Regenerate Pass Slug (Revocation / Security Reset).
+   */
+  app.post("/api/passes/:ticketId/regenerate", verifyRole(['admin', 'ticket_counter']), async (req: any, res) => {
+    try {
+      const { ticketId } = req.params;
+      const adminToken = await getAdminAuthToken();
+      const ticketSnap = await rtdbGet(`tickets/${ticketId}`, adminToken);
+      const ticket = ticketSnap.data as any;
+      if (!ticket) {
+        return res.status(404).json({ success: false, error: "Ticket not found." });
+      }
+      if (ticket.passSlug?.id) {
+        await rtdbSet(`passes/${ticket.passSlug.id}`, null, adminToken).catch(() => {});
+      }
+      const passId = crypto.randomBytes(24).toString('base64url');
+      const passSig = crypto.createHmac("sha256", SERVER_HMAC_SECRET).update(`${passId}|${ticketId}`).digest("hex").substring(0, 16);
+      const passSlug = { id: passId, sig: passSig, createdAt: Date.now() };
+
+      await rtdbSet(`passes/${passId}`, { ticketId }, adminToken);
+      await rtdbUpdate(`tickets/${ticketId}`, { passSlug }, adminToken);
+      if (ticket.ownerId) {
+        await rtdbUpdate(`users/${ticket.ownerId}/tickets/${ticketId}`, { passSlug }, adminToken).catch(() => {});
+      }
+      return res.json({ success: true, passSlug });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || "Failed to regenerate pass slug." });
+    }
+  });
+
+  /**
+   * Lookup Pass Slug by Ticket Number (Hash-redirect fallback).
+   */
+  app.get("/api/passes/lookup", verifyRole(['admin', 'ticket_counter']), async (req: any, res) => {
+    try {
+      const { ticketNumber } = req.query || {};
+      if (!ticketNumber) {
+        return res.status(400).json({ success: false, error: "ticketNumber parameter is required." });
+      }
+      const adminToken = await getAdminAuthToken();
+      const ticketsSnap = await rtdbGet("tickets", adminToken);
+      const allTickets = Object.values((ticketsSnap.data || {}) as Record<string, any>);
+      const matched = allTickets.find((t: any) => t.ticketNumber?.toLowerCase() === String(ticketNumber).trim().toLowerCase());
+      if (!matched || !matched.passSlug) {
+        return res.status(404).json({ success: false, error: "Pass not found for ticket number." });
+      }
+      return res.json({ success: true, passSlug: matched.passSlug, ticketId: matched.id });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || "Lookup failed." });
     }
   });
 

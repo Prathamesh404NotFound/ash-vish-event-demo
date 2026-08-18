@@ -21,6 +21,32 @@ import { ConfirmationPage } from './pages/ConfirmationPage';
 import { MyTicketsPage } from './pages/MyTicketsPage';
 import { AuthPage } from './pages/AuthPage';
 import { ProfilePage } from './pages/ProfilePage';
+import { DigitalPassPage } from './pages/DigitalPassPage';
+import { TicketPassPage } from './pages/TicketPassPage';
+import { CityPage } from './pages/CityPage';
+import { BlogPage } from './pages/BlogPage';
+import { BlogPostPage } from './pages/BlogPostPage';
+
+function HashPassRedirectHandler() {
+  const navigate = useNavigate();
+  React.useEffect(() => {
+    const hash = window.location.hash;
+    if (hash && hash.startsWith('#pass-')) {
+      const ticketNumber = hash.replace('#pass-', '');
+      if (ticketNumber) {
+        fetch(`/api/passes/lookup?ticketNumber=${encodeURIComponent(ticketNumber)}`)
+          .then(res => res.json())
+          .then(data => {
+            if (data.success && data.passSlug) {
+              navigate(`/pass/${data.passSlug.id}?sig=${data.passSlug.sig}`, { replace: true });
+            }
+          })
+          .catch(() => {});
+      }
+    }
+  }, [navigate]);
+  return null;
+}
 
 // Admin Dashboard Shell & Pages
 import { AdminLayoutPage } from './components/AdminLayoutPage';
@@ -193,7 +219,12 @@ export default function App() {
     <AuthProvider>
       <BookingProvider>
         <BrowserRouter>
+          <HashPassRedirectHandler />
           <Routes>
+            {/* Secure Fullscreen Digital Pass Routes */}
+            <Route path="/pass/:slug/:signature" element={<TicketPassPage />} />
+            <Route path="/pass/:passId" element={<TicketPassPage />} />
+
             {/* Main Website Customer Routes */}
             <Route path="/" element={<MainLayout />}>
               <Route index element={<HomeRoute />} />
@@ -203,6 +234,13 @@ export default function App() {
               <Route path="confirmation" element={<ConfirmationRoute />} />
               <Route path="organizer" element={<OrganizerDashboard />} />
               <Route path="login" element={<AuthPage />} />
+              <Route path="kolhapur" element={<CityPage city="kolhapur" />} />
+              <Route path="maharashtra" element={<CityPage city="maharashtra" />} />
+              <Route path="india" element={<CityPage city="india" />} />
+              <Route path="pune" element={<CityPage city="pune" />} />
+              <Route path="mumbai" element={<CityPage city="mumbai" />} />
+              <Route path="blog" element={<BlogPage />} />
+              <Route path="blog/:slug" element={<BlogPostPage />} />
 
               {/* Guarded Account Routes */}
               <Route

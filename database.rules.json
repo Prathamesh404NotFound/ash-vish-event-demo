@@ -38,6 +38,7 @@
       ".write": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || root.child('staff').child(auth.uid).child('role').val() === 'event_manager')"
     },
     "orders": { ".read": false, ".write": false },
+    "passes": { ".read": false, ".write": false },
     "notifications": { ".read": false, ".write": false },
     "bookings": {
       ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || root.child('staff').child(auth.uid).exists())",

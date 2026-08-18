@@ -177,6 +177,10 @@ export interface Ticket {
   paymentStatus?: 'paid' | 'pending';
   /** Amount still owed in INR. 0 once paid. */
   amountDue?: number;
+  passSlug?: {
+    id: string;
+    sig: string;
+  };
 }
 
 export interface UserProfile {

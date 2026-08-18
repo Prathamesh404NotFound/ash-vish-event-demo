@@ -1,5 +1,21 @@
 User-agent: *
 Allow: /
 Allow: /events/
-Allow: /categories/
+Allow: /kolhapur
+Allow: /maharashtra
+Allow: /india
+Allow: /pune
+Allow: /mumbai
+Allow: /blog/
+Allow: /about
+Allow: /contact
+
+# Block admin/counter/organizer
+Disallow: /admin/
+Disallow: /counter/
+Disallow: /organizer/
+Disallow: /checkout
+Disallow: /confirmation
+Disallow: /account/
+
 Sitemap: https://ashvishevents.com/sitemap.xml

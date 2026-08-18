@@ -34,6 +34,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { Ticket as TicketType } from '../../types';
 import { SeatMap } from '../../components/SeatMap';
 import { sendTicketToWhatsApp } from '../../utils/whatsapp';
+import { passUrl } from '../../utils/passLink';
 import { safeFetch } from '../../lib/api';
 import { isSeatBasedEvent } from '../../lib/seatMap';
 import { authenticatedApiHeaders } from '../../lib/authHeaders';
@@ -794,32 +795,59 @@ export const WalkInPage: React.FC = () => {
                 <span className="font-bold text-emerald-400">− ₹{discountAmount}</span>
               </div>
             )}
-            <div className="flex justify-between text-gray-400 pt-2 border-t border-white/10">
-              <span>QR Security Payload:</span>
-              <span className="font-mono text-[10px] text-gray-300 truncate max-w-[180px]">{issuedTicket.qrCodeValue}</span>
+            <div className="flex justify-between items-center text-gray-400 pt-2 border-t border-white/10">
+              <span>Secure Pass Link:</span>
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-[10px] text-[#D4AF37] truncate max-w-[150px]">
+                  {issuedTicket.passSlug ? passUrl(issuedTicket.passSlug.id, issuedTicket.passSlug.sig) : 'Generating...'}
+                </span>
+                {issuedTicket.passSlug && (
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(passUrl(issuedTicket.passSlug.id, issuedTicket.passSlug.sig));
+                      alert('Secure pass link copied to clipboard!');
+                    }}
+                    className="px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 text-white text-[10px] font-bold cursor-pointer"
+                    title="Copy Link"
+                  >
+                    Copy
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center justify-center gap-3">
             <button
               onClick={() => sendTicketToWhatsApp(issuedTicket)}
-              className="py-3 px-6 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-extrabold text-xs flex items-center gap-2 transition-all shadow-lg shadow-emerald-500/25 cursor-pointer"
+              className="py-3 px-5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-extrabold text-xs flex items-center gap-2 transition-all shadow-lg shadow-emerald-500/25 cursor-pointer"
             >
               <MessageSquareCode className="w-4 h-4 stroke-[2.5]" />
               <span>Send QR Pass to WhatsApp</span>
             </button>
+            {issuedTicket.passSlug && (
+              <a
+                href={passUrl(issuedTicket.passSlug.id, issuedTicket.passSlug.sig)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="py-3 px-5 rounded-xl bg-[#222] hover:bg-[#333] text-[#D4AF37] font-bold text-xs flex items-center gap-2 border border-[#D4AF37]/30 transition-all cursor-pointer"
+              >
+                <ExternalLink className="w-4 h-4" />
+                <span>Open Digital Pass</span>
+              </a>
+            )}
             <button
               onClick={() => window.print()}
-              className="py-3 px-5 rounded-xl bg-[#222] hover:bg-[#333] text-white font-bold text-xs flex items-center gap-2 border border-white/10 transition-all cursor-pointer"
+              className="py-3 px-4 rounded-xl bg-[#222] hover:bg-[#333] text-white font-bold text-xs flex items-center gap-2 border border-white/10 transition-all cursor-pointer"
             >
               <Printer className="w-4 h-4 text-[#D4AF37]" />
-              <span>Print Gate Receipt</span>
+              <span>Print Receipt</span>
             </button>
             <button
               onClick={handleReset}
               className="py-3 px-6 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] hover:brightness-110 text-black font-extrabold text-xs flex items-center gap-2 transition-all shadow-lg shadow-[#D4AF37]/25 cursor-pointer"
             >
-              <span>Issue Next Walk-In Ticket</span>
+              <span>Issue Next Walk-In</span>
               <ArrowRight className="w-4 h-4 stroke-[2.5]" />
             </button>
           </div>
