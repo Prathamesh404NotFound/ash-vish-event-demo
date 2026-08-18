@@ -97,6 +97,14 @@ export interface EventItem {
    * map is configured. Default: true.
    */
   usesSeatMap?: boolean;
+  /**
+   * Admin-controlled toggle. When true, this event's ONLINE bookings are
+   * created without collecting payment (walk-in counter sales are
+   * unaffected and keep collecting payment as normal). The online guest
+   * receives a Reservation Pass instead of a Digital Pass; payment is
+   * collected later via the Pay-at-Counter panel. Default: false.
+   */
+  cashOnCounterOnly?: boolean;
   isFeatured?: boolean;
   isTrending?: boolean;
   isPopularThisWeek?: boolean;
@@ -163,6 +171,12 @@ export interface Ticket {
   scannedBy?: string;
   scannedAt?: string;
   isWalkIn?: boolean;
+  /** 'entry' = normal, gate-valid ticket. 'reservation' = Cash-on-Counter-Only
+   *  event's unpaid pass; not valid at the gate until paymentStatus is 'paid'. */
+  passType?: 'entry' | 'reservation';
+  paymentStatus?: 'paid' | 'pending';
+  /** Amount still owed in INR. 0 once paid. */
+  amountDue?: number;
 }
 
 export interface UserProfile {
@@ -203,6 +217,8 @@ export interface BookingRecord {
   attendeeEmail?: string;
   ticketId?: string;
   isWalkIn?: boolean;
+  paymentStatus?: 'paid' | 'pending';
+  amountDue?: number;
 }
 
 export interface Coupon {

@@ -97,6 +97,7 @@ Catalog of concerts, comedy shows, plays, and festivals.
       "bannerUrl": "string (URL)",
       "description": "string",
       "minPrice": "number",
+      "cashOnCounterOnly": "boolean (optional, default false - online booking defers payment until counter arrival)",
       "status": "upcoming | ongoing | sold_out | completed",
       "ticketTiers": [
         {
@@ -182,7 +183,8 @@ Financial transaction and reservation records.
       "eventTitle": "string",
       "totalAmount": "number",
       "paymentStatus": "paid | pending | failed",
-      "paymentMethod": "cashfree | counter_cash | counter_upi",
+      "amountDue": "number (INR, 0 once paid)",
+      "paymentMethod": "cashfree | counter_cash | counter_upi | reservation_pending",
       "paymentId": "string (Cashfree Order ID / Transaction Ref)",
       "attendeeDetails": {
         "name": "string",
@@ -197,13 +199,14 @@ Financial transaction and reservation records.
 ```
 
 ## 6. `tickets` Node (`/tickets/$ticketId`)
-Issued digital QR entry passes.
+Issued digital QR entry passes and reservation passes.
 
 ```json
 {
   "tickets": {
     "$ticketId": {
       "id": "string",
+      "ticketNumber": "string (ASH-####-SRV or ASH-RES-####)",
       "bookingId": "string",
       "ownerId": "string (User UID)",
       "eventId": "string",
@@ -211,8 +214,11 @@ Issued digital QR entry passes.
       "tierName": "string",
       "price": "number",
       "seatNumber": "string (optional)",
-      "qrCodeData": "string",
-      "status": "valid | used | cancelled",
+      "qrCodeValue": "string (signed HMAC token ASH_PASS.* or ASH_RES.*)",
+      "passType": "entry | reservation (entry = gate-valid, reservation = unpaid reservation pass)",
+      "paymentStatus": "paid | pending",
+      "amountDue": "number (INR, 0 once paid)",
+      "status": "valid | used | redeemed | cancelled | void",
       "issuedAt": "ISO 8601 string",
       "scannedAt": "ISO 8601 string (optional)",
       "scannedBy": "string (Staff UID, optional)"
@@ -285,6 +291,8 @@ A canonical admin-dashboard order record is written alongside every fulfilled bo
   "discount": "number",
   "couponCode": "string | null",
   "paymentMethod": "string",
+  "paymentStatus": "paid | pending",
+  "amountDue": "number (optional)",
   "channel": "online | counter | manual",
   "status": "confirmed | cancelled | refunded",
   "refundReason": "string | null",

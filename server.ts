@@ -116,20 +116,35 @@ async function sendOrderConfirmationEmail(
   const email = customerDetails?.email;
   if (!email || !String(email).includes("@")) return;
   const name = customerDetails?.name || "Ticket Holder";
-  const subject = `Booking Confirmed — ${details.eventTitle}`;
-  const text = [
-    `Hi ${name},`,
-    ``,
-    `Your booking for "${details.eventTitle}" is confirmed.`,
-    `Ticket Number: ${details.ticketNumber}`,
-    `Tier: ${details.tierName}`,
-    `Amount Paid: INR ${details.amount}`,
-    `Venue: ${details.venue}, ${details.city}`,
-    `Date: ${details.date} at ${details.time}`,
-    ``,
-    `Show this ticket (or its QR code) at the entrance to check in.`,
-    `— Ash-vish Events`,
-  ].join("\n");
+  const isRes = details.ticketNumber.startsWith("ASH-RES-");
+  const subject = isRes ? `Reservation Confirmed — ${details.eventTitle}` : `Booking Confirmed — ${details.eventTitle}`;
+  const text = isRes
+    ? [
+        `Hi ${name},`,
+        ``,
+        `Your reservation for "${details.eventTitle}" is confirmed.`,
+        `Reservation Number: ${details.ticketNumber}`,
+        `Tier: ${details.tierName}`,
+        `Amount Due at Counter: INR ${details.amount}`,
+        `Venue: ${details.venue}, ${details.city}`,
+        `Date: ${details.date} at ${details.time}`,
+        ``,
+        `Show this Reservation Pass at the venue's Pay-at-Counter station to complete payment and validate your entry pass.`,
+        `— Ash-vish Events`,
+      ].join("\n")
+    : [
+        `Hi ${name},`,
+        ``,
+        `Your booking for "${details.eventTitle}" is confirmed.`,
+        `Ticket Number: ${details.ticketNumber}`,
+        `Tier: ${details.tierName}`,
+        `Amount Paid: INR ${details.amount}`,
+        `Venue: ${details.venue}, ${details.city}`,
+        `Date: ${details.date} at ${details.time}`,
+        ``,
+        `Show this ticket (or its QR code) at the entrance to check in.`,
+        `— Ash-vish Events`,
+      ].join("\n");
   const result = await sendMail({ to: String(email), subject, text });
   await recordNotification({
     eventId: details.eventId,
@@ -604,6 +619,8 @@ async function recordOrder(params: {
   discount?: number;
   couponCode?: string | null;
   paymentMethod: string;
+  paymentStatus?: "paid" | "pending";
+  amountDue?: number;
   channel: "online" | "counter" | "manual";
   ticketId?: string | null;
   bookingId?: string | null;
@@ -627,6 +644,8 @@ async function recordOrder(params: {
       discount: Number(params.discount) || 0,
       couponCode: params.couponCode || null,
       paymentMethod: String(params.paymentMethod || ""),
+      paymentStatus: params.paymentStatus || "paid",
+      amountDue: params.amountDue !== undefined ? params.amountDue : (params.paymentStatus === "pending" ? (Number(params.amount) || 0) : 0),
       channel: params.channel,
       status: "confirmed",
       refundReason: null,
@@ -693,7 +712,8 @@ async function finalizeBookingServerSide(
   paymentMethod: string,
   paymentId: string,
   userToken?: string,
-  explicitCouponCode?: string | null
+  explicitCouponCode?: string | null,
+  deferPayment: boolean = false
 ): Promise<{ success: boolean; ticket?: any; booking?: any; error?: string }> {
   let couponIncremented = false;
   let couponCodeUpper: string | null = null;
@@ -871,9 +891,12 @@ async function finalizeBookingServerSide(
       }
     }
     // 6. Generate Ticket and Booking records
+    const isDeferred = deferPayment === true;
     const ticketId = 'tkt_' + Date.now() + '_' + Math.random().toString(36).substring(2, 10);
     const bookingId = 'bkg_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8);
-    const ticketNum = `ASH-${Math.floor(1000 + Math.random() * 9000)}-SRV`;
+    const ticketNum = isDeferred
+      ? `ASH-RES-${Math.floor(1000 + Math.random() * 9000)}`
+      : `ASH-${Math.floor(1000 + Math.random() * 9000)}-SRV`;
 
     const eventRes = await rtdbGet(`events/${eventId}`, authToken);
     const eventData = eventRes.data || {};
@@ -908,6 +931,13 @@ async function finalizeBookingServerSide(
       seatLabel = `${tierName}, General Floor`;
     }
 
+    // Build the signed token server-side (reuse the same HMAC scheme as
+    // /api/tickets/generate-token, with the ASH_RES header for deferred passes).
+    const issuedAt = new Date().toISOString();
+    const tokenPayload = `${bookingId}|${eventId}|${seatLabel}|${ticketId}|${issuedAt}`;
+    const tokenSig = crypto.createHmac("sha256", SERVER_HMAC_SECRET).update(tokenPayload).digest("hex").substring(0, 16);
+    const signedQrToken = `${isDeferred ? 'ASH_RES' : 'ASH_PASS'}.${Buffer.from(tokenPayload).toString('base64url')}.${tokenSig}`;
+
     const newTicket = {
       id: ticketId,
       ticketNumber: ticketNum,
@@ -921,14 +951,17 @@ async function finalizeBookingServerSide(
       tierName,
       price,
       quantity,
-      totalPaid: amount,
+      totalPaid: isDeferred ? 0 : amount,
       discount: discountAmount,
       seatNumber: seatLabel,
       selectedSeats: seatIds || [],
       attendeeName: customerDetails.name,
       attendeeEmail: customerDetails.email,
       attendeePhone: customerDetails.phone,
-      qrCodeValue: ticketId,
+      qrCodeValue: signedQrToken,
+      passType: isDeferred ? 'reservation' : 'entry',
+      paymentStatus: isDeferred ? 'pending' : 'paid',
+      amountDue: isDeferred ? amount : 0,
       status: 'valid',
       purchasedAt: new Date().toISOString(),
       ownerId: userId,
@@ -943,6 +976,8 @@ async function finalizeBookingServerSide(
       totalAmount: amount,
       discount: discountAmount,
       status: 'confirmed',
+      paymentStatus: isDeferred ? 'pending' : 'paid',
+      amountDue: isDeferred ? amount : 0,
       createdAt: new Date().toISOString(),
       paymentMethod,
       attendeeName: customerDetails.name,
@@ -1007,6 +1042,8 @@ async function finalizeBookingServerSide(
       discount: pendingOrder?.discount || 0,
       couponCode: couponCodeUpper,
       paymentMethod,
+      paymentStatus: isDeferred ? "pending" : "paid",
+      amountDue: isDeferred ? amount : 0,
       channel: isWalkInChannel ? "counter" : "online",
       ticketId,
       bookingId,
@@ -2101,6 +2138,102 @@ export async function createApp() {
     }
   });
 
+  /**
+   * Cash on Counter (Pay at Counter) Reservation Confirmation.
+   * Converts an active hold/reservation into a valid Reservation Pass with pending payment status.
+   * Confirms seats in the layout so they cannot be grabbed by other buyers, but requires counter payment at venue.
+   */
+  app.post("/api/reservations/:reservationId/reserve-pay-later", async (req, res) => {
+    try {
+      const owner = await resolveReservationOwner(req);
+      const { reservationId } = req.params;
+      const { couponCode, attendee } = req.body || {};
+      if (!reservationId) {
+        return res.status(400).json({ success: false, error: "reservationId is required." });
+      }
+      const authToken = await getAdminAuthToken();
+      const record = (await rtdbGet(`reservations/${reservationId}`, authToken)).data as ReservationRecord | null;
+      if (!record) {
+        return res.status(404).json({ success: false, error: "Reservation not found." });
+      }
+      if (!isReservationOwner(record, owner)) {
+        return res.status(403).json({ success: false, error: "Not your reservation." });
+      }
+      const now = Date.now();
+      if (record.status !== "active" || now > record.expiresAt) {
+        return res.status(409).json({ success: false, error: "Reservation is no longer active. Please select your seats again." });
+      }
+
+      const eventRes = await rtdbGet(`events/${record.eventId}`, authToken);
+      const eventData = eventRes.data;
+      if (!eventData) {
+        return res.status(404).json({ success: false, error: "Event no longer available." });
+      }
+
+      const quoteResult = computeReservationQuote(eventData, record.seatIds, record.quantity, record.tierId);
+      let discountMinor = 0;
+      let appliedCoupon: any = null;
+      if (couponCode) {
+        const codeUpper = String(couponCode).trim().toUpperCase();
+        const couponRes = await rtdbGet(`coupons/${codeUpper}`, authToken);
+        const coupon = couponRes.data;
+        if (coupon && coupon.isActive && new Date(coupon.validUntil) >= new Date() && (!coupon.eventId || coupon.eventId === record.eventId) && (!coupon.usageLimit || (coupon.usedCount || 0) < coupon.usageLimit)) {
+          discountMinor = coupon.type === "percentage"
+            ? Math.round((quoteResult.quote.totalMinor * Math.min(100, coupon.value)) / 100)
+            : coupon.value * 100;
+          appliedCoupon = { code: codeUpper, type: coupon.type, value: coupon.value };
+        }
+      }
+      const totalMinor = Math.max(0, quoteResult.quote.totalMinor - discountMinor);
+      const customerDetails = attendee || record.attendee || { name: "Guest Attendee", email: "", phone: "" };
+
+      const orderId = `ord_coc_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+      await rtdbSet(`pending_orders/${orderId}`, {
+        eventId: record.eventId,
+        tierId: record.tierId,
+        seatIds: record.seatIds,
+        quantity: record.quantity,
+        couponCode: appliedCoupon ? appliedCoupon.code : null,
+        customerDetails,
+        userId: owner.ownerId,
+        amount: totalMinor / 100,
+        reservationId,
+        createdAt: now,
+        paymentMethod: "cash_on_counter",
+        passType: "reservation",
+        paymentStatus: "pending",
+        amountDue: totalMinor / 100,
+      }, authToken);
+
+      const result = await finalizeBookingServerSide(
+        orderId,
+        "cash_on_counter",
+        `coc_${orderId}`,
+        authToken,
+        appliedCoupon?.code,
+        true // deferPayment = true
+      );
+
+      if (!result.success) {
+        return res.status(409).json({ success: false, error: result.error || "Failed to complete reservation." });
+      }
+
+      return res.json({
+        success: true,
+        ticket: result.ticket,
+        booking: result.booking,
+        appliedCoupon,
+        passType: "reservation",
+        paymentStatus: "pending",
+        amountDue: totalMinor / 100,
+        totalMinor,
+      });
+    } catch (err: any) {
+      console.error("[RESERVE PAY LATER ERROR]", err.message || err);
+      return res.status(500).json({ success: false, error: err.message || "Failed to create reservation." });
+    }
+  });
+
   // -----------------------------------------------------------
   // Direct purchase (no external payment gateway)
   // Server-authoritative: validates the reservation + quote,
@@ -2626,6 +2759,9 @@ export async function createApp() {
       if (event.usesSeatMap !== undefined && typeof event.usesSeatMap !== 'boolean') {
         return res.status(400).json({ success: false, error: "usesSeatMap must be a boolean. When false the event runs a general-admission flow without a seat layout." });
       }
+      if (event.cashOnCounterOnly !== undefined && typeof event.cashOnCounterOnly !== 'boolean') {
+        return res.status(400).json({ success: false, error: "cashOnCounterOnly must be a boolean." });
+      }
       if (Array.isArray(event.ticketTiers)) {
         for (const tier of event.ticketTiers) {
           if (tier) {
@@ -2703,6 +2839,9 @@ export async function createApp() {
       }
       if (body.usesSeatMap !== undefined && typeof body.usesSeatMap !== 'boolean') {
         return res.status(400).json({ success: false, error: "usesSeatMap must be a boolean. When false the event runs a general-admission flow without a seat layout." });
+      }
+      if (body.cashOnCounterOnly !== undefined && typeof body.cashOnCounterOnly !== 'boolean') {
+        return res.status(400).json({ success: false, error: "cashOnCounterOnly must be a boolean." });
       }
       if (Array.isArray(body.ticketTiers)) {
         for (const tier of body.ticketTiers) {
@@ -3794,12 +3933,15 @@ export async function createApp() {
       if (!order) return res.status(404).json({ success: false, error: "Order not found." });
       if (order.status === "refunded") return res.status(400).json({ success: false, error: "Order is already refunded." });
 
-      const refundValue = refundType === "full" ? order.amount : Number(refundAmount);
-      if (!Number.isFinite(refundValue) || refundValue <= 0) {
-        return res.status(400).json({ success: false, error: "Invalid refund amount." });
-      }
-      if (refundValue > order.amount) {
-        return res.status(400).json({ success: false, error: "Refund amount exceeds the paid amount." });
+      const isUnpaidPending = order.paymentStatus === "pending";
+      const refundValue = isUnpaidPending ? 0 : (refundType === "full" ? order.amount : Number(refundAmount));
+      if (!isUnpaidPending) {
+        if (!Number.isFinite(refundValue) || refundValue <= 0) {
+          return res.status(400).json({ success: false, error: "Invalid refund amount." });
+        }
+        if (refundValue > order.amount) {
+          return res.status(400).json({ success: false, error: "Refund amount exceeds the paid amount." });
+        }
       }
       const partialSeats = refundType === "partial" && Array.isArray(req.body.seatIds) ? req.body.seatIds : [];
 
@@ -3978,19 +4120,26 @@ export async function createApp() {
       if (from) orders = orders.filter((o: any) => String(o.createdAt) >= String(from));
       if (to) orders = orders.filter((o: any) => String(o.createdAt) <= String(to));
       const confirmed = orders.filter((o: any) => o.status === "confirmed");
+      const paidConfirmed = confirmed.filter((o: any) => o.paymentStatus !== "pending");
+      const pendingConfirmed = confirmed.filter((o: any) => o.paymentStatus === "pending");
       const refunded = orders.filter((o: any) => o.status === "refunded");
 
       const revenueByEvent = Object.values(confirmed.reduce((acc: Record<string, any>, o: any) => {
         const key = o.eventId || "unknown";
-        if (!acc[key]) acc[key] = { eventId: key, title: eventsById[key]?.title || key, revenue: 0, netRevenue: 0, orders: 0, tickets: 0 };
-        acc[key].revenue += Number(o.amount) || 0;
+        if (!acc[key]) acc[key] = { eventId: key, title: eventsById[key]?.title || key, revenue: 0, pendingRevenue: 0, netRevenue: 0, orders: 0, tickets: 0 };
+        const amt = Number(o.amount) || 0;
+        if (o.paymentStatus === "pending") {
+          acc[key].pendingRevenue += amt;
+        } else {
+          acc[key].revenue += amt;
+        }
         acc[key].netRevenue -= Number(o.refundAmount) || 0;
         acc[key].orders += 1;
         acc[key].tickets += Number(o.quantity) || 1;
         return acc;
       }, {}));
 
-      const revenueByDate = Object.values(confirmed.reduce((acc: Record<string, any>, o: any) => {
+      const revenueByDate = Object.values(paidConfirmed.reduce((acc: Record<string, any>, o: any) => {
         const key = String(o.createdAt || "").slice(0, 10);
         if (!acc[key]) acc[key] = { date: key, revenue: 0, orders: 0 };
         acc[key].revenue += Number(o.amount) || 0;
@@ -4017,14 +4166,15 @@ export async function createApp() {
         return acc;
       }, {});
 
-      const totalRevenue = confirmed.reduce((sum: number, o: any) => sum + (Number(o.amount) || 0), 0);
+      const totalRevenue = paidConfirmed.reduce((sum: number, o: any) => sum + (Number(o.amount) || 0), 0);
+      const pendingCollection = pendingConfirmed.reduce((sum: number, o: any) => sum + (Number(o.amount) || 0), 0);
       const totalRefunded = refunded.reduce((sum: number, o: any) => sum + (Number(o.refundAmount) || 0), 0);
       const totalOrders = confirmed.length;
       const totalTickets = confirmed.reduce((sum: number, o: any) => sum + (Number(o.quantity) || 1), 0);
 
       return res.json({
         success: true,
-        summary: { totalRevenue, totalRefunded, totalOrders, totalTickets },
+        summary: { totalRevenue, pendingCollection, totalRefunded, totalOrders, totalTickets },
         revenueByEvent,
         revenueByDate,
         attendanceVsCapacity,
@@ -4070,7 +4220,7 @@ export async function createApp() {
       }
 
       const parts = signedToken.split(".");
-      if (parts.length < 3 || (parts[0] !== "ASH_PASS" && parts[0] !== "ASH_PASS_v1")) {
+      if (parts.length < 3 || (parts[0] !== "ASH_PASS" && parts[0] !== "ASH_PASS_v1" && parts[0] !== "ASH_RES")) {
         return res.status(400).json({ success: false, valid: false, error: "Unrecognized ticket signature header" });
       }
 
@@ -4094,7 +4244,7 @@ export async function createApp() {
       let ticketId: string | null = null;
       let orderId: string | null = null;
 
-      if (parts[0] === "ASH_PASS") {
+      if (parts[0] === "ASH_PASS" || parts[0] === "ASH_RES") {
         const payloadParts = payloadStr.split("|");
         if (payloadParts.length >= 4) {
           ticketId = payloadParts[3];
@@ -4122,6 +4272,8 @@ export async function createApp() {
       }
 
       let alreadyRedeemedError: string | null = null;
+      let paymentPendingError: string | null = null;
+      let pendingAmountDue: number = 0;
       let redeemedTicket: any = null;
 
       const txResult = await rtdbTransaction(`tickets/${ticketId}`, (ticket: any) => {
@@ -4134,6 +4286,12 @@ export async function createApp() {
           return undefined;
         }
 
+        if (ticket.passType === "reservation" && ticket.paymentStatus !== "paid") {
+          pendingAmountDue = Number(ticket.amountDue ?? (ticket.price * (ticket.quantity || 1))) || 0;
+          paymentPendingError = `UNPAID RESERVATION PASS: Payment of ₹${pendingAmountDue} is pending. Direct this guest to the Pay-at-Counter station to collect payment before gate admission.`;
+          return undefined;
+        }
+
         ticket.status = "redeemed";
         ticket.redeemedAt = new Date().toISOString();
         ticket.redeemedBy = scannedByStaffId || req.user?.uid || "counter_scanner_01";
@@ -4142,6 +4300,16 @@ export async function createApp() {
       }, userToken);
 
       if (!txResult.committed) {
+        if (paymentPendingError) {
+          return res.status(402).json({
+            success: false,
+            valid: false,
+            paymentPending: true,
+            amountDue: pendingAmountDue,
+            ticketId,
+            error: paymentPendingError,
+          });
+        }
         if (alreadyRedeemedError) {
           return res.status(400).json({
             success: false,
@@ -4169,6 +4337,137 @@ export async function createApp() {
         scannedBy: redeemedTicket.redeemedBy,
         ticket: redeemedTicket,
         payloadStr,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * Cash on Counter Payment Collection Endpoint.
+   * Operated by Ticket Counter staff / Admins.
+   * Receives payment for a Reservation Pass, converts paymentStatus to 'paid',
+   * sets amountDue to 0, updates the ticket, user's ticket record, booking, and canonical order.
+   */
+  app.post("/api/tickets/collect-counter-payment", verifyRole(['admin', 'ticket_counter']), async (req: any, res) => {
+    try {
+      const { ticketId: rawTicketId, qrToken, paymentMethod = "cash", collectedAmount } = req.body || {};
+      const userToken = await getAdminAuthToken();
+
+      let targetTicketId = rawTicketId ? String(rawTicketId).trim() : null;
+
+      if (!targetTicketId && qrToken && typeof qrToken === "string") {
+        const parts = qrToken.split(".");
+        if (parts.length >= 3 && (parts[0] === "ASH_PASS" || parts[0] === "ASH_RES")) {
+          const payloadStr = Buffer.from(parts[1], "base64url").toString("utf8");
+          const payloadParts = payloadStr.split("|");
+          if (payloadParts.length >= 4) {
+            targetTicketId = payloadParts[3];
+          }
+        }
+      }
+
+      if (!targetTicketId) {
+        return res.status(400).json({ success: false, error: "A valid ticketId or qrToken is required." });
+      }
+
+      const ticketSnap = await rtdbGet(`tickets/${targetTicketId}`, userToken);
+      const ticket = ticketSnap.data as any;
+      if (!ticket) {
+        return res.status(404).json({ success: false, error: `Ticket ${targetTicketId} not found.` });
+      }
+
+      if (ticket.passType !== "reservation" && ticket.paymentStatus === "paid") {
+        return res.status(400).json({ success: false, error: "This ticket has already been fully paid." });
+      }
+
+      const amountToCollect = collectedAmount !== undefined ? Number(collectedAmount) : (Number(ticket.amountDue) || Number(ticket.totalPaid) || Number(ticket.price * (ticket.quantity || 1)) || 0);
+      const collectedAt = new Date().toISOString();
+      const staffUid = req.user?.uid || "ticket_counter_staff";
+
+      const updatedTicketUpdates: Record<string, any> = {
+        paymentStatus: "paid",
+        amountDue: 0,
+        totalPaid: (Number(ticket.totalPaid) || 0) + amountToCollect,
+        collectedAt,
+        collectedBy: staffUid,
+        collectedPaymentMethod: String(paymentMethod).slice(0, 32),
+      };
+
+      await rtdbUpdate(`tickets/${targetTicketId}`, updatedTicketUpdates, userToken);
+
+      if (ticket.ownerId) {
+        await rtdbUpdate(`users/${ticket.ownerId}/tickets/${targetTicketId}`, updatedTicketUpdates, userToken).catch(() => {});
+      }
+
+      // Also update linked booking and order if found
+      const bookingsSnap = await rtdbGet("bookings", userToken);
+      const allBookings = (bookingsSnap.data || {}) as Record<string, any>;
+      const matchedBooking = Object.values(allBookings).find((b: any) => b.ticketId === targetTicketId || b.reservationId === ticket.reservationId);
+      if (matchedBooking && matchedBooking.bookingId) {
+        const bookingUpdates = { paymentStatus: "paid", amountDue: 0, collectedAt, collectedBy: staffUid };
+        await rtdbUpdate(`bookings/${matchedBooking.bookingId}`, bookingUpdates, userToken).catch(() => {});
+        if (matchedBooking.userId) {
+          await rtdbUpdate(`users/${matchedBooking.userId}/bookings/${matchedBooking.bookingId}`, bookingUpdates, userToken).catch(() => {});
+        }
+      }
+
+      const ordersSnap = await rtdbGet("orders", userToken);
+      const allOrders = (ordersSnap.data || {}) as Record<string, any>;
+      const matchedOrder = Object.values(allOrders).find((o: any) => o.ticketId === targetTicketId || o.bookingId === matchedBooking?.bookingId);
+      if (matchedOrder && matchedOrder.orderId) {
+        await rtdbUpdate(`orders/${matchedOrder.orderId}`, { paymentStatus: "paid", amountDue: 0, collectedAt, collectedBy: staffUid }, userToken).catch(() => {});
+      }
+
+      await writeAuditEntry({
+        actorId: req.user.uid,
+        actorRole: req.user.rbacRole || req.user.role,
+        action: "counter.payment.collected",
+        entityType: "ticket",
+        entityId: targetTicketId,
+        afterState: { ...ticket, ...updatedTicketUpdates },
+      }).catch(() => {});
+
+      return res.json({
+        success: true,
+        message: `Payment of ₹${amountToCollect} successfully collected. Reservation Pass is now active for entry.`,
+        ticket: { ...ticket, ...updatedTicketUpdates },
+        amountCollected: amountToCollect,
+      });
+    } catch (err: any) {
+      console.error("[COLLECT COUNTER PAYMENT ERROR]", err.message || err);
+      return res.status(500).json({ success: false, error: err.message || "Failed to collect counter payment." });
+    }
+  });
+
+  /**
+   * Reservation Pass Lookup for Ticket Counter Staff.
+   */
+  app.get("/api/tickets/reservation-lookup", verifyRole(['admin', 'ticket_counter']), async (req: any, res) => {
+    try {
+      const { ticketNumber, query, ticketId } = req.query || {};
+      const userToken = await getAdminAuthToken();
+      const ticketsSnap = await rtdbGet("tickets", userToken);
+      const allTickets = Object.values((ticketsSnap.data || {}) as Record<string, any>);
+
+      const q = String(query || ticketNumber || ticketId || "").trim().toLowerCase();
+      if (!q) {
+        return res.status(400).json({ success: false, error: "Search query or ticket number is required." });
+      }
+
+      const matched = allTickets.filter((t: any) => {
+        return (
+          t.id?.toLowerCase() === q ||
+          t.ticketNumber?.toLowerCase() === q ||
+          t.attendeeEmail?.toLowerCase().includes(q) ||
+          t.attendeePhone?.toLowerCase().includes(q) ||
+          t.attendeeName?.toLowerCase().includes(q)
+        );
+      });
+
+      return res.json({
+        success: true,
+        tickets: matched,
       });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err.message });
