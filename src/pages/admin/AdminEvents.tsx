@@ -26,7 +26,7 @@ import {
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { storage } from '../../lib/firebase';
 import { useBooking } from '../../contexts/BookingContext';
-import { EventCategory, EventItem, EventStatus, TicketTier } from '../../types';
+import { EventCategory, EventItem, EventStatus, TicketTier, Artist } from '../../types';
 import { formatINR } from '../../utils/formatters';
 
 interface TierInput {
@@ -51,6 +51,7 @@ export const AdminEvents: React.FC = () => {
   // Form State
   const [usesSeatMap, setUsesSeatMap] = useState(true);
   const [perksText, setPerksText] = useState('');
+  const [artistsText, setArtistsText] = useState('');
   const [title, setTitle] = useState('');
   const [subtitle, setSubtitle] = useState('');
   const [description, setDescription] = useState('');
@@ -99,6 +100,8 @@ export const AdminEvents: React.FC = () => {
   const [presentedBy, setPresentedBy] = useState('');
   const [isFeatured, setIsFeatured] = useState(false);
   const [isTrending, setIsTrending] = useState(false);
+  const [isPopularThisWeek, setIsPopularThisWeek] = useState(false);
+  const [cashOnCounterOnly, setCashOnCounterOnly] = useState(false);
 
   // Upload & Validation States
   const [isUploading, setIsUploading] = useState(false);
@@ -209,6 +212,7 @@ export const AdminEvents: React.FC = () => {
     setCoverUrl('https://images.unsplash.com/photo-1470225620780-dba8ba36b745?auto=format&fit=crop&q=80&w=1200');
     setUsesSeatMap(true);
     setPerksText('Complimentary Welcome Kit, Live DJ After-Party, Free Parking');
+    setArtistsText('Ash-vish Ensemble | Main Stage');
     setTiers([
       {
         id: 'tier_gen_' + Date.now(),
@@ -236,6 +240,10 @@ export const AdminEvents: React.FC = () => {
     setPresentedBy('');
     setIsFeatured(false);
     setIsTrending(false);
+    setIsPopularThisWeek(false);
+    setCashOnCounterOnly(false);
+    setScheduledPublishAt('');
+    setScheduledUnpublishAt('');
     setFormError(null);
     setUploadError(null);
     setShowModal(true);
@@ -251,11 +259,11 @@ export const AdminEvents: React.FC = () => {
     setStatus(evt.status || 'published');
 
     // Parse date if possible
-    setDate(evt.date.match(/^\d{4}-\d{2}-\d{2}$/) ? evt.date : '2026-11-25');
+    setDate(evt.date && evt.date.match(/^\d{4}-\d{2}-\d{2}$/) ? evt.date : '2026-11-25');
     setTime(evt.time || '08:00 PM');
     setVenue(evt.venue || '');
     setCity(evt.city || 'Mumbai');
-    setAddress(evt.address || `${evt.venue}, ${evt.city}`);
+    setAddress(evt.address || (evt.venue ? `${evt.venue}, ${evt.city || 'Mumbai'}` : ''));
     setOrganizer(evt.organizer || 'Ash-vish Events');
     setPosterUrl(evt.posterUrl);
     setCoverUrl(evt.coverUrl || evt.posterUrl);
@@ -264,10 +272,13 @@ export const AdminEvents: React.FC = () => {
     setScheduledUnpublishAt(evt.scheduledUnpublishAt || '');
     setUsesSeatMap(evt.usesSeatMap !== false);
     setPerksText((evt.perks || []).join(', '));
+    setArtistsText((evt.artists || []).map((a) => `${a.name}${a.role ? ` | ${a.role}` : ''}`).join('\n'));
     setMapsUrl(evt.mapsUrl || '');
     setPresentedBy(evt.presentedBy || '');
     setIsFeatured(!!evt.isFeatured);
     setIsTrending(!!evt.isTrending);
+    setIsPopularThisWeek(!!evt.isPopularThisWeek);
+    setCashOnCounterOnly(!!evt.cashOnCounterOnly);
     setGalleryUrls(evt.gallery || []);
     setScheduleText((evt.schedule || [])
       .map((s) => [s.time, s.title, s.description].map((x) => (x || '').toString()).join(' | '))
@@ -395,7 +406,11 @@ export const AdminEvents: React.FC = () => {
         if (t.id === id) {
           const updated = { ...t, [field]: value };
           if (field === 'totalInventory') {
-            updated.remainingInventory = Number(value);
+            const newTotal = Math.max(0, Number(value) || 0);
+            const oldTotal = Math.max(0, Number(t.totalInventory) || 0);
+            const oldRem = Math.max(0, Number(t.remainingInventory ?? oldTotal));
+            const diff = newTotal - oldTotal;
+            updated.remainingInventory = Math.max(0, Math.min(newTotal, oldRem + diff));
           }
           return updated;
         }
@@ -447,15 +462,43 @@ export const AdminEvents: React.FC = () => {
     const startingPrice = Math.min(...tiers.map((t) => Number(t.price)));
     const totalCapacity = tiers.reduce((sum, t) => sum + Number(t.totalInventory), 0);
 
-    const formattedTiers: TicketTier[] = tiers.map((t) => ({
-      id: t.id,
-      name: t.name.trim(),
-      price: Number(t.price),
-      description: t.description.trim() || 'Standard Access Pass',
-      totalInventory: Number(t.totalInventory),
-      remainingInventory: Number(t.remainingInventory ?? t.totalInventory),
-      perks: t.perksText.split(',').map((p) => p.trim()).filter(Boolean),
-    }));
+    const formattedTiers: TicketTier[] = tiers.map((t) => {
+      const parsedTotal = Number(t.totalInventory) || 1;
+      const rawRemaining = t.remainingInventory !== undefined ? Number(t.remainingInventory) : parsedTotal;
+      const parsedRemaining = Math.min(parsedTotal, Math.max(0, rawRemaining));
+      return {
+        id: t.id || `tier_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        name: t.name.trim() || 'General Entry',
+        price: Math.max(0, Number(t.price) || 0),
+        description: t.description.trim() || 'Standard Access Pass',
+        totalInventory: parsedTotal,
+        remainingInventory: parsedRemaining,
+        perks: t.perksText.split(',').map((p) => p.trim()).filter(Boolean),
+      };
+    });
+
+    // Parse artists lines: "Name | Role"
+    const existingEvt = editingEventId ? events.find((e) => e.id === editingEventId) : null;
+    const formattedArtists: Artist[] = artistsText
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line, idx) => {
+        const parts = line.split('|').map((p) => p.trim());
+        const existingArtist = existingEvt?.artists ? existingEvt.artists[idx] : undefined;
+        return {
+          id: existingArtist?.id || `a_${idx + 1}_${Date.now()}`,
+          name: parts[0] || title.trim(),
+          role: parts[1] || 'Main Stage',
+          image: existingArtist?.image || posterUrl,
+        };
+      });
+
+    const finalArtists = formattedArtists.length > 0
+      ? formattedArtists
+      : (existingEvt?.artists && existingEvt.artists.length > 0
+          ? existingEvt.artists
+          : [{ id: 'a1', name: title.trim(), role: 'Main Stage', image: posterUrl }]);
 
     // Parse schedule lines: "time | title | description" (description optional)
     const formattedSchedule = scheduleText
@@ -485,44 +528,38 @@ export const AdminEvents: React.FC = () => {
 
     const eventPayload = {
       title: title.trim(),
-      subtitle: subtitle.trim() || `${category.toUpperCase()} Event in ${city}`,
+      subtitle: subtitle.trim(),
       category,
       status,
       date,
       time,
       venue: venue.trim(),
-      address: address.trim() || `${venue}, ${city}`,
+      address: address.trim() || (venue.trim() ? `${venue.trim()}, ${city.trim()}` : ''),
       city: city.trim(),
       startingPrice,
       totalCapacity,
       posterUrl,
       coverUrl: coverUrl || posterUrl,
       organizer: organizer.trim() || 'Ash-vish Events',
-      description: description.trim() || 'Official event pass booking via Ash-vish Events platform.',
-      artists: [{ id: 'a1', name: title.trim(), role: 'Main Stage', image: posterUrl }],
+      description: description.trim(),
+      artists: finalArtists,
       ticketTiers: formattedTiers,
       gallery: formattedGallery.length > 0 ? formattedGallery : [posterUrl, coverUrl].filter(Boolean),
-      faqs: formattedFaqs.length > 0
-        ? formattedFaqs.filter((f) => f.question || f.answer)
-        : [
-            { question: 'When do doors open?', answer: '60 minutes prior to scheduled start time.' },
-            { question: 'Are digital QR passes accepted?', answer: 'Yes, present your digital QR pass at the ticket counter for scanning.' },
-          ],
-      schedule: formattedSchedule.length > 0 ? formattedSchedule : undefined,
-      mapsUrl: mapsUrl.trim() || undefined,
-      presentedBy: presentedBy.trim() || undefined,
+      faqs: formattedFaqs,
+      schedule: formattedSchedule,
+      mapsUrl: mapsUrl.trim() || null,
+      presentedBy: presentedBy.trim() || null,
       isFeatured,
       isTrending,
-      rating: 4.9,
-      reviewsCount: 12,
-      scheduledPublishAt: scheduledPublishAt ? new Date(scheduledPublishAt).toISOString() : undefined,
-      scheduledUnpublishAt: scheduledUnpublishAt ? new Date(scheduledUnpublishAt).toISOString() : undefined,
-      // Admin-controlled seat-map toggle. The admin panel always sends the
-      // boolean so both directions (seat-based <-> general admission) work:
-      // editing an existing event may restore seating after it was disabled.
+      isPopularThisWeek,
+      cashOnCounterOnly,
+      rating: editingEventId && existingEvt?.rating !== undefined ? existingEvt.rating : 5.0,
+      reviewsCount: editingEventId && existingEvt?.reviewsCount !== undefined ? existingEvt.reviewsCount : 0,
+      scheduledPublishAt: scheduledPublishAt ? new Date(scheduledPublishAt).toISOString() : null,
+      scheduledUnpublishAt: scheduledUnpublishAt ? new Date(scheduledUnpublishAt).toISOString() : null,
+      // Admin-controlled seat-map toggle.
       usesSeatMap,
-      // Event-level perks/features surfaced in the "What's Included" panel
-      // beside the seat map during checkout and on the public event page.
+      // Event-level perks/features
       perks: perksText.split(',').map((p) => p.trim()).filter(Boolean),
     };
 
@@ -531,9 +568,8 @@ export const AdminEvents: React.FC = () => {
 
     try {
       if (editingEventId) {
-        const existingEvt = events.find((e) => e.id === editingEventId);
         await updateEvent({
-          ...existingEvt,
+          ...(existingEvt || {}),
           ...eventPayload,
           id: editingEventId,
         });
@@ -1033,6 +1069,20 @@ export const AdminEvents: React.FC = () => {
                 </div>
 
                 <div>
+                  <label className="text-gray-300 font-bold block mb-1">Artists & Performers (One per line: Name | Role)</label>
+                  <textarea
+                    rows={2}
+                    value={artistsText}
+                    onChange={(e) => setArtistsText(e.target.value)}
+                    placeholder={"e.g. Arijit Singh | Headliner\nDJ Shadow | Opening Act"}
+                    className="w-full bg-[#1C1C1C] border border-white/10 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-[#D4AF37]"
+                  />
+                  <p className="text-[11px] text-gray-500 mt-1">
+                    Line format: Performer Name | Stage Role (e.g. Main Stage, Headliner, DJ, Comedian).
+                  </p>
+                </div>
+
+                <div>
                   <label className="text-gray-300 font-bold block mb-1">Perks & Features (What Attendees Get — Comma Separated)</label>
                   <textarea
                     rows={2}
@@ -1073,12 +1123,12 @@ export const AdminEvents: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div className="p-4 rounded-xl bg-[#1C1C1C] border border-white/10">
                     <div className="flex items-center justify-between gap-3">
                       <div>
-                        <label className="text-gray-300 font-bold block mb-0.5">Featured Headliner</label>
-                        <p className="text-[11px] text-gray-500">Show in the hero / featured section on the home page.</p>
+                        <label className="text-gray-300 font-bold block mb-0.5 text-xs">Featured Headliner</label>
+                        <p className="text-[10px] text-gray-500">Show in hero section.</p>
                       </div>
                       <button
                         type="button"
@@ -1100,8 +1150,8 @@ export const AdminEvents: React.FC = () => {
                   <div className="p-4 rounded-xl bg-[#1C1C1C] border border-white/10">
                     <div className="flex items-center justify-between gap-3">
                       <div>
-                        <label className="text-gray-300 font-bold block mb-0.5">Trending Flag</label>
-                        <p className="text-[11px] text-gray-500">Include in the Trending Shows section.</p>
+                        <label className="text-gray-300 font-bold block mb-0.5 text-xs">Trending Flag</label>
+                        <p className="text-[10px] text-gray-500">Trending shows feed.</p>
                       </div>
                       <button
                         type="button"
@@ -1119,6 +1169,55 @@ export const AdminEvents: React.FC = () => {
                         />
                       </button>
                     </div>
+                  </div>
+                  <div className="p-4 rounded-xl bg-[#1C1C1C] border border-white/10">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <label className="text-gray-300 font-bold block mb-0.5 text-xs">Popular This Week</label>
+                        <p className="text-[10px] text-gray-500">Highlight badge.</p>
+                      </div>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={isPopularThisWeek}
+                        onClick={() => setIsPopularThisWeek((v) => !v)}
+                        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors cursor-pointer ${
+                          isPopularThisWeek ? 'bg-[#D4AF37]' : 'bg-gray-600'
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                            isPopularThisWeek ? 'translate-x-6' : 'translate-x-1'
+                          }`}
+                        />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-xl bg-[#1C1C1C] border border-white/10">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <label className="text-gray-300 font-bold block mb-0.5 text-xs">Cash at Ticket Counter Only Mode</label>
+                      <p className="text-[11px] text-gray-500">
+                        When enabled, attendees reserve their booking online and settle cash directly at the venue counter.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={cashOnCounterOnly}
+                      onClick={() => setCashOnCounterOnly((v) => !v)}
+                      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors cursor-pointer ${
+                        cashOnCounterOnly ? 'bg-[#D4AF37]' : 'bg-gray-600'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                          cashOnCounterOnly ? 'translate-x-6' : 'translate-x-1'
+                        }`}
+                      />
+                    </button>
                   </div>
                 </div>
 
