@@ -71,17 +71,18 @@ export const EventCard: React.FC<EventCardProps> = ({ event, onSelectEvent, onBo
             e.stopPropagation();
             toggleFavorite(event.id);
           }}
-          className="absolute top-3.5 right-3.5 p-2 rounded-full bg-black/50 backdrop-blur-md border border-white/10 text-white hover:text-[#D4AF37] transition-colors"
+          aria-label={isFav ? 'Remove from favorites' : 'Add to favorites'}
+          className="absolute top-3 right-3 sm:top-3.5 sm:right-3.5 min-w-[44px] min-h-[44px] p-2.5 rounded-full bg-black/60 backdrop-blur-md border border-white/10 text-white hover:text-[#D4AF37] active:scale-95 transition-all flex items-center justify-center cursor-pointer"
         >
           <Heart
-            className={`w-4 h-4 transition-transform duration-200 active:scale-125 ${
+            className={`w-4 h-4 transition-transform duration-200 ${
               isFav ? 'fill-[#D4AF37] text-[#D4AF37]' : ''
             }`}
           />
         </button>
 
         {/* Rating Badge */}
-        <div className="absolute bottom-3 left-3.5 flex items-center gap-1 px-2.5 py-1 bg-black/60 backdrop-blur-md rounded-lg text-xs font-semibold text-white border border-white/10">
+        <div className="absolute bottom-3 left-3 sm:left-3.5 flex items-center gap-1 px-2.5 py-1 bg-black/60 backdrop-blur-md rounded-lg text-xs font-semibold text-white border border-white/10">
           <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
           <span>{event.rating}</span>
           <span className="text-gray-400 text-[10px]">({event.reviewsCount})</span>
@@ -89,10 +90,10 @@ export const EventCard: React.FC<EventCardProps> = ({ event, onSelectEvent, onBo
       </div>
 
       {/* Content Container */}
-      <div className="p-5 flex-1 flex flex-col justify-between gap-4 bg-[#141414]">
+      <div className="p-4 sm:p-5 flex-1 flex flex-col justify-between gap-3 sm:gap-4 bg-[#141414]">
         
         <div>
-          <h3 className="font-heading font-bold text-lg text-white group-hover:text-[#D4AF37] transition-colors line-clamp-1 leading-snug">
+          <h3 className="font-heading font-bold text-base sm:text-lg text-white group-hover:text-[#D4AF37] transition-colors line-clamp-1 leading-snug">
             {event.title}
           </h3>
           <p className="text-xs text-gray-400 line-clamp-1 mt-1">
@@ -101,7 +102,7 @@ export const EventCard: React.FC<EventCardProps> = ({ event, onSelectEvent, onBo
         </div>
 
         {/* Event Meta Info */}
-        <div className="space-y-2 text-xs text-gray-300">
+        <div className="space-y-1.5 sm:space-y-2 text-xs text-gray-300">
           <div className="flex items-center gap-2">
             <Calendar className="w-3.5 h-3.5 text-[#D4AF37] shrink-0" />
             <span className="font-medium text-gray-200">{event.date} • {event.time}</span>
@@ -114,12 +115,12 @@ export const EventCard: React.FC<EventCardProps> = ({ event, onSelectEvent, onBo
         </div>
 
         {/* Footer Row: Price & Book Button */}
-        <div className="pt-3 border-t border-white/10 flex items-center justify-between mt-auto">
+        <div className="pt-3 border-t border-white/10 flex items-center justify-between mt-auto gap-2">
           <div>
             <span className="text-[10px] text-gray-400 uppercase tracking-wider block font-medium">
               From
             </span>
-            <span className="font-heading text-lg font-bold text-white">
+            <span className="font-heading text-base sm:text-lg font-bold text-white">
               {formatINR(event.startingPrice)}
             </span>
           </div>
@@ -129,7 +130,7 @@ export const EventCard: React.FC<EventCardProps> = ({ event, onSelectEvent, onBo
               e.stopPropagation();
               onBookNow(event);
             }}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] hover:brightness-110 text-black font-bold text-xs shadow-md shadow-[#D4AF37]/25 hover:scale-105 active:scale-95 transition-all"
+            className="flex items-center justify-center gap-1.5 px-3.5 sm:px-4 py-2 sm:py-2 min-h-[44px] rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] hover:brightness-110 text-black font-bold text-xs shadow-md shadow-[#D4AF37]/25 hover:scale-105 active:scale-95 transition-all cursor-pointer whitespace-nowrap"
           >
             <Ticket className="w-3.5 h-3.5 stroke-[2.5]" />
             <span>Book Now</span>
