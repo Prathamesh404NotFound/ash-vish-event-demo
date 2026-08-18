@@ -1,5 +1,21 @@
 import { Ticket } from '../types';
 
+function formatDate(dateStr: string): string {
+  if (!dateStr) return dateStr;
+  try {
+    const d = new Date(dateStr);
+    if (!isNaN(d.getTime())) {
+      return d.toLocaleDateString('en-GB', {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric'
+      });
+    }
+  } catch {}
+  return dateStr;
+}
+
 export function formatWhatsAppTicketMessage(ticket: Ticket): string {
   const appUrl = (import.meta.env.VITE_APP_URL as string) || 'https://ashvishevents.com';
   const appBase = appUrl.replace(/\/+$/, '');
@@ -11,25 +27,34 @@ export function formatWhatsAppTicketMessage(ticket: Ticket): string {
 
   const passUrl = `${appBase}/pass/${passPath}`;
 
+  const formattedDate = formatDate(ticket.date);
+  const mapsQuery = (ticket as any).eventGoogleMapsQuery || `${ticket.venue}, ${ticket.city}`;
+  const mapsUrl = `https://maps.google.com/?q=${encodeURIComponent(mapsQuery)}`;
+
   return [
-    '━━━━━━━━━━━━━━━━━━',
-    '*ASH-VISH EVENTS*',
-    '*Your Digital QR Pass*  🎟️',
-    '━━━━━━━━━━━━━━━━━━',
+    '╔══════════════════════════╗',
+    '║  🎟️  ASH-VISH EVENTS  🎟️  ║',
+    '╚══════════════════════════╝',
     '',
-    `*${ticket.eventTitle}*`,
-    `👤 ${ticket.attendeeName}`,
-    `📅 *${ticket.date}* at ${ticket.time}`,
-    `📍 ${ticket.venue}, ${ticket.city}`,
+    `┃ *${ticket.eventTitle}* ┃`,
     '',
-    `🎫 Tier: *${ticket.tierName}*\n💺 Seat: ${ticket.seatNumber}\n🔖 Ref: ${ticket.ticketNumber}`,
+    '🎫 *TICKET DETAILS*',
+    `👤 *Attendee:* ${ticket.attendeeName}`,
+    `📅 *Date:* ${formattedDate}`,
+    `⏰ *Time:* ${ticket.time}`,
+    `🎟️ *Tier:* ${ticket.tierName}`,
+    `💺 *Seat:* ${ticket.seatNumber}`,
+    `🔖 *Ref:* ${ticket.ticketNumber}`,
     '',
-    '*Your pass is live — tap to open:*',
+    '📍 *VENUE & DIRECTIONS*',
+    `🗺️ *Venue:* ${ticket.venue}, ${ticket.city}`,
+    `📍 _Get directions:_ ${mapsUrl}`,
+    '',
+    '🔐 *YOUR SECURE PASS*',
+    '✨ *TAP BELOW — your QR pass opens here:* ✨',
     passUrl,
     '',
-    '📌 *How to enter:* open the link above and show the QR code at the entrance gate for instant check-in.',
-    '━━━━━━━━━━━━━━━━━━',
-    `*Thank you — see you at the show!* ✨`,
+    '🙏 Save this message — you\'ll need it at the gate. Questions? Reply here, we respond in minutes!',
   ].join('\n');
 }
 

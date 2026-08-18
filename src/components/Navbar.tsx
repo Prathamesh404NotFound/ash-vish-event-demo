@@ -46,27 +46,30 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSearch }) => {
       {/* Floating Top Navbar */}
       <header className="fixed top-0 inset-x-0 z-50 transition-all duration-300">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-3 sm:pt-4">
-          <nav className="glass-nav rounded-2xl px-4 py-3 sm:px-6 sm:py-3.5 flex items-center justify-between shadow-2xl border border-white/10">
+          <nav className="bg-[#0c0c0e]/85 backdrop-blur-xl rounded-2xl px-3.5 py-2.5 sm:px-6 sm:py-3 flex items-center justify-between shadow-[0_12px_35px_rgba(0,0,0,0.85)] border border-white/10 hover:border-[#D4AF37]/25 transition-colors duration-300">
 
-            {/* Logo */}
-            <Link to="/" className="flex items-center gap-2.5 cursor-pointer group">
-              <img
-                src="/ash-vish-events-logo.png"
-                alt="Ash-vish Events Logo"
-                className="w-10 h-10 rounded-xl object-cover shadow-lg shadow-[#D4AF37]/30 group-hover:scale-105 transition-transform duration-200"
-              />
+            {/* Logo & Brand Container */}
+            <Link to="/" className="flex items-center gap-2.5 sm:gap-3 cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D4AF37] rounded-xl p-0.5 shrink-0">
+              <div className="relative">
+                <div className="absolute -inset-0.5 bg-gradient-to-r from-[#F3E5AB] via-[#D4AF37] to-[#C5A059] rounded-xl opacity-40 group-hover:opacity-100 blur-[3px] transition-opacity duration-300"></div>
+                <img
+                  src="/ash-vish-events-logo.png"
+                  alt="Ash-vish Events Logo"
+                  className="relative w-9 h-9 sm:w-10 sm:h-10 rounded-xl object-cover border border-[#D4AF37]/40 shadow-lg group-hover:scale-105 transition-transform duration-200"
+                />
+              </div>
               <div className="flex flex-col">
-                <span className="font-heading font-extrabold text-lg sm:text-xl tracking-tight text-white leading-none">
-                  Ash-vish<span className="text-[#D4AF37]"> events</span>
+                <span className="font-heading font-extrabold text-base sm:text-xl tracking-tight text-white leading-none group-hover:text-[#F3E5AB] transition-colors">
+                  Ash-vish<span className="bg-gradient-to-r from-[#F3E5AB] via-[#D4AF37] to-[#C5A059] bg-clip-text text-transparent ml-1 font-black font-sans">events</span>
                 </span>
-                <span className="text-[10px] uppercase tracking-widest text-gray-400 font-medium">
+                <span className="text-[9px] sm:text-[10px] uppercase tracking-widest text-gray-400 font-semibold mt-0.5">
                   Live Tickets & Passes
                 </span>
               </div>
             </Link>
 
             {/* Desktop Navigation Links */}
-            <div className="hidden md:flex items-center gap-1 bg-[#141414] p-1.5 rounded-xl border border-white/5">
+            <div className="hidden md:flex items-center gap-1 bg-[#141417]/90 p-1.5 rounded-xl border border-white/10 shadow-inner">
               {navItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = location.pathname === item.path;
@@ -74,13 +77,13 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSearch }) => {
                   <Link
                     key={item.path}
                     to={item.path}
-                    className={`relative flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                    className={`relative flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs md:text-sm font-semibold transition-all duration-200 ${
                       isActive
-                        ? 'bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black font-semibold shadow-md shadow-[#D4AF37]/25'
+                        ? 'bg-gradient-to-r from-[#F3E5AB] via-[#D4AF37] to-[#C5A059] text-black font-bold shadow-md shadow-[#D4AF37]/30'
                         : 'text-gray-300 hover:text-white hover:bg-white/5'
                     }`}
                   >
-                    <Icon className="w-4 h-4" />
+                    <Icon className="w-4 h-4 shrink-0" />
                     <span>{item.label}</span>
                     {!!item.badge && item.badge > 0 && (
                       <span
@@ -97,17 +100,17 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSearch }) => {
             </div>
 
             {/* Right Actions: Search trigger & Auth / User Profile */}
-            <div className="flex items-center gap-2 sm:gap-3">
+            <div className="flex items-center gap-2 sm:gap-3 shrink-0">
               {/* Search Button */}
               {onOpenSearch && (
                 <button
                   onClick={onOpenSearch}
-                  className="flex items-center gap-2 px-3 py-2 rounded-xl bg-[#1C1C1C] hover:bg-[#262626] border border-white/10 text-gray-300 text-xs sm:text-sm transition-all duration-200 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D4AF37] cursor-pointer touch-min-target"
+                  className="flex items-center gap-2 px-3 py-2 rounded-xl bg-[#18181c] hover:bg-[#222228] border border-white/10 text-gray-300 text-xs sm:text-sm transition-all duration-200 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D4AF37] cursor-pointer touch-min-target"
                   aria-label="Search events"
                 >
                   <Search className="w-4 h-4 text-[#D4AF37] shrink-0" />
-                  <span className="hidden sm:inline font-medium">Search events...</span>
-                  <kbd className="hidden lg:inline-flex items-center px-1.5 py-0.5 text-[10px] font-mono font-medium text-gray-400 bg-white/10 rounded border border-white/10">
+                  <span className="hidden sm:inline font-medium">Search...</span>
+                  <kbd className="hidden md:inline-flex items-center px-1.5 py-0.5 text-[10px] font-mono font-medium text-gray-400 bg-white/10 rounded border border-white/10">
                     ⌘K
                   </kbd>
                 </button>
