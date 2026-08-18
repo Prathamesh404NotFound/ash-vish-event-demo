@@ -1,5 +1,6 @@
 import express from "express";
 import path from "path";
+import fs from "fs";
 import crypto from "crypto";
 import dotenv from "dotenv";
 dotenv.config();
@@ -5570,6 +5571,30 @@ app.delete("/api/admin/counters/:counterId", requireRole(["super_admin"]), async
     return res.status(500).json({ success: false, error: err.message || "Could not delete counter." });
   }
 });
+
+  app.get("/sitemap.xml", (req, res) => {
+    res.setHeader("Content-Type", "application/xml; charset=utf-8");
+    const publicPath = path.join(process.cwd(), "public", "sitemap.xml");
+    const distPath = path.join(process.cwd(), "dist", "sitemap.xml");
+    if (fs.existsSync(publicPath)) {
+      return res.sendFile(publicPath);
+    } else if (fs.existsSync(distPath)) {
+      return res.sendFile(distPath);
+    }
+    return res.status(404).send("<?xml version=\"1.0\" encoding=\"UTF-8\"?><error>Sitemap not found</error>");
+  });
+
+  app.get("/robots.txt", (req, res) => {
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    const publicPath = path.join(process.cwd(), "public", "robots.txt");
+    const distPath = path.join(process.cwd(), "dist", "robots.txt");
+    if (fs.existsSync(publicPath)) {
+      return res.sendFile(publicPath);
+    } else if (fs.existsSync(distPath)) {
+      return res.sendFile(distPath);
+    }
+    return res.send("User-agent: *\nAllow: /\nSitemap: https://ashvishevents.com/sitemap.xml\n");
+  });
 
   if (process.env.NODE_ENV !== "production") {
     // Lazy import: the `vite` package must NOT be resolved in the Vercel

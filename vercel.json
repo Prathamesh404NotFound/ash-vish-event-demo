@@ -12,7 +12,15 @@
       "destination": "/api/[[...route]]"
     },
     {
-      "source": "/(.*)",
+      "source": "/sitemap.xml",
+      "destination": "/sitemap.xml"
+    },
+    {
+      "source": "/robots.txt",
+      "destination": "/robots.txt"
+    },
+    {
+      "source": "/((?!api/|sitemap\\.xml|robots\\.txt|favicon.*|manifest\\.json|.*\\..*).*)",
       "destination": "/index.html"
     }
   ]
