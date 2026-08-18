@@ -6,6 +6,7 @@ import { EventCard } from '../components/EventCard';
 import { CategoryChip } from '../components/CategoryChip';
 import { EmptyState } from '../components/EmptyState';
 import { useSEO } from '../hooks/useSEO';
+import { generateOrganizationSchema } from '../utils/structuredData';
 
 interface SearchPageProps {
   initialCategory?: EventCategory | 'all';
@@ -22,7 +23,9 @@ export const SearchPage: React.FC<SearchPageProps> = ({
 
   useSEO({
     title: 'Explore & Search Upcoming Live Events',
-    description: 'Filter upcoming concerts, standup comedy shows, theater plays, and stadium games by category, city, date, and price.',
+    description: 'Filter upcoming concerts, standup comedy shows, theater plays, and stadium games by category, city, date, and price on Ash-vish Events.',
+    keywords: 'events near me, concerts kolhapur, comedy shows kolhapur, theatre kolhapur, sports events maharashtra, tickets kolhapur, weekend events kolhapur',
+    structuredData: generateOrganizationSchema(),
   });
 
   const [filters, setFilters] = useState<FilterOptions>({

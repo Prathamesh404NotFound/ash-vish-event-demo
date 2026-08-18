@@ -25,6 +25,7 @@ import { EventReviewsSection } from '../components/EventReviewsSection';
 import { formatINR } from '../utils/formatters';
 import { isSeatBasedEvent } from '../lib/seatMap';
 import { useSEO } from '../hooks/useSEO';
+import { generateEventSchema, generateOrganizationSchema } from '../utils/structuredData';
 
 interface EventDetailProps {
   event: EventItem;
@@ -42,12 +43,15 @@ export const EventDetail: React.FC<EventDetailProps> = ({
   const { events, favorites, toggleFavorite } = useBooking();
   const isFav = favorites.includes(event.id);
 
+  const eventSchema = generateEventSchema(event);
   useSEO({
     title: `${event.title} - ${event.venue}, ${event.city}`,
     description: `${event.subtitle || event.description} | Date: ${event.date} @ ${event.time}. Book tickets online at Ash-vish Events.`,
     image: event.coverUrl || event.posterUrl,
     url: window.location.href,
-    type: 'article',
+    type: 'event',
+    keywords: `${event.category} ${event.city}, ${event.title} tickets ${event.city}, ${event.venue} events kolhapur, book ${event.title} kolhapur`,
+    structuredData: eventSchema ? [eventSchema, generateOrganizationSchema()] : generateOrganizationSchema(),
   });
 
   // Flat single-price ticket: same price for every seat.

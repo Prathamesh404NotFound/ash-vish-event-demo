@@ -16,6 +16,7 @@ import { EventCard } from '../components/EventCard';
 import { CategoryChip } from '../components/CategoryChip';
 import { formatINR } from '../utils/formatters';
 import { useSEO } from '../hooks/useSEO';
+import { generateOrganizationSchema } from '../utils/structuredData';
 
 interface HomeProps {
   onSelectEvent: (event: EventItem) => void;
@@ -33,8 +34,10 @@ export const Home: React.FC<HomeProps> = ({
   const [heroIndex, setHeroIndex] = useState(0);
 
   useSEO({
-    title: 'Live Concerts, Standup Comedy & Stadium Events',
-    description: 'Book official live tickets for music tours, standup comedy specials, stadium sports, and theater shows on Ash-vish Events.',
+    title: 'Best Event Organisers in Kolhapur, Maharashtra & India',
+    description: 'Book official tickets for concerts, standup comedy, stadium events, and theatre in Kolhapur & across Maharashtra. Ash-vish Events — trusted event organisers with instant QR-code digital entry.',
+    keywords: 'event organisers kolhapur, events in kolhapur, book tickets kolhapur, concert tickets maharashtra, event management kolhapur, best event organisers india, ash-vish events, digital qr ticket, live concerts kolhapur, standup comedy kolhapur, wedding events kolhapur, corporate events kolhapur',
+    structuredData: generateOrganizationSchema(),
   });
 
   // Guard against incomplete/malformed event records so a single bad row

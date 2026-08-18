@@ -87,6 +87,18 @@ export function getTicketMessageComponents(ticket: any) {
 }
 
 /**
+ * Returns the media header component (event poster image) if the ticket
+ * carries a usable public poster URL, otherwise null.
+ */
+export function getTicketHeaderComponent(ticket: any): { type: "image"; image: { link: string } } | null {
+  const poster = ticket?.eventPoster;
+  if (poster && /^https?:\/\//i.test(String(poster))) {
+    return { type: "image", image: { link: poster } };
+  }
+  return null;
+}
+
+/**
  * Sends ticket confirmation via Meta's WhatsApp Cloud API (test mode enabled).
  */
 export async function sendTicketCloud(ticket: any, recipientPhone: string): Promise<{ success: boolean; waMessageId?: string; error?: any }> {
@@ -112,6 +124,7 @@ export async function sendTicketCloud(ticket: any, recipientPhone: string): Prom
   }
 
   const parameters = getTicketMessageComponents(ticket);
+  const headerComponent = getTicketHeaderComponent(ticket);
   const payload = {
     messaging_product: "whatsapp",
     recipient_type: "individual",
@@ -121,13 +134,14 @@ export async function sendTicketCloud(ticket: any, recipientPhone: string): Prom
       name: "ticket_confirmation",
       language: { code: "en_US" },
       components: [
+        ...(headerComponent ? [headerComponent] : []),
         {
           type: "body",
           parameters: parameters
         }
       ]
     }
-  };
+  } as any;
 
   const url = `https://graph.facebook.com/v26.0/${phoneNumberId}/messages`;
   const truncatedToken = truncateToken(token);
@@ -182,6 +196,23 @@ export async function sendTicketCloud(ticket: any, recipientPhone: string): Prom
         payload.template = { name: 'hello_world', language: { code: 'en_US' } };
         // hello_world takes no body parameters — remove them for the fallback call
         delete (payload.template as any).components;
+        continue;
+      }
+
+      // Header mismatch (132040): the template's header is 'None' but we sent
+      // a media (image) header component. Strip the header once and retry.
+      if (
+        (metaError?.code === 132040 ||
+          (typeof metaError?.message === 'string' &&
+            /header/i.test(metaError.message))) &&
+        attempts === 1 &&
+        Array.isArray(payload.template.components) &&
+        headerComponent !== null
+      ) {
+        console.warn(`[WHATSAPP CLOUD] Template header mismatch (${metaError?.code || 'unknown'}). Retrying with text-only payload (image header removed).`);
+        payload.template.components = payload.template.components.filter(
+          (c: any) => c.type !== 'image'
+        );
         continue;
       }
 

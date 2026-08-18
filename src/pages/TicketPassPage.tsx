@@ -90,8 +90,18 @@ export function TicketPassPage() {
   const handleOpenMaps = () => {
     if (!ticket) return;
     const query = ticket.eventGoogleMapsQuery || `${ticket.venue}, ${ticket.city}`;
-    const mapsUrl = `https://maps.google.com/?q=${encodeURIComponent(query)}`;
-    window.open(mapsUrl, '_blank', 'noopener,noreferrer');
+    // Deep link first: intent URL opens the Google Maps app on mobile Android,
+    // fallback goes to the universal https URL for iOS / desktop browsers.
+    const mapsDeepLink = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+    const mapsUniversal = `https://maps.google.com/?q=${encodeURIComponent(query)}`;
+    if (/Android/i.test(navigator.userAgent)) {
+      const intentUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+      window.location.href = intentUrl;
+    } else {
+      window.open(mapsUniversal, '_blank', 'noopener,noreferrer');
+    }
+    // Fallback: if the deep link didn't launch anything, universal URL still works
+    void mapsDeepLink;
   };
 
   const handleShare = () => {
@@ -231,20 +241,40 @@ export function TicketPassPage() {
           )}
 
           {/* Poster Header */}
-          <div className="relative h-40 overflow-hidden bg-gray-900">
+          <div className="relative h-44 overflow-hidden bg-gray-900">
             <img 
               src={ticket?.eventPoster || "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&q=80&w=800"} 
               alt={ticket?.eventTitle}
-              className="w-full h-full object-cover opacity-85"
+              className="w-full h-full object-cover"
+              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
             />
             <div className="absolute inset-0 bg-gradient-to-t from-[#111] via-transparent to-black/40" />
-            <div className="absolute bottom-3 left-4 right-4 flex items-center justify-between">
-              <div>
-                <span className="px-2.5 py-0.5 rounded-md bg-[#D4AF37] text-black text-[10px] font-extrabold uppercase tracking-wider">
+            <div className="absolute top-3 right-3 flex flex-col gap-1.5 items-end">
+              {isPaid ? (
+                <span className="px-2.5 py-1 rounded-md bg-emerald-500/90 text-white text-[10px] font-extrabold uppercase tracking-wider shadow-lg inline-flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3" /> Paid
+                </span>
+              ) : (
+                <span className="px-2.5 py-1 rounded-md bg-amber-500/90 text-black text-[10px] font-extrabold uppercase tracking-wider shadow-lg inline-flex items-center gap-1">
+                  <Clock className="w-3 h-3" /> Pay at Venue
+                </span>
+              )}
+            </div>
+            <div className="absolute bottom-3 left-4 right-4 flex items-end justify-between gap-2">
+              <div className="min-w-0">
+                <span className="px-2.5 py-0.5 rounded-md bg-[#D4AF37] text-black text-[10px] font-extrabold uppercase tracking-wider shadow">
                   {ticket?.tierName || 'Standard Entry'}
                 </span>
-                <h2 className="text-lg font-bold text-white mt-1 line-clamp-1">{ticket?.eventTitle}</h2>
+                <h2 className="text-lg font-bold text-white mt-1 line-clamp-2 drop-shadow-lg">{ticket?.eventTitle}</h2>
               </div>
+              <button
+                onClick={handleOpenMaps}
+                aria-label="Open venue location in Google Maps"
+                className="shrink-0 px-3 py-1.5 rounded-lg bg-black/55 hover:bg-black/75 border border-white/25 text-white text-[10px] font-bold flex items-center gap-1.5 backdrop-blur-sm transition-all cursor-pointer"
+              >
+                <MapPin className="w-3.5 h-3.5 text-[#D4AF37]" />
+                Maps
+              </button>
             </div>
           </div>
 
@@ -283,14 +313,15 @@ export function TicketPassPage() {
               <span className="text-white font-semibold text-right max-w-[200px] truncate">{ticket?.venue}, {ticket?.city}</span>
             </div>
 
-            {/* Google Maps directions button */}
-            <div className="pt-1">
+            {/* Full-width Google Maps directions button */}
+            <div className="pt-1.5">
               <button
                 onClick={handleOpenMaps}
-                className="w-full py-2.5 px-4 rounded-xl border border-[#D4AF37] text-[#D4AF37] hover:bg-[#D4AF37]/10 font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-sm"
+                aria-label="Get directions to the venue on Google Maps"
+                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-[#D4AF37] to-[#F3E5AB] hover:brightness-110 text-black font-extrabold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-lg shadow-[#D4AF37]/20 active:scale-[0.98]"
               >
-                <MapPin className="w-4 h-4 text-[#D4AF37]" />
-                <span>Open in Google Maps</span>
+                <MapPin className="w-4 h-4" />
+                <span>Get Directions on Google Maps</span>
               </button>
             </div>
           </div>
