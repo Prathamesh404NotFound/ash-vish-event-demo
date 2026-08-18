@@ -377,6 +377,13 @@ export const WalkInPage: React.FC = () => {
     setUpiError('');
   }, [paymentMethod, netTotal, effectiveUpi?.vpa]);
 
+  // Auto-sync payments when not in split mode so confirm button is always enabled with correct total
+  useEffect(() => {
+    if (!showSplit) {
+      setPayments([{ method: paymentMethod, amount: netTotal }]);
+    }
+  }, [showSplit, paymentMethod, netTotal]);
+
   const refreshSeats = useCallback(() => {
     setSeatRefreshKey((k) => k + 1);
     setLastLiveRefresh(Date.now());
