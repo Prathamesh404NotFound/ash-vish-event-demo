@@ -4598,30 +4598,64 @@ export async function createApp() {
     }
   });
 
+  // Rate limiting map for /api/passes endpoint: IP -> timestamps array
+  const passRateLimits = new Map<string, number[]>();
+
   /**
    * Public Secure Digital Pass Endpoint.
    */
   app.get("/api/passes/:passId", async (req: any, res) => {
     try {
+      const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || req.socket?.remoteAddress || 'unknown';
+      const now = Date.now();
+      const windowMs = 60 * 1000;
+      const maxRequests = 10;
+
+      const timestamps = (passRateLimits.get(clientIp) || []).filter(ts => now - ts < windowMs);
+      if (timestamps.length >= maxRequests) {
+        return res.status(429).json({ success: false, error: "RATE_LIMIT_EXCEEDED", message: "Too many requests. Please try again later." });
+      }
+      timestamps.push(now);
+      passRateLimits.set(clientIp, timestamps);
+
       const { passId } = req.params;
       const { sig } = req.query;
-      if (!passId || !sig) {
-        return res.status(400).json({ success: false, error: "Missing pass ID or signature." });
+      if (!passId) {
+        return res.status(400).json({ success: false, error: "Missing pass ID." });
       }
       const adminToken = await getAdminAuthToken();
       if (!adminToken) {
         return res.status(500).json({ success: false, error: "Server authentication error." });
       }
-      const passSnap = await rtdbGet(`passes/${passId}`, adminToken);
-      const passRecord = passSnap.data as any;
-      if (!passRecord || !passRecord.ticketId) {
+      let ticketId: string | null = null;
+      let passRecord = (await rtdbGet(`passes/${passId}`, adminToken)).data as any;
+
+      if (passRecord && passRecord.ticketId) {
+        if (!sig) {
+          return res.status(400).json({ success: false, error: "Missing pass signature." });
+        }
+        ticketId = passRecord.ticketId;
+        const expectedSig = crypto.createHmac("sha256", SERVER_HMAC_SECRET).update(`${passId}|${ticketId}`).digest("hex").substring(0, 16);
+        if (!crypto.timingSafeEqual(Buffer.from(String(sig)), Buffer.from(expectedSig))) {
+          return res.status(403).json({ success: false, error: "Invalid or forged digital pass signature." });
+        }
+      } else {
+        // BACKFILL FOR OLD TICKETS: if passes/${passId} is empty AND passId matches legacy ticketNumber pattern
+        const isLegacyPattern = /^ASH-(RES-)?[A-Z0-9]+-[A-Z0-9]+$/i.test(passId) || /^ASH-[A-Z0-9]+$/i.test(passId);
+        if (isLegacyPattern) {
+          const ticketsSnap = await rtdbGet("tickets", adminToken);
+          const allTickets = Object.values((ticketsSnap.data || {}) as Record<string, any>);
+          const matched = allTickets.find((t: any) => t.ticketNumber?.toLowerCase() === passId.toLowerCase());
+          if (matched) {
+            ticketId = matched.id;
+          }
+        }
+      }
+
+      if (!ticketId) {
         return res.status(404).json({ success: false, error: "Digital pass not found or expired." });
       }
-      const ticketId = passRecord.ticketId;
-      const expectedSig = crypto.createHmac("sha256", SERVER_HMAC_SECRET).update(`${passId}|${ticketId}`).digest("hex").substring(0, 16);
-      if (!crypto.timingSafeEqual(Buffer.from(String(sig)), Buffer.from(expectedSig))) {
-        return res.status(403).json({ success: false, error: "Invalid or forged digital pass signature." });
-      }
+
       const ticketSnap = await rtdbGet(`tickets/${ticketId}`, adminToken);
       const ticket = ticketSnap.data as any;
       if (!ticket) {
@@ -4651,7 +4685,7 @@ export async function createApp() {
           redeemed: ticket.status === 'redeemed',
           redeemedAt: ticket.redeemedAt || null,
           redeemedBy: ticket.redeemedBy || null,
-          passSlug: ticket.passSlug || { id: passId, sig },
+          passSlug: ticket.passSlug || { id: passId, sig: sig || '' },
         }
       });
     } catch (err: any) {

@@ -41,13 +41,17 @@ export function TicketPassPage() {
     const activeSlug = slug || passId;
     const activeSig = signature || querySig;
 
-    if (!activeSlug || !activeSig) {
+    if (!activeSlug) {
       setState('invalid');
       setErrorMessage('Missing secure pass link parameters.');
       return;
     }
 
-    fetch(`/api/passes/${encodeURIComponent(activeSlug)}/${encodeURIComponent(activeSig)}`)
+    const passEndpoint = activeSig 
+      ? `/api/passes/${encodeURIComponent(activeSlug)}?sig=${encodeURIComponent(activeSig)}`
+      : `/api/passes/${encodeURIComponent(activeSlug)}`;
+
+    fetch(passEndpoint)
       .then(async (res) => {
         const data = await res.json();
         if (!res.ok || !data.success) {
