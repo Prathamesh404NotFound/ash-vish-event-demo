@@ -178,40 +178,42 @@ export const Home: React.FC<HomeProps> = ({
 
       {/* ----------------- CATEGORIES QUICK FILTERS ----------------- */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between gap-4 mb-6">
+        <div className="flex items-center justify-between gap-4 mb-4 sm:mb-6">
           <div>
-            <h2 className="font-heading font-bold text-2xl sm:text-3xl text-white">
+            <h2 className="font-heading font-bold text-xl sm:text-3xl text-white">
               Explore By Category
             </h2>
-            <p className="text-xs sm:text-sm text-gray-400 mt-1">
-              Handpicked live concerts, standup comedy nights, sports, and theatrical productions.
+            <p className="text-xs sm:text-sm text-gray-400 mt-0.5 sm:mt-1">
+              Handpicked live concerts, standup comedy, sports, and theatrical shows.
             </p>
           </div>
 
           <button
             onClick={() => onNavigateToSearch('all')}
-            className="hidden sm:flex items-center gap-1.5 text-xs font-semibold text-[#D4AF37] hover:text-[#F3E5AB] transition-colors"
+            className="flex items-center gap-1.5 text-xs font-bold text-[#D4AF37] hover:text-[#F3E5AB] transition-colors shrink-0 px-2.5 py-1.5 rounded-lg bg-[#D4AF37]/10 sm:bg-transparent border border-[#D4AF37]/20 sm:border-none"
           >
-            <span>View All Search</span>
-            <ArrowRight className="w-4 h-4" />
+            <span>View All</span>
+            <ArrowRight className="w-3.5 h-3.5" />
           </button>
         </div>
 
-        <div className="flex items-center gap-3 overflow-x-auto no-scrollbar pb-2">
-          {categories.map((cat) => (
-            <CategoryChip
-              key={cat}
-              category={cat}
-              activeCategory={selectedCategory}
-              onSelectCategory={(c) => {
-                setSelectedCategory(c);
-                if (c !== 'all') {
-                  onNavigateToSearch(c);
-                }
-              }}
-              count={cat === 'all' ? events.length : events.filter((e) => e.category === cat).length}
-            />
-          ))}
+        <div className="relative group">
+          <div className="flex items-center gap-2.5 sm:gap-3 overflow-x-auto no-scrollbar pb-3 pt-1 -mx-4 px-4 sm:mx-0 sm:px-0 snap-x snap-mandatory overscroll-x-contain">
+            {categories.map((cat) => (
+              <CategoryChip
+                key={cat}
+                category={cat}
+                activeCategory={selectedCategory}
+                onSelectCategory={(c) => {
+                  setSelectedCategory(c);
+                  if (c !== 'all') {
+                    onNavigateToSearch(c);
+                  }
+                }}
+                count={cat === 'all' ? events.length : events.filter((e) => e.category === cat).length}
+              />
+            ))}
+          </div>
         </div>
       </section>
 

@@ -97,15 +97,19 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSearch }) => {
             </div>
 
             {/* Right Actions: Search trigger & Auth / User Profile */}
-            <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-2 sm:gap-3">
               {/* Search Button */}
               {onOpenSearch && (
                 <button
                   onClick={onOpenSearch}
-                  className="flex items-center gap-2 px-3 py-2 rounded-xl bg-[#1C1C1C] hover:bg-[#262626] border border-white/10 text-gray-300 text-xs sm:text-sm transition-all duration-200"
+                  className="flex items-center gap-2 px-3 py-2 rounded-xl bg-[#1C1C1C] hover:bg-[#262626] border border-white/10 text-gray-300 text-xs sm:text-sm transition-all duration-200 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D4AF37] cursor-pointer touch-min-target"
+                  aria-label="Search events"
                 >
-                  <Search className="w-4 h-4 text-[#D4AF37]" />
+                  <Search className="w-4 h-4 text-[#D4AF37] shrink-0" />
                   <span className="hidden sm:inline font-medium">Search events...</span>
+                  <kbd className="hidden lg:inline-flex items-center px-1.5 py-0.5 text-[10px] font-mono font-medium text-gray-400 bg-white/10 rounded border border-white/10">
+                    ⌘K
+                  </kbd>
                 </button>
               )}
 
@@ -114,22 +118,24 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSearch }) => {
                 <div className="relative">
                   <button
                     onClick={() => setUserDropdownOpen(!userDropdownOpen)}
-                    className="flex items-center gap-2 p-1 rounded-xl bg-[#1C1C1C] hover:bg-[#262626] border border-white/10 transition-all"
+                    className="flex items-center gap-2 p-1.5 rounded-xl bg-[#1C1C1C] hover:bg-[#262626] border border-white/10 transition-all active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D4AF37] cursor-pointer touch-min-target"
+                    aria-label="User account menu"
+                    aria-expanded={userDropdownOpen}
                   >
                     <img
                       src={user?.photoUrl}
-                      alt={user?.name}
+                      alt={user?.name || 'User profile'}
                       className="w-8 h-8 rounded-lg object-cover border border-[#D4AF37]/30"
                     />
                   </button>
 
                   {/* Profile Dropdown Menu */}
                   {userDropdownOpen && (
-                    <div className="absolute right-0 mt-2 w-56 bg-[#141414] border border-white/10 rounded-2xl shadow-2xl py-2 z-50 animate-in fade-in slide-in-from-top-2">
-                      <div className="px-4 py-2 border-b border-white/10">
+                    <div className="absolute right-0 mt-2 sm:mt-3 w-60 sm:w-64 max-w-[calc(100vw-2rem)] bg-[#141414] border border-white/10 rounded-2xl shadow-2xl py-2 z-50 animate-in fade-in slide-in-from-top-2">
+                      <div className="px-4 py-2.5 border-b border-white/10">
                         <p className="text-sm font-semibold text-white truncate">{user?.name}</p>
                         <p className="text-xs text-gray-400 truncate">{user?.email}</p>
-                        <span className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 text-[10px] bg-[#D4AF37]/15 text-[#F3E5AB] rounded-full border border-[#D4AF37]/20 font-medium uppercase tracking-wider">
+                        <span className="mt-1.5 inline-flex items-center gap-1 px-2 py-0.5 text-[10px] bg-[#D4AF37]/15 text-[#F3E5AB] rounded-full border border-[#D4AF37]/20 font-medium uppercase tracking-wider">
                           <Sparkles className="w-3 h-3" /> {user?.role || 'Customer'}
                         </span>
                       </div>
@@ -137,18 +143,18 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSearch }) => {
                       <Link
                         to="/account/profile"
                         onClick={() => setUserDropdownOpen(false)}
-                        className="w-full flex items-center gap-2.5 px-4 py-2 text-xs text-gray-300 hover:bg-white/5 hover:text-white text-left transition-colors"
+                        className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs text-gray-300 hover:bg-white/5 hover:text-white text-left transition-colors"
                       >
-                        <UserIcon className="w-4 h-4 text-gray-400" />
+                        <UserIcon className="w-4 h-4 text-gray-400 shrink-0" />
                         <span>Account Profile</span>
                       </Link>
 
                       <Link
                         to="/account/tickets"
                         onClick={() => setUserDropdownOpen(false)}
-                        className="w-full flex items-center gap-2.5 px-4 py-2 text-xs text-gray-300 hover:bg-white/5 hover:text-white text-left transition-colors"
+                        className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs text-gray-300 hover:bg-white/5 hover:text-white text-left transition-colors"
                       >
-                        <Ticket className="w-4 h-4 text-gray-400" />
+                        <Ticket className="w-4 h-4 text-gray-400 shrink-0" />
                         <span>My Tickets ({myTickets.length})</span>
                       </Link>
 
@@ -156,9 +162,9 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSearch }) => {
                       <Link
                         to="/organizer"
                         onClick={() => setUserDropdownOpen(false)}
-                        className="w-full flex items-center gap-2.5 px-4 py-2 text-xs text-[#D4AF37] hover:bg-[#D4AF37]/10 text-left transition-colors font-bold"
+                        className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs text-[#D4AF37] hover:bg-[#D4AF37]/10 text-left transition-colors font-bold"
                       >
-                        <Building2 className="w-4 h-4 text-[#D4AF37]" />
+                        <Building2 className="w-4 h-4 text-[#D4AF37] shrink-0" />
                         <span>Organizer Portal</span>
                       </Link>
 
@@ -167,9 +173,9 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSearch }) => {
                         <Link
                           to="/counter"
                           onClick={() => setUserDropdownOpen(false)}
-                          className="w-full flex items-center gap-2.5 px-4 py-2 text-xs text-[#D4AF37] hover:bg-[#D4AF37]/10 text-left transition-colors font-bold"
+                          className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs text-[#D4AF37] hover:bg-[#D4AF37]/10 text-left transition-colors font-bold"
                         >
-                          <QrCode className="w-4 h-4 text-[#D4AF37]" />
+                          <QrCode className="w-4 h-4 text-[#D4AF37] shrink-0" />
                           <span>Ticket Counter Dashboard</span>
                         </Link>
                       )}
@@ -179,9 +185,9 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSearch }) => {
                         <Link
                           to="/admin"
                           onClick={() => setUserDropdownOpen(false)}
-                          className="w-full flex items-center gap-2.5 px-4 py-2 text-xs text-[#D4AF37] hover:bg-[#D4AF37]/10 text-left transition-colors font-bold"
+                          className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs text-[#D4AF37] hover:bg-[#D4AF37]/10 text-left transition-colors font-bold"
                         >
-                          <ShieldCheck className="w-4 h-4 text-[#D4AF37]" />
+                          <ShieldCheck className="w-4 h-4 text-[#D4AF37] shrink-0" />
                           <span>Admin Portal</span>
                         </Link>
                       )}
@@ -194,9 +200,9 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSearch }) => {
                           setUserDropdownOpen(false);
                           navigate('/login');
                         }}
-                        className="w-full flex items-center gap-2.5 px-4 py-2 text-xs text-red-400 hover:bg-red-500/10 text-left transition-colors"
+                        className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs text-red-400 hover:bg-red-500/10 text-left transition-colors cursor-pointer"
                       >
-                        <LogOut className="w-4 h-4 text-red-400" />
+                        <LogOut className="w-4 h-4 text-red-400 shrink-0" />
                         <span>Sign Out</span>
                       </button>
                     </div>
@@ -205,7 +211,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSearch }) => {
               ) : (
                 <Link
                   to="/login"
-                  className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] hover:brightness-110 text-black font-bold text-xs sm:text-sm shadow-md shadow-[#D4AF37]/20 transition-all duration-200"
+                  className="px-3.5 py-2 sm:px-4 sm:py-2 rounded-xl bg-gradient-to-r from-[#F3E5AB] via-[#D4AF37] to-[#C5A059] hover:brightness-110 text-black font-extrabold text-xs sm:text-sm shadow-md shadow-[#D4AF37]/20 transition-all duration-200 active:scale-95 whitespace-nowrap cursor-pointer flex items-center justify-center min-h-[38px]"
                 >
                   Sign In
                 </Link>
@@ -214,9 +220,10 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSearch }) => {
               {/* Mobile Drawer Hamburger */}
               <button
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                className="md:hidden p-2 rounded-xl bg-[#1C1C1C] text-gray-300 hover:text-white border border-white/10"
+                className="md:hidden w-10 h-10 flex items-center justify-center rounded-xl bg-[#1C1C1C] text-gray-300 hover:text-white border border-white/10 active:scale-95 transition-all cursor-pointer touch-min-target"
+                aria-label={mobileMenuOpen ? "Close menu" : "Open navigation menu"}
               >
-                {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+                {mobileMenuOpen ? <X className="w-5 h-5 text-white" /> : <Menu className="w-5 h-5 text-gray-300" />}
               </button>
             </div>
           </nav>
