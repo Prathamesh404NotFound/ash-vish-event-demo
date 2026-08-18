@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Html5Qrcode } from 'html5-qrcode';
 import {
   QrCode,
   Search,
@@ -35,6 +34,7 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
   const [manualSearchQuery, setManualSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<'camera' | 'manual'>('camera');
   const [isCameraActive, setIsCameraActive] = useState(false);
+  const [isCameraRequested, setIsCameraRequested] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
 
   const [lastResult, setLastResult] = useState<{
@@ -46,7 +46,7 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
     isTampered?: boolean;
   } | null>(null);
 
-  const html5QrcodeRef = useRef<Html5Qrcode | null>(null);
+  const html5QrcodeRef = useRef<any>(null);
 
   const handleScanCode = async (code: string) => {
     if (!code.trim()) return;
@@ -58,6 +58,7 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
   const startCamera = async () => {
     setCameraError(null);
     try {
+      const { Html5Qrcode } = await import('html5-qrcode');
       const html5QrCode = new Html5Qrcode('reader');
       html5QrcodeRef.current = html5QrCode;
 
@@ -77,7 +78,23 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
       setIsCameraActive(true);
     } catch (err: any) {
       console.warn('Camera access error:', err);
-      setCameraError('Camera access unavailable or blocked on this device/browser. Please use Manual Lookup or sample codes.');
+      const errMsg = String(err?.name || err?.message || err || '');
+      if (
+        errMsg.includes('NotAllowedError') ||
+        errMsg.includes('PermissionDeniedError') ||
+        errMsg.includes('denied') ||
+        errMsg.includes('Allowed')
+      ) {
+        setCameraError('Camera access was denied. Please allow camera access in your browser settings, or ask gate staff to scan manually.');
+      } else if (
+        errMsg.includes('NotFoundError') ||
+        errMsg.includes('DevicesNotFoundError') ||
+        errMsg.includes('not found')
+      ) {
+        setCameraError('No camera found on this device. Please ask gate staff to scan manually.');
+      } else {
+        setCameraError('Camera access was denied. Please allow camera access in your browser settings, or ask gate staff to scan manually.');
+      }
       setIsCameraActive(false);
     }
   };
@@ -97,15 +114,18 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
 
   useEffect(() => {
     if (activeTab === 'camera') {
-      startCamera();
+      if (isCameraRequested) {
+        startCamera();
+      }
     } else {
       stopCamera();
+      setIsCameraRequested(false);
     }
 
     return () => {
       stopCamera();
     };
-  }, [activeTab]);
+  }, [activeTab, isCameraRequested]);
 
   // Filtered tickets for manual lookup fallback
   const filteredManualTickets = allTickets.filter((t) => {
@@ -132,7 +152,7 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
             </span>
             <h2 className="font-heading font-extrabold text-xl text-white">{title}</h2>
           </div>
-          <p className="text-gray-400 text-xs mt-1">{subtitle}</p>
+          <p className="text-gray-300 text-xs mt-1">{subtitle}</p>
         </div>
 
         <div className="flex items-center gap-2">
@@ -141,7 +161,7 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
             className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
               activeTab === 'camera'
                 ? 'bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black shadow-lg shadow-[#D4AF37]/20'
-                : 'bg-[#1C1C1C] text-gray-400 hover:text-white border border-white/5'
+                : 'bg-[#1C1C1C] text-gray-300 hover:text-white border border-white/5'
             }`}
           >
             <Camera className="w-3.5 h-3.5" />
@@ -152,7 +172,7 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
             className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
               activeTab === 'manual'
                 ? 'bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black shadow-lg shadow-[#D4AF37]/20'
-                : 'bg-[#1C1C1C] text-gray-400 hover:text-white border border-white/5'
+                : 'bg-[#1C1C1C] text-gray-300 hover:text-white border border-white/5'
             }`}
           >
             <Search className="w-3.5 h-3.5" />
@@ -192,6 +212,25 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
                     Switch to Manual Lookup
                   </button>
                 </div>
+              ) : !isCameraRequested ? (
+                <div className="relative rounded-2xl overflow-hidden border border-white/10 bg-[#1C1C1C] min-h-[280px] flex flex-col items-center justify-center text-center p-6 space-y-4">
+                  <div className="p-3.5 rounded-2xl bg-[#D4AF37]/10 text-[#D4AF37]">
+                    <Camera className="w-8 h-8" />
+                  </div>
+                  <div className="space-y-1 max-w-xs">
+                    <p className="text-xs font-bold text-white uppercase tracking-wider">Camera Scan Permission</p>
+                    <p className="text-gray-300 text-xs leading-relaxed">
+                      Tap below to activate your camera and start scanning ticket QR codes at the gate.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setIsCameraRequested(true)}
+                    className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] hover:brightness-110 text-black font-extrabold text-xs shadow-md shadow-[#D4AF37]/20 transition-all cursor-pointer flex items-center gap-2"
+                  >
+                    <Camera className="w-4 h-4" />
+                    <span>Enable Camera Scanner</span>
+                  </button>
+                </div>
               ) : (
                 <div className="relative rounded-2xl overflow-hidden border border-white/10 bg-black min-h-[280px] flex items-center justify-center">
                   <div id="reader" className="w-full text-white" />
@@ -228,7 +267,7 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
                   <Search className="w-4 h-4 text-[#D4AF37]" />
                   Manual Attendee Booking Lookup
                 </h3>
-                <p className="text-xs text-gray-400 mt-0.5">
+                <p className="text-xs text-gray-300 mt-0.5">
                   Search guest by Name, Phone, Ticket Number, or Booking ID when physical QR scan is unavailable.
                 </p>
               </div>
@@ -241,12 +280,12 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
                   placeholder="Filter by name, phone, seat number, ticket ID..."
                   className="w-full pl-10 pr-4 py-3 rounded-2xl bg-[#1C1C1C] border border-white/10 text-white placeholder-gray-500 text-xs focus:outline-none focus:border-[#D4AF37]"
                 />
-                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300" />
               </div>
 
               <div className="space-y-2 max-h-[360px] overflow-y-auto pr-1">
                 {filteredManualTickets.length === 0 ? (
-                  <div className="p-8 text-center text-xs text-gray-500 border border-dashed border-white/10 rounded-2xl">
+                  <div className="p-8 text-center text-xs text-gray-300 border border-dashed border-white/10 rounded-2xl">
                     No tickets found matching "{manualSearchQuery}".
                   </div>
                 ) : (
@@ -262,9 +301,9 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
                             #{t.ticketNumber}
                           </span>
                         </div>
-                        <div className="flex flex-wrap gap-x-3 gap-y-1 text-gray-400 text-[11px]">
+                        <div className="flex flex-wrap gap-x-3 gap-y-1 text-gray-300 text-[11px]">
                           <span className="flex items-center gap-1">
-                            <Phone className="w-3 h-3 text-gray-500" /> {t.attendeePhone || 'No Phone'}
+                            <Phone className="w-3 h-3 text-gray-300" /> {t.attendeePhone || 'No Phone'}
                           </span>
                           <span>• {t.eventTitle}</span>
                           <span className="text-emerald-400 font-bold">({t.tierName} - {t.seatNumber})</span>
@@ -277,7 +316,7 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
                             <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20 block">
                               REDEEMED
                             </span>
-                            <span className="text-[10px] text-gray-500 block mt-0.5">
+                            <span className="text-[10px] text-gray-300 block mt-0.5">
                               {t.scannedAt || 'Scanned'}
                             </span>
                           </div>
@@ -307,7 +346,7 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
               <h3 className="text-xs font-bold text-gray-300 uppercase tracking-wider">
                 Quick Test Token Scans
               </h3>
-              <span className="text-[10px] text-gray-500">Click to run test scan</span>
+              <span className="text-[10px] text-gray-300">Click to run test scan</span>
             </div>
 
             <div className="grid grid-cols-2 gap-2 text-xs">
@@ -316,7 +355,7 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
                 className="p-2.5 rounded-xl bg-[#1C1C1C] hover:bg-[#262626] border border-white/5 text-left transition-all cursor-pointer"
               >
                 <span className="font-bold text-emerald-400 block">Valid Signed Pass</span>
-                <span className="text-[10px] text-gray-400">HMAC-SHA256 Signed</span>
+                <span className="text-[10px] text-gray-300">HMAC-SHA256 Signed</span>
               </button>
 
               <button
@@ -324,7 +363,7 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
                 className="p-2.5 rounded-xl bg-[#1C1C1C] hover:bg-[#262626] border border-white/5 text-left transition-all cursor-pointer"
               >
                 <span className="font-bold text-red-400 block">Tampered Pass</span>
-                <span className="text-[10px] text-gray-400">Fake Signature Test</span>
+                <span className="text-[10px] text-gray-300">Fake Signature Test</span>
               </button>
             </div>
           </div>
@@ -377,29 +416,29 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
               {lastResult.ticket && (
                 <div className="p-4 rounded-2xl bg-black/50 border border-white/10 space-y-3 text-xs">
                   <div className="flex items-center justify-between pb-2 border-b border-white/10">
-                    <span className="text-gray-400">Ticket No:</span>
+                    <span className="text-gray-300">Ticket No:</span>
                     <span className="font-mono font-bold text-[#D4AF37]">{lastResult.ticket.ticketNumber}</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-gray-400">Guest Name:</span>
+                    <span className="text-gray-300">Guest Name:</span>
                     <span className="font-bold text-white">{lastResult.ticket.attendeeName}</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-gray-400">Phone:</span>
-                    <span className="text-gray-300">{lastResult.ticket.attendeePhone || 'N/A'}</span>
+                    <span className="text-gray-300">Phone:</span>
+                    <span className="text-gray-200">{lastResult.ticket.attendeePhone || 'N/A'}</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-gray-400">Event:</span>
+                    <span className="text-gray-300">Event:</span>
                     <span className="font-semibold text-gray-200 truncate max-w-[170px]">
                       {lastResult.ticket.eventTitle}
                     </span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-gray-400">Pass Tier:</span>
+                    <span className="text-gray-300">Pass Tier:</span>
                     <span className="font-bold text-emerald-400">{lastResult.ticket.tierName}</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-gray-400">Seat / Section:</span>
+                    <span className="text-gray-300">Seat / Section:</span>
                     <span className="text-gray-200">{lastResult.ticket.seatNumber}</span>
                   </div>
 
@@ -431,10 +470,10 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
               </button>
             </div>
           ) : (
-            <div className="h-full min-h-[320px] p-8 rounded-3xl bg-[#141414] border border-white/10 flex flex-col items-center justify-center text-center space-y-3 text-gray-500">
-              <QrCode className="w-12 h-12 stroke-[1.5] text-gray-600" />
-              <p className="text-sm font-semibold text-gray-400">Ready to Scan</p>
-              <p className="text-xs max-w-xs leading-relaxed">
+            <div className="h-full min-h-[320px] p-8 rounded-3xl bg-[#141414] border border-white/10 flex flex-col items-center justify-center text-center space-y-3 text-gray-300">
+              <QrCode className="w-12 h-12 stroke-[1.5] text-gray-300" />
+              <p className="text-sm font-semibold text-gray-300">Ready to Scan</p>
+              <p className="text-xs max-w-xs leading-relaxed text-gray-300">
                 Scan or enter a ticket QR token to inspect guest details and validate gate admission.
               </p>
             </div>

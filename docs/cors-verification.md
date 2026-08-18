@@ -31,18 +31,18 @@ Run these `curl` commands from any terminal or test environment to verify prefli
 ### 1. Preflight OPTIONS Test (Must return HTTP 200 or 204 with CORS headers, NEVER 301/302/307/308)
 
 ```bash
-curl -i -X OPTIONS "https://ashvishevents.com/api/passes/test-slug/test-sig" \
-  -H "Origin: https://ashvishevents.com" \
-  -H "Access-Control-Request-Method: GET" \
-  -H "Access-Control-Request-Headers: Content-Type, Authorization"
+curl -I -X OPTIONS -H "Origin: https://ashvishevents.com" \
+     https://ashvishevents.com/api/admin/orders?page=1
 ```
 
 **Expected Output:**
+Must return HTTP 204 (edge) or 200 (Express), with `access-control-allow-origin: *` in headers. If it returns `308`, STOP and search Vercel Dashboard for a redirect rule — do not ship.
+
 ```
-HTTP/2 200 (or 204)
+HTTP/2 204
 access-control-allow-origin: *
 access-control-allow-methods: GET, POST, PUT, PATCH, DELETE, OPTIONS
-access-control-allow-headers: Origin, X-Requested-With, Content-Type, Accept, Authorization, X-User-Role, X-Pass-Request-Id
+access-control-allow-headers: Origin, X-Requested-With, Content-Type, Accept, Authorization, X-User-Role
 ```
 
 ### 2. Public Pass GET Test (With Request ID Tracking)

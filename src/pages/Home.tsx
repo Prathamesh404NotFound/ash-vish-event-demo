@@ -78,6 +78,8 @@ export const Home: React.FC<HomeProps> = ({
             src={currentHeroEvent.coverUrl || currentHeroEvent.posterUrl}
             alt={currentHeroEvent.title}
             className="w-full h-full object-cover object-center filter brightness-[0.75] contrast-[1.1] transition-all duration-700 scale-105"
+            fetchPriority="high"
+            decoding="async"
           />
           ) : (
             <div className="w-full h-full bg-gradient-to-br from-[#0A0A0A] via-[#1C1C1C] to-[#0A0A0A]" />
@@ -237,12 +239,14 @@ export const Home: React.FC<HomeProps> = ({
             <button
               onClick={() => scrollRow('row-trending', 'left')}
               className="p-2 rounded-xl bg-[#141414] hover:bg-[#1C1C1C] text-gray-300 hover:text-white border border-white/10 transition-colors"
+              aria-label="Scroll trending events left"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
             <button
               onClick={() => scrollRow('row-trending', 'right')}
               className="p-2 rounded-xl bg-[#141414] hover:bg-[#1C1C1C] text-gray-300 hover:text-white border border-white/10 transition-colors"
+              aria-label="Scroll trending events right"
             >
               <ChevronRight className="w-4 h-4" />
             </button>
@@ -285,12 +289,14 @@ export const Home: React.FC<HomeProps> = ({
             <button
               onClick={() => scrollRow('row-popular', 'left')}
               className="p-2 rounded-xl bg-[#141414] hover:bg-[#1C1C1C] text-gray-300 hover:text-white border border-white/10 transition-colors"
+              aria-label="Scroll popular events left"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
             <button
               onClick={() => scrollRow('row-popular', 'right')}
               className="p-2 rounded-xl bg-[#141414] hover:bg-[#1C1C1C] text-gray-300 hover:text-white border border-white/10 transition-colors"
+              aria-label="Scroll popular events right"
             >
               <ChevronRight className="w-4 h-4" />
             </button>

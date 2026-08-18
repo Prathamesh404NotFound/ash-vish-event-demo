@@ -1152,6 +1152,10 @@ export async function createApp() {
     next();
   });
 
+  app.options("/api/*", (req, res) => {
+    res.sendStatus(204);
+  });
+
   app.get("/api/health", async (req, res) => {
     let rtdbConnected = false;
     let rtdbError = null;
