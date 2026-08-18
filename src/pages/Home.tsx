@@ -70,7 +70,7 @@ export const Home: React.FC<HomeProps> = ({
     <div className="space-y-12 pb-12">
       
       {/* ----------------- CINEMATIC HERO SECTION ----------------- */}
-      <section className={`relative min-h-[52vh] sm:min-h-[60vh] flex ${currentHeroEvent ? 'items-end' : 'items-center'} justify-start overflow-hidden rounded-b-[36px] bg-[#070707]`}>
+      <section className="relative min-h-[52vh] sm:min-h-[60vh] flex items-end justify-start overflow-hidden rounded-b-[36px] bg-[#070707]">
         {/* Hero Background Poster Image */}
         <div className="absolute inset-0">
           {currentHeroEvent ? (
@@ -92,7 +92,7 @@ export const Home: React.FC<HomeProps> = ({
                 {/* Hero Content Container */}
         <div className="relative z-10 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pb-12 pt-20">
           {currentHeroEvent ? (
-          <div className="max-w-2xl space-y-6">
+          <div className="max-w-2xl space-y-6 min-h-[260px] sm:min-h-[300px] flex flex-col justify-end">
             {/* Category Eyebrow */}
             <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#D4AF37]/15 text-[#F3E5AB] border border-[#D4AF37]/30 text-xs font-bold uppercase tracking-wider backdrop-blur-md">
               <Sparkles className="w-3.5 h-3.5" />
@@ -142,7 +142,7 @@ export const Home: React.FC<HomeProps> = ({
           ) : (
             /* Empty-state hero: shows when the events collection has no public,
                well-formed events (e.g. all events were deleted). Never crashes. */
-            <div className="max-w-2xl space-y-5">
+            <div className="max-w-2xl space-y-5 min-h-[260px] sm:min-h-[300px] flex flex-col justify-center">
               <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#D4AF37]/15 text-[#F3E5AB] border border-[#D4AF37]/30 text-xs font-bold uppercase tracking-wider backdrop-blur-md">
                 <Sparkles className="w-3.5 h-3.5" />
                 <span>Welcome to Ash-vish Events</span>
@@ -160,10 +160,13 @@ export const Home: React.FC<HomeProps> = ({
             </div>
           )}
 
-          <div className="mt-8 flex items-center gap-3">
+          <div className="mt-8 flex items-center gap-3" role="tablist" aria-label="Featured show carousel">
             {featuredEvents.map((_, idx) => (
               <button
                 key={idx}
+                role="tab"
+                aria-selected={idx === heroIndex}
+                aria-label={`Show slide ${idx + 1} of ${featuredEvents.length}`}
                 onClick={() => setHeroIndex(idx)}
                 className={`h-2 rounded-full transition-all duration-300 ${
                   idx === heroIndex
