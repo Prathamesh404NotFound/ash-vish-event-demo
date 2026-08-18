@@ -19,6 +19,8 @@
     background-color: var(--bg-main);
     color: #F3F4F6;
     overflow-x: clip;
+    min-height: 100dvh;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 
   html {
@@ -32,6 +34,13 @@
 
   button, input, select, textarea {
     min-width: 0;
+  }
+
+  /* Prevent iOS Safari auto-zoom on input focus */
+  @media (max-width: 639px) {
+    input:not([type="checkbox"]):not([type="radio"]), select, textarea {
+      font-size: 16px !important;
+    }
   }
 
   h1, h2, h3, h4, h5, h6, .font-heading {
@@ -181,4 +190,40 @@
 /* Pulse Glow */
 .glow-gold {
   box-shadow: 0 0 30px rgba(212, 175, 55, 0.35);
+}
+
+/* Safe Area Inset Utilities */
+.pb-safe {
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom, 0px));
+}
+
+.pt-safe {
+  padding-top: max(0.75rem, env(safe-area-inset-top, 0px));
+}
+
+.bottom-safe {
+  bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.min-h-screen-dvh {
+  min-height: 100dvh;
+}
+
+.h-screen-dvh {
+  height: 100dvh;
+}
+
+/* Table scroll visual affordance hint */
+.table-scroll-container {
+  position: relative;
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 768px) {
+  .touch-min-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
 }
