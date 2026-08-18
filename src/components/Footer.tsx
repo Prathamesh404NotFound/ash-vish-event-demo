@@ -1,6 +1,5 @@
 import React from 'react';
 import { Shield, Award, Phone, Mail, MapPin } from 'lucide-react';
-import { BrandLogo } from './BrandLogo';
 
 interface FooterProps {
   setActiveTab: (tab: string) => void;
@@ -20,7 +19,11 @@ export const Footer: React.FC<FooterProps> = ({ setActiveTab }) => {
               onClick={() => setActiveTab('home')}
               className="flex items-center gap-2.5 cursor-pointer"
             >
-              <BrandLogo size="sm" />
+              <img
+                src="/favicon-192.png"
+                alt="AV Events Logo"
+                className="w-9 h-9 rounded-xl object-cover shadow-lg shadow-[#D4AF37]/25"
+              />
               <span className="font-heading font-extrabold text-2xl tracking-tight text-white">
                 Ash-vish<span className="text-[#D4AF37]"> events</span>
               </span>
