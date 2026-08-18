@@ -131,7 +131,7 @@ export async function sendTicketCloud(ticket: any, recipientPhone: string): Prom
     to: normalizedPhone,
     type: "template",
     template: {
-      name: "ticket_confirmation",
+      name: "ticket_confirmation_media",
       language: { code: "en_US" },
       components: [
         ...(headerComponent ? [headerComponent] : []),
@@ -209,10 +209,12 @@ export async function sendTicketCloud(ticket: any, recipientPhone: string): Prom
         Array.isArray(payload.template.components) &&
         headerComponent !== null
       ) {
-        console.warn(`[WHATSAPP CLOUD] Template header mismatch (${metaError?.code || 'unknown'}). Retrying with text-only payload (image header removed).`);
-        payload.template.components = payload.template.components.filter(
-          (c: any) => c.type !== 'image'
-        );
+        console.warn(`[WHATSAPP CLOUD] Template header mismatch (${metaError?.code || 'unknown'}). Retrying with the headerless 'ticket_confirmation' template (image header removed).`);
+        payload.template = {
+          name: 'ticket_confirmation',
+          language: { code: 'en_US' },
+          components: payload.template.components.filter((c: any) => c.type !== 'image')
+        };
         continue;
       }
 
