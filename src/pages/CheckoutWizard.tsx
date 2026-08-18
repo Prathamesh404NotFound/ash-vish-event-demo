@@ -144,7 +144,8 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
     (async () => {
       pendingActionRef.current = true;
       try {
-        if (reservation && reservation.seatIds.length > 0 && reservation.seatIds.join(',') === seats.sort().join(',') && reservation.status === 'active') {
+        const resSeats = reservation?.seatIds || [];
+        if (reservation && resSeats.length > 0 && [...resSeats].sort().join(',') === [...seats].sort().join(',') && reservation.status === 'active') {
           await refreshReservation();
         } else {
           await createReservation(seats);
@@ -176,7 +177,8 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
     inFlightSeatsRef.current = key;
     (async () => {
       try {
-        if (reservation && reservation.status === 'active' && JSON.stringify([...reservation.seatIds].sort()) === key) {
+        const resSeats = reservation?.seatIds || [];
+        if (reservation && reservation.status === 'active' && JSON.stringify([...resSeats].sort()) === key) {
           await refreshReservation();
           createAttemptsRef.current = 0;
         } else {
@@ -214,8 +216,9 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
   // Expire the review confirmation when the reservation is recreated (selection changed).
   useEffect(() => {
     if (reviewConfirmed && reservation) {
-      const same = reservation.seatIds.length === (selectedSeats || []).length &&
-        [...reservation.seatIds].sort().join(',') === [...(selectedSeats || [])].sort().join(',');
+      const resSeats = reservation.seatIds || [];
+      const same = resSeats.length === (selectedSeats || []).length &&
+        [...resSeats].sort().join(',') === [...(selectedSeats || [])].sort().join(',');
       if (!same) setReviewConfirmed(false);
     }
   }, [reservation, selectedSeats, reviewConfirmed, setReviewConfirmed]);
@@ -461,9 +464,10 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
       setSubmitError('Your seat hold has expired. Please re-select your seats.');
       return;
     }
+    const resSeats = reservation.seatIds || [];
     const seatsMatch =
-      reservation.seatIds.length === (selectedSeats || []).length &&
-      [...reservation.seatIds].sort().join(',') === [...(selectedSeats || [])].sort().join(',');
+      resSeats.length === (selectedSeats || []).length &&
+      [...resSeats].sort().join(',') === [...(selectedSeats || [])].sort().join(',');
     if (!seatsMatch) {
       setSubmitError('Your seats have changed since the last review. Please review your selection again.');
       return;
@@ -547,14 +551,18 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
     [hasSeatMap, attendeeStep, reviewStep, paymentStep]
   );
 
-  const seatLabelFor = (seatIds: string[]) =>
-    seatIds
+  const seatLabelFor = (seatIds?: string[]) =>
+    (seatIds || [])
       .map((s) => {
+        if (!s) return '';
         const parts = s.split('-');
-        const r = String.fromCharCode(64 + parseInt(parts[0].replace('R', ''), 10));
+        if (parts.length < 2) return s;
+        const rowNum = parseInt(parts[0].replace('R', ''), 10);
+        const r = isNaN(rowNum) ? parts[0] : String.fromCharCode(64 + rowNum);
         const c = parts[1].replace('C', '');
         return `${r}-${c}`;
       })
+      .filter(Boolean)
       .join(', ');
 
   const minutesRemaining = reservation && reservation.status === 'active'
@@ -761,8 +769,8 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
           </h3>
           {reservation && (
             <p className="text-xs text-gray-400">
-              Your {reservation.seatIds.length} seat(s) are held for <span className="text-[#D4AF37] font-bold">{Math.max(0, Math.ceil((reservation.expiresAt - Date.now()) / 60000))} min</span>.{' '}
-              {reservation.seatIds.length > 0 && `Seats: ${seatLabelFor(reservation.seatIds)}.`}
+              Your {(reservation.seatIds || []).length > 0 ? (reservation.seatIds || []).length : (reservation.quantity || quantity)} ticket(s) are held for <span className="text-[#D4AF37] font-bold">{Math.max(0, Math.ceil((reservation.expiresAt - Date.now()) / 60000))} min</span>.{' '}
+              {(reservation.seatIds || []).length > 0 && `Seats: ${seatLabelFor(reservation.seatIds)}.`}
             </p>
           )}
           <div className="space-y-4 pt-2">
@@ -823,7 +831,7 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
                   <p className="font-bold text-white">{tier.name} — {quantity} ticket(s)</p>
                   <p className="text-xs text-gray-400">{formatINR(tier.price)} per ticket</p>
                 </div>
-                {hasSeatMap && reservation && (
+                {hasSeatMap && reservation && (reservation.seatIds || []).length > 0 && (
                   <div className="bg-[#1C1C1C] rounded-2xl p-4 space-y-1">
                     <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Seats Held For You</p>
                     <p className="font-bold text-[#D4AF37]">{seatLabelFor(reservation.seatIds)}</p>
@@ -939,7 +947,9 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Booking</p>
                 <p className="font-bold text-white text-sm">{event.title} • {tier.name} • {quantity} ticket(s)</p>
-                {hasSeatMap && reservation && <p className="text-xs text-[#D4AF37] font-bold mt-0.5">Seats: {seatLabelFor(reservation.seatIds)}</p>}
+                {hasSeatMap && reservation && (reservation.seatIds || []).length > 0 && (
+                  <p className="text-xs text-[#D4AF37] font-bold mt-0.5">Seats: {seatLabelFor(reservation.seatIds)}</p>
+                )}
                 <p className="text-xs text-gray-400 mt-0.5">{attendeeName} • {attendeeEmail} • {attendeePhone}</p>
               </div>
               <div className="text-right">

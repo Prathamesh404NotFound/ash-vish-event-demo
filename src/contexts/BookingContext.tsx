@@ -611,7 +611,7 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       eventId: data.eventId ?? event.id,
       tierId: data.tierId ?? tier.id,
       quantity: data.quantity,
-      seatIds: data.seatIds,
+      seatIds: Array.isArray(data.seatIds) ? data.seatIds : [],
       status: data.status,
       ownerId: data.ownerId,
       expiresAt: data.expiresAt,
@@ -620,7 +620,7 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
     setReservation(next);
     // Keep selection in sync
-    selectTicketsForCheckout(event, tier, quantity, data.seatIds);
+    selectTicketsForCheckout(event, tier, quantity, Array.isArray(data.seatIds) ? data.seatIds : []);
     return next;
   };
 
@@ -638,7 +638,7 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         eventId: data.eventId,
         tierId: data.tierId,
         quantity: data.quantity,
-        seatIds: data.seatIds,
+        seatIds: Array.isArray(data.seatIds) ? data.seatIds : [],
         status: data.status,
         ownerId: data.ownerId,
       expiresAt: data.expiresAt,
