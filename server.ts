@@ -8,6 +8,7 @@ dotenv.config();
 import { verifyFirebaseIdToken, TokenVerificationError } from "./src/lib/verify-token.js";
 import { rtdbGet, rtdbSet, rtdbUpdate, rtdbDelete, rtdbTransaction, rtdbPush } from "./src/lib/rtdb.js";
 import { getFirebaseAdminIdToken } from "./src/lib/identity-admin.js";
+import { sendTicketCloud } from "./src/lib/whatsappCloud.js";
 import {
   isRazorpayConfigured,
   isTestMode,
@@ -1095,6 +1096,59 @@ async function finalizeBookingServerSide(
       date,
       time,
     }).catch((e) => console.warn("[MAIL] Confirmation email failed:", e?.message));
+
+    // Fire-and-forget: sendTicketCloud(ticket, ticket.attendeePhone).
+    // Wrap in try/catch; NEVER let a WhatsApp failure affect booking success.
+    // On non-retryable failure, record { channel: 'whatsapp_cloud', status: 'failed', reason, createdAt } into notifications if that array exists; on success record { channel: 'whatsapp_cloud', status: 'sent', waMessageId }.
+    if (newTicket && newTicket.attendeePhone) {
+      (async () => {
+        try {
+          const res = await sendTicketCloud(newTicket, newTicket.attendeePhone);
+          const adminToken = await getAdminAuthToken();
+          
+          const notificationEntry: any = {
+            channel: 'whatsapp_cloud',
+            createdAt: new Date().toISOString()
+          };
+
+          if (res.success) {
+            notificationEntry.status = 'sent';
+            notificationEntry.waMessageId = res.waMessageId;
+          } else {
+            notificationEntry.status = 'failed';
+            notificationEntry.reason = res.error?.message || JSON.stringify(res.error) || 'Unknown error';
+          }
+
+          // Record to the root notifications node in RTDB (for audit log status)
+          await rtdbPush("notifications", {
+            ...notificationEntry,
+            ticketId: ticketId,
+            recipientPhone: newTicket.attendeePhone,
+            attendeeName: newTicket.attendeeName,
+            eventTitle: newTicket.eventTitle,
+            subject: "WhatsApp Ticket Confirmation",
+            recipientCount: 1,
+            createdBy: "system"
+          }, adminToken).catch(() => {});
+
+          // Also, if the ticket has a notifications array (or we can append/update it in the DB to keep history), record it:
+          const ticketSnap = await rtdbGet(`tickets/${ticketId}`, adminToken);
+          if (ticketSnap && ticketSnap.data) {
+            const currentTicket = ticketSnap.data;
+            if (!currentTicket.notifications) {
+              currentTicket.notifications = [];
+            }
+            currentTicket.notifications.push(notificationEntry);
+            
+            // Save back
+            await rtdbSet(`tickets/${ticketId}`, currentTicket, adminToken).catch(() => {});
+            await rtdbSet(`users/${userId}/tickets/${ticketId}`, currentTicket, adminToken).catch(() => {});
+          }
+        } catch (e: any) {
+          console.warn("[WHATSAPP CLOUD TRIGGER] Async send failed:", e?.message);
+        }
+      })();
+    }
 
     return { success: true, ticket: newTicket, booking: newBookingRecord };
   } catch (err: any) {
@@ -4937,6 +4991,104 @@ export async function createApp() {
       return res.json({ success: true, passSlug: matched.passSlug, ticketId: matched.id });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err.message || "Lookup failed." });
+    }
+  });
+
+  // -- Test-mode self-serve WhatsApp Cloud API endpoints (Step 4) --------------
+  app.get("/api/whatsapp/test", async (req: any, res) => {
+    try {
+      if (process.env.WHATSAPP_TEST_MODE !== 'true') {
+        return res.status(403).json({ success: false, error: "Forbidden: Test mode is disabled." });
+      }
+
+      const { phone } = req.query || {};
+      if (!phone) {
+        return res.status(400).json({ success: false, error: "phone parameter is required." });
+      }
+
+      const adminToken = await getAdminAuthToken();
+      const ticketsSnap = await rtdbGet("tickets", adminToken);
+      if (!ticketsSnap || !ticketsSnap.data) {
+        return res.status(404).json({ success: false, error: "No tickets found in the system to test with." });
+      }
+
+      const allTickets = Object.values(ticketsSnap.data as Record<string, any>);
+      if (allTickets.length === 0) {
+        return res.status(404).json({ success: false, error: "No tickets found in the system to test with." });
+      }
+
+      // Sort tickets by purchasedAt descending to get the latest issued ticket
+      allTickets.sort((a: any, b: any) => {
+        const dateA = new Date(a.purchasedAt || 0).getTime();
+        const dateB = new Date(b.purchasedAt || 0).getTime();
+        return dateB - dateA;
+      });
+
+      const latestTicket = allTickets[0];
+
+      // Send via sendTicketCloud
+      const result = await sendTicketCloud(latestTicket, String(phone));
+
+      // Audit row
+      const auditRow: any = {
+        channel: 'whatsapp_cloud',
+        ticketId: latestTicket.id || 'test_mode',
+        recipientPhone: phone,
+        status: result.success ? 'sent' : 'failed',
+        createdAt: new Date().toISOString()
+      };
+      if (result.success) {
+        auditRow.waMessageId = result.waMessageId;
+      } else {
+        auditRow.reason = result.error?.message || JSON.stringify(result.error) || 'Unknown error';
+      }
+
+      await rtdbPush("notifications", {
+        ...auditRow,
+        attendeeName: latestTicket.attendeeName,
+        eventTitle: latestTicket.eventTitle,
+        subject: "WhatsApp Self-Serve Test",
+        recipientCount: 1,
+        createdBy: "system_test"
+      }, adminToken).catch(() => {});
+
+      if (!result.success) {
+        return res.status(500).json({ success: false, error: result.error });
+      }
+
+      return res.json({ success: true, waMessageId: result.waMessageId, ticketId: latestTicket.id });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || "Failed to trigger test delivery." });
+    }
+  });
+
+  app.get("/api/whatsapp/status", async (req: any, res) => {
+    try {
+      if (process.env.WHATSAPP_TEST_MODE !== 'true') {
+        return res.status(403).json({ success: false, error: "Forbidden: Test mode is disabled." });
+      }
+
+      const adminToken = await getAdminAuthToken();
+      const notificationsSnap = await rtdbGet("notifications", adminToken);
+      
+      const allNotifications = Object.values((notificationsSnap.data || {}) as Record<string, any>);
+      
+      // Filter those from whatsapp_cloud
+      const whatsappNotifications = allNotifications.filter((n: any) => n.channel === 'whatsapp_cloud');
+      
+      // Sort by createdAt descending to get latest first
+      whatsappNotifications.sort((a: any, b: any) => {
+        const timeA = new Date(a.createdAt || 0).getTime();
+        const timeB = new Date(b.createdAt || 0).getTime();
+        return timeB - timeA;
+      });
+
+      // Take latest 10
+      const last10 = whatsappNotifications.slice(0, 10);
+
+      return res.json({ success: true, logs: last10 });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || "Failed to fetch status logs." });
     }
   });
 
