@@ -20,7 +20,7 @@ export const Footer: React.FC<FooterProps> = ({ setActiveTab }) => {
               className="flex items-center gap-2.5 cursor-pointer"
             >
               <img
-                src="/av-logo.png"
+                src="/ash-vish-events-logo.png"
                 alt="Ash-vish Events Logo"
                 className="w-9 h-9 rounded-xl object-cover shadow-lg shadow-[#D4AF37]/25"
               />

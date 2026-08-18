@@ -40,7 +40,7 @@ export const AuthPage: React.FC = () => {
           {/* Top Logo */}
           <div className="relative z-10 flex items-center gap-2">
             <img
-              src="/av-logo.png"
+              src="/ash-vish-events-logo.png"
               alt="Ash-vish Events Logo"
               className="w-9 h-9 rounded-xl object-cover shadow-lg"
             />

@@ -51,7 +51,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSearch }) => {
             {/* Logo */}
             <Link to="/" className="flex items-center gap-2.5 cursor-pointer group">
               <img
-                src="/av-logo.png"
+                src="/ash-vish-events-logo.png"
                 alt="Ash-vish Events Logo"
                 className="w-10 h-10 rounded-xl object-cover shadow-lg shadow-[#D4AF37]/30 group-hover:scale-105 transition-transform duration-200"
               />

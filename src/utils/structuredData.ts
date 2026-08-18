@@ -45,7 +45,7 @@ export function generateOrganizationSchema() {
         "@id": `${APP_URL}/#organization`,
         "name": "Ash-vish Events",
         "url": APP_URL,
-        "logo": `${APP_URL}/favicon-512.png`,
+        "logo": `${APP_URL}/ash-vish-events-logo.png`,
         "description": "Best event organisers in Kolhapur, Maharashtra, and India. Premium event management and digital ticket booking platform.",
         "address": {
           "@type": "PostalAddress",
