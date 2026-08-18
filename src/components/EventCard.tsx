@@ -42,6 +42,9 @@ export const EventCard: React.FC<EventCardProps> = ({ event, onSelectEvent, onBo
           alt={event.title}
           className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
           loading="lazy"
+          onError={(e) => {
+            e.currentTarget.src = 'https://images.unsplash.com/photo-1501386761578-eac5c94b800a?auto=format&fit=crop&w=1200&q=80';
+          }}
         />
         ) : (
           <div className="w-full h-full flex items-center justify-center bg-[#262626]">

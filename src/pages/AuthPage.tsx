@@ -2,6 +2,7 @@ import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Sparkles, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { BrandLogo } from '../components/BrandLogo';
 
 export const AuthPage: React.FC = () => {
   const { loginWithGoogle, isLoading } = useAuth();
@@ -39,11 +40,7 @@ export const AuthPage: React.FC = () => {
 
           {/* Top Logo */}
           <div className="relative z-10 flex items-center gap-2">
-            <img
-              src="/favicon-192.png"
-              alt="AV Events Logo"
-              className="w-9 h-9 rounded-xl object-cover shadow-lg"
-            />
+            <BrandLogo size="sm" />
             <span className="font-heading font-extrabold text-2xl text-white">
               Ash-vish<span className="text-[#D4AF37]"> events</span>
             </span>
