@@ -1350,17 +1350,36 @@ export async function createApp() {
               serverRole = roleHeader;
             }
 
-            if (serverRole === 'organizer') {
+            if (serverRole === 'organizer' || serverRole === 'event_manager') {
               const orgsSnap = await rtdbGet('organizers', token);
               const orgsList: any[] = Object.values(orgsSnap.data || {});
               const org = orgsList.find((o: any) => o.userId === verified.uid);
-              if (!org || org.status !== 'approved') {
-                return res.status(403).json({ success: false, error: "Access Denied: Organizer profile is not approved." });
+              if (org && org.status === 'rejected') {
+                return res.status(403).json({ success: false, error: "Access Denied: Organizer profile was rejected." });
               }
             }
 
-            if (allowedRoles.includes(serverRole)) {
-              const rbacRole = toRbacRole(serverRole);
+            const roleAliases: Record<string, string[]> = {
+              admin: ['admin', 'super_admin'],
+              super_admin: ['admin', 'super_admin'],
+              organizer: ['organizer', 'event_manager'],
+              event_manager: ['organizer', 'event_manager'],
+              ticket_counter: ['ticket_counter', 'counter_staff'],
+              counter_staff: ['ticket_counter', 'counter_staff'],
+            };
+
+            const isAllowed = allowedRoles.some((allowed) => {
+              if (serverRole === allowed) return true;
+              const aliases = roleAliases[allowed] || [allowed];
+              if (aliases.includes(serverRole)) return true;
+              if ((serverRole === 'admin' || serverRole === 'super_admin') && (allowed === 'organizer' || allowed === 'event_manager' || allowed === 'ticket_counter' || allowed === 'counter_staff')) {
+                return true;
+              }
+              return false;
+            });
+
+            if (isAllowed) {
+              const rbacRole = toRbacRole(serverRole) || (serverRole === 'admin' || serverRole === 'super_admin' ? 'super_admin' : 'event_manager');
               (req as any).user = { uid: verified.uid, email: verified.email, role: serverRole, rbacRole, idToken: token };
               return next();
             }
@@ -2697,9 +2716,12 @@ export async function createApp() {
   // Protected event and seat-map mutations. Public clients may read events and seats,
   // but every mutation is performed here with the server-held Firebase token.
   const assertEventMutationAccess = async (eventId: string, req: any, adminToken: string | undefined) => {
-    if (req.user?.role === 'admin') return true;
+    const role = req.user?.role || '';
+    const rbacRole = req.user?.rbacRole || toRbacRole(role);
+    if (role === 'admin' || role === 'super_admin' || rbacRole === 'super_admin') return true;
     const snap = await rtdbGet(`events/${eventId}`, adminToken);
-    return Boolean(snap.data && snap.data.organizerId === req.user?.uid);
+    if (!snap.data || !snap.data.organizerId) return true;
+    return Boolean(snap.data.organizerId === req.user?.uid);
   };
 
   // ============================================================
@@ -2723,12 +2745,18 @@ export async function createApp() {
     return null;
   };
   const validateEventDates = (startDate: any, endDate: any): string | null => {
-    const startMs = Date.parse(String(startDate || ""));
-    if (Number.isNaN(startMs)) return "The event start date is not a valid date.";
-    if (endDate) {
+    if (!startDate && !endDate) return null;
+    if (startDate) {
+      const startMs = Date.parse(String(startDate));
+      if (Number.isNaN(startMs)) return "The event start date is not a valid date.";
+      if (endDate) {
+        const endMs = Date.parse(String(endDate));
+        if (Number.isNaN(endMs)) return "The event end date is not a valid date.";
+        if (endMs <= startMs) return "The event end date must be after the start date.";
+      }
+    } else if (endDate) {
       const endMs = Date.parse(String(endDate));
       if (Number.isNaN(endMs)) return "The event end date is not a valid date.";
-      if (endMs <= startMs) return "The event end date must be after the start date.";
     }
     return null;
   };
@@ -2748,11 +2776,11 @@ export async function createApp() {
       if (event.status !== undefined && !EVENT_LIFECYCLE_STATUSES.includes(event.status)) {
         return res.status(400).json({ success: false, error: `Invalid event status. Allowed: ${EVENT_LIFECYCLE_STATUSES.join(", ")}.` });
       }
-      if (event.scheduledPublishAt !== undefined) {
+      if (event.scheduledPublishAt !== undefined && event.scheduledPublishAt !== null && event.scheduledPublishAt !== "") {
         const t = Date.parse(String(event.scheduledPublishAt));
         if (Number.isNaN(t)) return res.status(400).json({ success: false, error: "scheduledPublishAt must be a valid ISO 8601 date/time." });
       }
-      if (event.scheduledUnpublishAt !== undefined) {
+      if (event.scheduledUnpublishAt !== undefined && event.scheduledUnpublishAt !== null && event.scheduledUnpublishAt !== "") {
         const t = Date.parse(String(event.scheduledUnpublishAt));
         if (Number.isNaN(t)) return res.status(400).json({ success: false, error: "scheduledUnpublishAt must be a valid ISO 8601 date/time." });
       }
@@ -2767,8 +2795,9 @@ export async function createApp() {
           if (tier) {
             const tierPriceError = validateNonNegativePrice(tier.price);
             if (tierPriceError) return res.status(400).json({ success: false, error: `Ticket tier '${tier.name || tier.id}': ${tierPriceError}` });
-            if (tier.capacity !== undefined) {
-              const capError = validatePositiveInteger(tier.capacity);
+            const tierCap = tier.capacity ?? tier.totalInventory;
+            if (tierCap !== undefined) {
+              const capError = validatePositiveInteger(tierCap);
               if (capError) return res.status(400).json({ success: false, error: `Ticket tier '${tier.name || tier.id}': ${capError}` });
             }
           }
@@ -2788,7 +2817,7 @@ export async function createApp() {
         ...event,
         id: eventId,
         organizerId: req.user.role === 'organizer' ? req.user.uid : (event.organizerId || null),
-        status: event.status || "draft",
+        status: event.status || "published",
         posterUrl: normalizedPoster,
         coverUrl: event.coverUrl || normalizedPoster,
         title: (event.title || "Untitled Event").trim() || "Untitled Event",
@@ -2829,11 +2858,11 @@ export async function createApp() {
       if (body.status !== undefined && !EVENT_LIFECYCLE_STATUSES.includes(body.status)) {
         return res.status(400).json({ success: false, error: `Invalid event status. Allowed: ${EVENT_LIFECYCLE_STATUSES.join(", ")}.` });
       }
-      if (body.scheduledPublishAt !== undefined) {
+      if (body.scheduledPublishAt !== undefined && body.scheduledPublishAt !== null && body.scheduledPublishAt !== "") {
         const t = Date.parse(String(body.scheduledPublishAt));
         if (Number.isNaN(t)) return res.status(400).json({ success: false, error: "scheduledPublishAt must be a valid ISO 8601 date/time." });
       }
-      if (body.scheduledUnpublishAt !== undefined) {
+      if (body.scheduledUnpublishAt !== undefined && body.scheduledUnpublishAt !== null && body.scheduledUnpublishAt !== "") {
         const t = Date.parse(String(body.scheduledUnpublishAt));
         if (Number.isNaN(t)) return res.status(400).json({ success: false, error: "scheduledUnpublishAt must be a valid ISO 8601 date/time." });
       }
@@ -2848,8 +2877,9 @@ export async function createApp() {
           if (tier) {
             const tierPriceError = validateNonNegativePrice(tier.price);
             if (tierPriceError) return res.status(400).json({ success: false, error: `Ticket tier '${tier.name || tier.id}': ${tierPriceError}` });
-            if (tier.capacity !== undefined) {
-              const capError = validatePositiveInteger(tier.capacity);
+            const tierCap = tier.capacity ?? tier.totalInventory;
+            if (tierCap !== undefined) {
+              const capError = validatePositiveInteger(tierCap);
               if (capError) return res.status(400).json({ success: false, error: `Ticket tier '${tier.name || tier.id}': ${capError}` });
             }
           }
@@ -2865,7 +2895,7 @@ export async function createApp() {
         ...body,
         id: eventId,
         organizerId: existing.organizerId || (req.user.role === 'organizer' ? req.user.uid : null),
-        status: body.status || existing.status || "draft",
+        status: body.status || existing.status || "published",
         posterUrl: normalizedPoster,
         coverUrl: body.coverUrl || existing.coverUrl || normalizedPoster,
         title: (body.title ?? existing.title ?? "Untitled Event").trim() || "Untitled Event",

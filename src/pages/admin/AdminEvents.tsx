@@ -102,6 +102,7 @@ export const AdminEvents: React.FC = () => {
 
   // Upload & Validation States
   const [isUploading, setIsUploading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -262,6 +263,7 @@ export const AdminEvents: React.FC = () => {
     setScheduledPublishAt(evt.scheduledPublishAt || '');
     setScheduledUnpublishAt(evt.scheduledUnpublishAt || '');
     setUsesSeatMap(evt.usesSeatMap !== false);
+    setPerksText((evt.perks || []).join(', '));
     setMapsUrl(evt.mapsUrl || '');
     setPresentedBy(evt.presentedBy || '');
     setIsFeatured(!!evt.isFeatured);
@@ -403,7 +405,7 @@ export const AdminEvents: React.FC = () => {
   };
 
   // Save / Update Event
-  const handleSaveEvent = (e: React.FormEvent) => {
+  const handleSaveEvent = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
 
@@ -513,8 +515,8 @@ export const AdminEvents: React.FC = () => {
       isTrending,
       rating: 4.9,
       reviewsCount: 12,
-      scheduledPublishAt: scheduledPublishAt ? new Date(scheduledPublishAt).toISOString() : null,
-      scheduledUnpublishAt: scheduledUnpublishAt ? new Date(scheduledUnpublishAt).toISOString() : null,
+      scheduledPublishAt: scheduledPublishAt ? new Date(scheduledPublishAt).toISOString() : undefined,
+      scheduledUnpublishAt: scheduledUnpublishAt ? new Date(scheduledUnpublishAt).toISOString() : undefined,
       // Admin-controlled seat-map toggle. The admin panel always sends the
       // boolean so both directions (seat-based <-> general admission) work:
       // editing an existing event may restore seating after it was disabled.
@@ -524,26 +526,41 @@ export const AdminEvents: React.FC = () => {
       perks: perksText.split(',').map((p) => p.trim()).filter(Boolean),
     };
 
-    if (editingEventId) {
-      updateEvent({
-        ...eventPayload,
-        id: editingEventId,
-      });
-      alert(`Event "${title}" updated and synced live!`);
-    } else {
-      addEvent(eventPayload);
-      alert(`Event "${title}" published and live on public portal!`);
-    }
+    setIsSaving(true);
+    setFormError(null);
 
-    setShowModal(false);
+    try {
+      if (editingEventId) {
+        const existingEvt = events.find((e) => e.id === editingEventId);
+        await updateEvent({
+          ...existingEvt,
+          ...eventPayload,
+          id: editingEventId,
+        });
+      } else {
+        await addEvent(eventPayload);
+      }
+      setShowModal(false);
+      await fetchAdminEvents();
+    } catch (err: any) {
+      console.error('Error saving event:', err);
+      setFormError(err.message || 'Failed to save event. Please check required fields.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   // Quick Status Toggle directly from list table
-  const handleQuickStatusToggle = (evt: EventItem, newStatus: EventStatus) => {
-    updateEvent({
-      ...evt,
-      status: newStatus,
-    });
+  const handleQuickStatusToggle = async (evt: EventItem, newStatus: EventStatus) => {
+    try {
+      await updateEvent({
+        ...evt,
+        status: newStatus,
+      });
+      await fetchAdminEvents();
+    } catch {
+      /* error surfaced via showToast in BookingContext */
+    }
   };
 
   // Quick seat-map toggle directly from list table: flip between seat-based
@@ -947,7 +964,18 @@ export const AdminEvents: React.FC = () => {
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                      <label className="text-gray-300 font-bold block mb-1">Auto-Publish At (Draft → Live)</label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-gray-300 font-bold block text-xs">Auto-Publish At (Draft → Live) <span className="text-gray-500 font-normal">(Optional)</span></label>
+                        {scheduledPublishAt && (
+                          <button
+                            type="button"
+                            onClick={() => setScheduledPublishAt('')}
+                            className="text-[10px] text-amber-400 hover:text-amber-300 hover:underline cursor-pointer"
+                          >
+                            Clear
+                          </button>
+                        )}
+                      </div>
                       <input
                         type="datetime-local"
                         value={scheduledPublishAt}
@@ -955,9 +983,21 @@ export const AdminEvents: React.FC = () => {
                         onChange={(e) => setScheduledPublishAt(e.target.value)}
                         className="w-full bg-[#1C1C1C] border border-white/10 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-[#D4AF37]"
                       />
+                      <span className="text-[10px] text-gray-500 block mt-1">Leave empty to keep current status.</span>
                     </div>
                     <div>
-                      <label className="text-gray-300 font-bold block mb-1">Auto-Unpublish At (Take Down)</label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-gray-300 font-bold block text-xs">Auto-Unpublish At (Take Down) <span className="text-gray-500 font-normal">(Optional)</span></label>
+                        {scheduledUnpublishAt && (
+                          <button
+                            type="button"
+                            onClick={() => setScheduledUnpublishAt('')}
+                            className="text-[10px] text-amber-400 hover:text-amber-300 hover:underline cursor-pointer"
+                          >
+                            Clear
+                          </button>
+                        )}
+                      </div>
                       <input
                         type="datetime-local"
                         value={scheduledUnpublishAt}
@@ -965,6 +1005,7 @@ export const AdminEvents: React.FC = () => {
                         onChange={(e) => setScheduledUnpublishAt(e.target.value)}
                         className="w-full bg-[#1C1C1C] border border-white/10 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-[#D4AF37]"
                       />
+                      <span className="text-[10px] text-gray-500 block mt-1">Leave empty if no automated take-down is needed.</span>
                     </div>
                   </div>
 
@@ -1386,10 +1427,19 @@ export const AdminEvents: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  disabled={isUploading}
-                  className="w-full sm:w-auto py-3 px-7 rounded-xl bg-gradient-to-r from-[#F3E5AB] via-[#D4AF37] to-[#AA7C11] hover:brightness-110 active:scale-95 text-black font-extrabold text-xs shadow-xl shadow-[#D4AF37]/20 transition-all cursor-pointer disabled:opacity-50"
+                  disabled={isUploading || isSaving}
+                  className="w-full sm:w-auto py-3 px-7 rounded-xl bg-gradient-to-r from-[#F3E5AB] via-[#D4AF37] to-[#AA7C11] hover:brightness-110 active:scale-95 text-black font-extrabold text-xs shadow-xl shadow-[#D4AF37]/20 transition-all cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
                 >
-                  {editingEventId ? 'Save & Sync Changes' : 'Publish Event Now'}
+                  {isSaving ? (
+                    <>
+                      <div className="w-3.5 h-3.5 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                      <span>Saving…</span>
+                    </>
+                  ) : editingEventId ? (
+                    'Save & Sync Changes'
+                  ) : (
+                    'Publish Event Now'
+                  )}
                 </button>
               </div>
             </form>
