@@ -403,48 +403,67 @@ export const EventDetail: React.FC<EventDetailProps> = ({
             {event.isAdvertiseOnly ? (
               <div className="space-y-5">
                 <div className="border-b border-white/10 pb-4">
-                  <span className="px-3 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-widest bg-amber-500/20 text-amber-300 border border-amber-500/40 inline-flex items-center gap-1.5 mb-3">
-                    <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                    Event Advertisement
+                  <span className="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-white/10 text-amber-300 border border-white/15 inline-flex items-center gap-1.5 mb-2.5">
+                    <Building2 className="w-3.5 h-3.5 text-[#D4AF37]" />
+                    Walk-In Ticket Sales
                   </span>
                   <h3 className="font-heading font-extrabold text-xl text-white">
-                    Promotional Listing Only
+                    Event Information & Entry
                   </h3>
-                  <p className="text-xs text-gray-400 mt-1.5 leading-relaxed">
-                    This event is published as an informational advertisement. Online ticket purchasing and reservations are strictly disabled.
+                  <p className="text-xs text-gray-400 mt-1 leading-relaxed">
+                    Tickets and admission for this event are available directly at venue ticket counters.
                   </p>
                 </div>
 
-                <div className="bg-[#1C1C1C] border border-amber-500/30 rounded-2xl p-4 space-y-3">
-                  <div className="flex items-center gap-2.5 text-xs text-amber-300 font-bold uppercase tracking-wider">
-                    <Building2 className="w-4 h-4 text-amber-400 shrink-0" />
-                    <span>Venue & Entry Info</span>
+                {/* Minimal Counter Location & Details Box */}
+                <div className="bg-[#1C1C1C] border border-white/10 rounded-2xl p-4 space-y-3">
+                  <div className="flex items-center gap-2 text-xs text-[#D4AF37] font-bold uppercase tracking-wider border-b border-white/5 pb-2">
+                    <MapPin className="w-4 h-4 shrink-0" />
+                    <span>Ticket Counter & Location</span>
                   </div>
-                  <div className="space-y-2 text-xs text-gray-300 pt-1">
-                    <div className="flex justify-between py-1 border-b border-white/5">
-                      <span className="text-gray-400">Venue:</span>
-                      <span className="font-semibold text-white text-right">{event.venue}</span>
+                  <div className="space-y-2 text-xs text-gray-300">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-gray-400 text-[11px]">Location / Gate:</span>
+                      <span className="font-semibold text-white">{event.counterLocation || `${event.venue} Box Office Counter`}</span>
                     </div>
-                    <div className="flex justify-between py-1 border-b border-white/5">
-                      <span className="text-gray-400">City:</span>
-                      <span className="font-semibold text-white">{event.city}</span>
-                    </div>
-                    <div className="flex justify-between py-1 border-b border-white/5">
-                      <span className="text-gray-400">Date:</span>
-                      <span className="font-semibold text-white">{event.date}</span>
-                    </div>
-                    <div className="flex justify-between py-1">
-                      <span className="text-gray-400">Entry / Ticket:</span>
-                      <span className="font-bold text-[#D4AF37]">{formatINR(flatPrice)}</span>
-                    </div>
+                    {event.counterTimingText && (
+                      <div className="flex flex-col gap-0.5 pt-1.5 border-t border-white/5">
+                        <span className="text-gray-400 text-[11px]">Counter Hours:</span>
+                        <span className="font-medium text-gray-200">{event.counterTimingText}</span>
+                      </div>
+                    )}
+                    {event.counterContactPhone && (
+                      <div className="flex flex-col gap-0.5 pt-1.5 border-t border-white/5">
+                        <span className="text-gray-400 text-[11px]">Helpdesk / Phone:</span>
+                        <span className="font-medium text-emerald-400">{event.counterContactPhone}</span>
+                      </div>
+                    )}
                   </div>
                 </div>
 
-                <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-2xl text-center space-y-2">
-                  <p className="text-xs text-amber-200 font-medium leading-relaxed">
-                    No online tickets or reservations are available. Please visit the venue directly for event admission.
-                  </p>
+                {/* Event Quick Specs */}
+                <div className="bg-[#1C1C1C] border border-white/10 rounded-2xl p-4 space-y-2 text-xs text-gray-300">
+                  <div className="flex justify-between py-1 border-b border-white/5">
+                    <span className="text-gray-400">Venue:</span>
+                    <span className="font-semibold text-white text-right">{event.venue}</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-white/5">
+                    <span className="text-gray-400">City:</span>
+                    <span className="font-semibold text-white">{event.city}</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-white/5">
+                    <span className="text-gray-400">Date:</span>
+                    <span className="font-semibold text-white">{event.date}</span>
+                  </div>
+                  <div className="flex justify-between py-1">
+                    <span className="text-gray-400">Entry Rate:</span>
+                    <span className="font-bold text-[#D4AF37] text-sm">{formatINR(flatPrice)}</span>
+                  </div>
                 </div>
+
+                <p className="text-[11px] text-gray-400 text-center leading-relaxed px-2">
+                  Please visit the venue ticket counter for ticket purchasing and gate entry.
+                </p>
               </div>
             ) : (
               <>

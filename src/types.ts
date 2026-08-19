@@ -133,6 +133,10 @@ export interface EventItem {
    * the checkout panel with a "Where to Book" counter listing.
    */
   isAdvertiseOnly?: boolean;
+  /** Optional ticket counter location details */
+  counterLocation?: string;
+  counterTimingText?: string;
+  counterContactPhone?: string;
 }
 
 export interface PublicCounter {

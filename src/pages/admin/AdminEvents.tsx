@@ -103,6 +103,9 @@ export const AdminEvents: React.FC = () => {
   const [isPopularThisWeek, setIsPopularThisWeek] = useState(false);
   const [cashOnCounterOnly, setCashOnCounterOnly] = useState(false);
   const [isAdvertiseOnly, setIsAdvertiseOnly] = useState(false);
+  const [counterLocation, setCounterLocation] = useState('');
+  const [counterTimingText, setCounterTimingText] = useState('');
+  const [counterContactPhone, setCounterContactPhone] = useState('');
 
   // Upload & Validation States
   const [isUploading, setIsUploading] = useState(false);
@@ -244,6 +247,9 @@ export const AdminEvents: React.FC = () => {
     setIsPopularThisWeek(false);
     setCashOnCounterOnly(false);
     setIsAdvertiseOnly(false);
+    setCounterLocation('');
+    setCounterTimingText('');
+    setCounterContactPhone('');
     setScheduledPublishAt('');
     setScheduledUnpublishAt('');
     setFormError(null);
@@ -282,6 +288,9 @@ export const AdminEvents: React.FC = () => {
     setIsPopularThisWeek(!!evt.isPopularThisWeek);
     setCashOnCounterOnly(!!evt.cashOnCounterOnly);
     setIsAdvertiseOnly(!!evt.isAdvertiseOnly);
+    setCounterLocation(evt.counterLocation || '');
+    setCounterTimingText(evt.counterTimingText || '');
+    setCounterContactPhone(evt.counterContactPhone || '');
     setGalleryUrls(evt.gallery || []);
     setScheduleText((evt.schedule || [])
       .map((s) => [s.time, s.title, s.description].map((x) => (x || '').toString()).join(' | '))
@@ -557,6 +566,9 @@ export const AdminEvents: React.FC = () => {
       isPopularThisWeek,
       cashOnCounterOnly,
       isAdvertiseOnly,
+      counterLocation: counterLocation.trim() || null,
+      counterTimingText: counterTimingText.trim() || null,
+      counterContactPhone: counterContactPhone.trim() || null,
       rating: editingEventId && existingEvt?.rating !== undefined ? existingEvt.rating : 5.0,
       reviewsCount: editingEventId && existingEvt?.reviewsCount !== undefined ? existingEvt.reviewsCount : 0,
       scheduledPublishAt: scheduledPublishAt ? new Date(scheduledPublishAt).toISOString() : null,
@@ -1210,11 +1222,11 @@ export const AdminEvents: React.FC = () => {
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <div className="flex items-center gap-2">
-                        <label className="text-amber-300 font-bold block mb-0.5 text-xs">Advertise Only Mode (Informational Ad)</label>
-                        <span className="px-2 py-0.5 rounded text-[9px] font-extrabold bg-amber-500/20 text-amber-300 border border-amber-500/30 uppercase">PROMO ONLY</span>
+                        <label className="text-amber-300 font-bold block mb-0.5 text-xs">Informational / Walk-In Counter Mode</label>
+                        <span className="px-2 py-0.5 rounded text-[9px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 uppercase">INFO ONLY</span>
                       </div>
                       <p className="text-[11px] text-gray-400">
-                        When enabled, online checkout & reservations are completely disabled. The event is displayed purely as a promotional advertisement.
+                        When enabled, online checkout is hidden and guests are guided to venue ticket counters for admission.
                       </p>
                     </div>
                     <button
@@ -1233,6 +1245,46 @@ export const AdminEvents: React.FC = () => {
                       />
                     </button>
                   </div>
+
+                  {isAdvertiseOnly && (
+                    <div className="pt-3 border-t border-white/10 space-y-3 animate-in fade-in">
+                      <span className="text-[10px] uppercase font-bold text-amber-300 tracking-wider block">
+                        Physical Ticket Counter Details (Shown on Event Page)
+                      </span>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div>
+                          <label className="text-gray-300 font-bold block mb-1 text-xs">Counter Location</label>
+                          <input
+                            type="text"
+                            value={counterLocation}
+                            onChange={(e) => setCounterLocation(e.target.value)}
+                            placeholder="e.g. Main Gate Box Office Counter 1 & 2"
+                            className="w-full bg-[#121212] border border-white/10 rounded-xl px-3 py-2 text-white text-xs focus:outline-none focus:border-[#D4AF37]"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-gray-300 font-bold block mb-1 text-xs">Operating Hours</label>
+                          <input
+                            type="text"
+                            value={counterTimingText}
+                            onChange={(e) => setCounterTimingText(e.target.value)}
+                            placeholder="e.g. 10:00 AM – 8:00 PM Daily"
+                            className="w-full bg-[#121212] border border-white/10 rounded-xl px-3 py-2 text-white text-xs focus:outline-none focus:border-[#D4AF37]"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-gray-300 font-bold block mb-1 text-xs">Contact Phone / Desk</label>
+                          <input
+                            type="text"
+                            value={counterContactPhone}
+                            onChange={(e) => setCounterContactPhone(e.target.value)}
+                            placeholder="e.g. +91 98765 43210"
+                            className="w-full bg-[#121212] border border-white/10 rounded-xl px-3 py-2 text-white text-xs focus:outline-none focus:border-[#D4AF37]"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="p-4 rounded-xl bg-[#1C1C1C] border border-white/10">

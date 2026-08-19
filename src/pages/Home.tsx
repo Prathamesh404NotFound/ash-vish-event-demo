@@ -128,17 +128,26 @@ export const Home: React.FC<HomeProps> = ({
             {/* CTAs */}
             <div className="pt-2 flex flex-wrap items-center gap-4">
               <button
-                onClick={() => onBookNow(currentHeroEvent)}
+                onClick={() => currentHeroEvent.isAdvertiseOnly ? onSelectEvent(currentHeroEvent) : onBookNow(currentHeroEvent)}
                 className="px-7 py-3.5 rounded-2xl bg-gradient-to-r from-[#F3E5AB] via-[#D4AF37] to-[#C5A059] hover:brightness-110 text-black font-extrabold text-sm sm:text-base flex items-center gap-2 shadow-xl shadow-[#D4AF37]/25 hover:scale-105 active:scale-95 transition-all"
               >
-                <Ticket className="w-5 h-5 stroke-[2.5]" />
-                <span>Book Tickets Now (From {formatINR(currentHeroEvent.startingPrice)})</span>
+                {currentHeroEvent.isAdvertiseOnly ? (
+                  <>
+                    <Info className="w-5 h-5 stroke-[2.5]" />
+                    <span>View Event Details</span>
+                  </>
+                ) : (
+                  <>
+                    <Ticket className="w-5 h-5 stroke-[2.5]" />
+                    <span>Book Tickets Now (From {formatINR(currentHeroEvent.startingPrice)})</span>
+                  </>
+                )}
               </button>
               <button
                 onClick={() => onSelectEvent(currentHeroEvent)}
                 className="px-6 py-3.5 rounded-2xl bg-white/10 hover:bg-white/20 text-white font-semibold text-sm backdrop-blur-md border border-white/15 transition-all"
               >
-                View Full Lineup
+                View Event Info
               </button>
             </div>
           </div>
