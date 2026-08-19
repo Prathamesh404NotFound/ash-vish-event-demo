@@ -16,8 +16,16 @@ function getServiceAccount(): ServiceAccount | null {
     if (pk.startsWith('"') && pk.endsWith('"')) {
       pk = pk.substring(1, pk.length - 1);
     }
-    if (!pk.includes('\n') && pk.includes('\\n')) {
-      pk = pk.replace(/\\n/g, '\n');
+    // Normalize to a real-newline PKCS#8 PEM regardless of how the value was
+    // pasted into Vercel (real newlines, literal \n sequences, or a bare
+    // base64 body without header/footer lines).
+    pk = pk.replace(/\r\n?/g, '\n');
+    pk = pk.replace(/\\n/g, '\n');
+    pk = pk.replace(/\s+BEGIN PRIVATE KEY\s+/g, '\n-----BEGIN PRIVATE KEY-----\n');
+    pk = pk.replace(/\s+END PRIVATE KEY\s+/g, '\n-----END PRIVATE KEY-----\n');
+    pk = pk.trim();
+    if (!pk.includes('BEGIN PRIVATE KEY')) {
+      pk = `-----BEGIN PRIVATE KEY-----\n${pk}\n-----END PRIVATE KEY-----`;
     }
     return { projectId, clientEmail, privateKey: pk };
   }
