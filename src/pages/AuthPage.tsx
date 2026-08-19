@@ -43,6 +43,15 @@ export const AuthPage: React.FC = () => {
               src="/logo-tiny.webp"
               srcSet="/logo-tiny.webp 1x, /logo-small.webp 2x"
               alt="Ash-vish Events Logo"
+              onError={(e) => {
+                const target = e.currentTarget;
+                if (target.src.includes('.webp')) {
+                  target.srcset = '';
+                  target.src = '/ash-vish-events-logo.png';
+                } else if (target.src.includes('ash-vish-events-logo.png')) {
+                  target.src = '/av-logo.png';
+                }
+              }}
               className="w-9 h-9 rounded-xl object-cover shadow-lg"
             />
             <span className="font-heading font-extrabold text-2xl text-white">

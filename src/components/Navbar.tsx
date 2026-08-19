@@ -56,6 +56,15 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSearch }) => {
                   src="/logo-tiny.webp"
                   srcSet="/logo-tiny.webp 1x, /logo-small.webp 2x"
                   alt="Ash-vish Events Logo"
+                  onError={(e) => {
+                    const target = e.currentTarget;
+                    if (target.src.includes('.webp')) {
+                      target.srcset = '';
+                      target.src = '/ash-vish-events-logo.png';
+                    } else if (target.src.includes('ash-vish-events-logo.png')) {
+                      target.src = '/av-logo.png';
+                    }
+                  }}
                   className="relative w-9 h-9 sm:w-10 sm:h-10 rounded-xl object-cover border border-[#D4AF37]/40 shadow-lg group-hover:scale-105 transition-transform duration-200"
                 />
               </div>
