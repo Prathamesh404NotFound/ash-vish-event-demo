@@ -209,10 +209,11 @@ export async function sendTicketCloud(ticket: any, recipientPhone: string): Prom
     }
   }
 
-  // Send order: media template -> ticket_qr_pass (9-var) -> ticket_confirmation (7-var)
+  // Send order: ticket_qr_pass (new 9-var text body) first, then media
+  // template, then old 7-var ticket_confirmation as final fallback
   const sendOrder: Array<{ payload: typeof payload; name: string }> = [
-    { payload: mediaPayload, name: 'ticket_confirmation_media' },
     { payload: qrPassPayload, name: 'ticket_qr_pass' },
+    { payload: mediaPayload, name: 'ticket_confirmation_media' },
     { payload: fallbackPayload, name: 'ticket_confirmation' }
   ];
   let sendIndex = 0;
