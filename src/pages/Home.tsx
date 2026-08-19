@@ -70,7 +70,7 @@ export const Home: React.FC<HomeProps> = ({
     <div className="space-y-12 pb-12">
       
       {/* ----------------- CINEMATIC HERO SECTION ----------------- */}
-      <section className={`relative min-h-[52vh] sm:min-h-[60vh] flex ${currentHeroEvent ? 'items-end' : 'items-center'} justify-start overflow-hidden rounded-b-[36px] bg-[#070707]`}>
+      <section className="relative min-h-[52vh] sm:min-h-[60vh] flex items-end justify-start overflow-hidden rounded-b-[36px] bg-[#070707]">
         {/* Hero Background Poster Image */}
         <div className="absolute inset-0">
           {currentHeroEvent ? (
@@ -78,6 +78,8 @@ export const Home: React.FC<HomeProps> = ({
             src={currentHeroEvent.coverUrl || currentHeroEvent.posterUrl}
             alt={currentHeroEvent.title}
             className="w-full h-full object-cover object-center filter brightness-[0.75] contrast-[1.1] transition-all duration-700 scale-105"
+            fetchPriority="high"
+            decoding="async"
           />
           ) : (
             <div className="w-full h-full bg-gradient-to-br from-[#0A0A0A] via-[#1C1C1C] to-[#0A0A0A]" />
@@ -90,7 +92,7 @@ export const Home: React.FC<HomeProps> = ({
                 {/* Hero Content Container */}
         <div className="relative z-10 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pb-12 pt-20">
           {currentHeroEvent ? (
-          <div className="max-w-2xl space-y-6">
+          <div className="max-w-2xl space-y-6 min-h-[260px] sm:min-h-[300px] flex flex-col justify-end">
             {/* Category Eyebrow */}
             <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#D4AF37]/15 text-[#F3E5AB] border border-[#D4AF37]/30 text-xs font-bold uppercase tracking-wider backdrop-blur-md">
               <Sparkles className="w-3.5 h-3.5" />
@@ -140,7 +142,7 @@ export const Home: React.FC<HomeProps> = ({
           ) : (
             /* Empty-state hero: shows when the events collection has no public,
                well-formed events (e.g. all events were deleted). Never crashes. */
-            <div className="max-w-2xl space-y-5">
+            <div className="max-w-2xl space-y-5 min-h-[260px] sm:min-h-[300px] flex flex-col justify-center">
               <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#D4AF37]/15 text-[#F3E5AB] border border-[#D4AF37]/30 text-xs font-bold uppercase tracking-wider backdrop-blur-md">
                 <Sparkles className="w-3.5 h-3.5" />
                 <span>Welcome to Ash-vish Events</span>
@@ -158,10 +160,13 @@ export const Home: React.FC<HomeProps> = ({
             </div>
           )}
 
-          <div className="mt-8 flex items-center gap-3">
+          <div className="mt-8 flex items-center gap-3" role="tablist" aria-label="Featured show carousel">
             {featuredEvents.map((_, idx) => (
               <button
                 key={idx}
+                role="tab"
+                aria-selected={idx === heroIndex}
+                aria-label={`Show slide ${idx + 1} of ${featuredEvents.length}`}
                 onClick={() => setHeroIndex(idx)}
                 className={`h-2 rounded-full transition-all duration-300 ${
                   idx === heroIndex
@@ -237,12 +242,14 @@ export const Home: React.FC<HomeProps> = ({
             <button
               onClick={() => scrollRow('row-trending', 'left')}
               className="p-2 rounded-xl bg-[#141414] hover:bg-[#1C1C1C] text-gray-300 hover:text-white border border-white/10 transition-colors"
+              aria-label="Scroll trending events left"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
             <button
               onClick={() => scrollRow('row-trending', 'right')}
               className="p-2 rounded-xl bg-[#141414] hover:bg-[#1C1C1C] text-gray-300 hover:text-white border border-white/10 transition-colors"
+              aria-label="Scroll trending events right"
             >
               <ChevronRight className="w-4 h-4" />
             </button>
@@ -285,12 +292,14 @@ export const Home: React.FC<HomeProps> = ({
             <button
               onClick={() => scrollRow('row-popular', 'left')}
               className="p-2 rounded-xl bg-[#141414] hover:bg-[#1C1C1C] text-gray-300 hover:text-white border border-white/10 transition-colors"
+              aria-label="Scroll popular events left"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
             <button
               onClick={() => scrollRow('row-popular', 'right')}
               className="p-2 rounded-xl bg-[#141414] hover:bg-[#1C1C1C] text-gray-300 hover:text-white border border-white/10 transition-colors"
+              aria-label="Scroll popular events right"
             >
               <ChevronRight className="w-4 h-4" />
             </button>

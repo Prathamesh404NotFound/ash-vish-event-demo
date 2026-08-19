@@ -8,6 +8,7 @@ dotenv.config();
 import { verifyFirebaseIdToken, TokenVerificationError } from "./src/lib/verify-token.js";
 import { rtdbGet, rtdbSet, rtdbUpdate, rtdbDelete, rtdbTransaction, rtdbPush } from "./src/lib/rtdb.js";
 import { getFirebaseAdminIdToken } from "./src/lib/identity-admin.js";
+import { sendTicketCloud } from "./src/lib/whatsappCloud.js";
 import {
   isRazorpayConfigured,
   isTestMode,
@@ -949,6 +950,8 @@ async function finalizeBookingServerSide(
       id: ticketId,
       ticketNumber: ticketNum,
       eventId,
+      orderId,
+      bookingId,
       eventTitle,
       eventPoster,
       venue,
@@ -958,7 +961,7 @@ async function finalizeBookingServerSide(
       tierName,
       price,
       quantity,
-      totalPaid: isDeferred ? 0 : amount,
+      totalPaid: isDeferred ? 0 : (pendingOrder.isPartial ? pendingOrder.amountPaid : amount),
       discount: discountAmount,
       seatNumber: seatLabel,
       selectedSeats: seatIds || [],
@@ -967,12 +970,19 @@ async function finalizeBookingServerSide(
       attendeePhone: customerDetails.phone,
       qrCodeValue: signedQrToken,
       passSlug,
-      passType: isDeferred ? 'reservation' : 'entry',
-      paymentStatus: isDeferred ? 'pending' : 'paid',
-      amountDue: isDeferred ? amount : 0,
+      passType: isDeferred ? 'reservation' : (pendingOrder.isPartial ? 'reservation' : 'entry'),
+      paymentStatus: isDeferred ? 'pending' : (pendingOrder.isPartial ? 'partial' : 'paid'),
+      amountDue: isDeferred ? amount : (pendingOrder.isPartial ? pendingOrder.amountDue : 0),
       status: 'valid',
       purchasedAt: new Date().toISOString(),
       ownerId: userId,
+      scannedByStaffId: pendingOrder?.scannedByStaffId || null,
+      createdByStaffId: pendingOrder?.scannedByStaffId || null,
+      shiftId: pendingOrder?.shiftId || null,
+      counterId: pendingOrder?.counterId || null,
+      counterName: pendingOrder?.counterName || null,
+      payments: pendingOrder?.payments || null,
+      paymentMethod: pendingOrder?.paymentMethod || paymentMethod,
       ...(pendingOrder?.reservationId ? { reservationId: pendingOrder.reservationId } : {}),
     };
 
@@ -984,8 +994,8 @@ async function finalizeBookingServerSide(
       totalAmount: amount,
       discount: discountAmount,
       status: 'confirmed',
-      paymentStatus: isDeferred ? 'pending' : 'paid',
-      amountDue: isDeferred ? amount : 0,
+      paymentStatus: isDeferred ? 'pending' : (pendingOrder.isPartial ? 'partial' : 'paid'),
+      amountDue: isDeferred ? amount : (pendingOrder.isPartial ? pendingOrder.amountDue : 0),
       createdAt: new Date().toISOString(),
       paymentMethod,
       attendeeName: customerDetails.name,
@@ -1096,6 +1106,59 @@ async function finalizeBookingServerSide(
       time,
     }).catch((e) => console.warn("[MAIL] Confirmation email failed:", e?.message));
 
+    // Fire-and-forget: sendTicketCloud(ticket, ticket.attendeePhone).
+    // Wrap in try/catch; NEVER let a WhatsApp failure affect booking success.
+    // On non-retryable failure, record { channel: 'whatsapp_cloud', status: 'failed', reason, createdAt } into notifications if that array exists; on success record { channel: 'whatsapp_cloud', status: 'sent', waMessageId }.
+    if (newTicket && newTicket.attendeePhone) {
+      (async () => {
+        try {
+          const res = await sendTicketCloud(newTicket, newTicket.attendeePhone);
+          const adminToken = await getAdminAuthToken();
+          
+          const notificationEntry: any = {
+            channel: 'whatsapp_cloud',
+            createdAt: new Date().toISOString()
+          };
+
+          if (res.success) {
+            notificationEntry.status = 'sent';
+            notificationEntry.waMessageId = res.waMessageId;
+          } else {
+            notificationEntry.status = 'failed';
+            notificationEntry.reason = res.error?.message || JSON.stringify(res.error) || 'Unknown error';
+          }
+
+          // Record to the root notifications node in RTDB (for audit log status)
+          await rtdbPush("notifications", {
+            ...notificationEntry,
+            ticketId: ticketId,
+            recipientPhone: newTicket.attendeePhone,
+            attendeeName: newTicket.attendeeName,
+            eventTitle: newTicket.eventTitle,
+            subject: "WhatsApp Ticket Confirmation",
+            recipientCount: 1,
+            createdBy: "system"
+          }, adminToken).catch(() => {});
+
+          // Also, if the ticket has a notifications array (or we can append/update it in the DB to keep history), record it:
+          const ticketSnap = await rtdbGet(`tickets/${ticketId}`, adminToken);
+          if (ticketSnap && ticketSnap.data) {
+            const currentTicket = ticketSnap.data;
+            if (!currentTicket.notifications) {
+              currentTicket.notifications = [];
+            }
+            currentTicket.notifications.push(notificationEntry);
+            
+            // Save back
+            await rtdbSet(`tickets/${ticketId}`, currentTicket, adminToken).catch(() => {});
+            await rtdbSet(`users/${userId}/tickets/${ticketId}`, currentTicket, adminToken).catch(() => {});
+          }
+        } catch (e: any) {
+          console.warn("[WHATSAPP CLOUD TRIGGER] Async send failed:", e?.message);
+        }
+      })();
+    }
+
     return { success: true, ticket: newTicket, booking: newBookingRecord };
   } catch (err: any) {
     console.error("Error finalizing booking server side:", err);
@@ -1150,6 +1213,10 @@ export async function createApp() {
       return res.sendStatus(200);
     }
     next();
+  });
+
+  app.options("/api/*", (req, res) => {
+    res.sendStatus(204);
   });
 
   app.get("/api/health", async (req, res) => {
@@ -2428,6 +2495,10 @@ export async function createApp() {
       }
       const totalMinor = Math.max(0, quoteResult.quote.totalMinor - discountMinor);
 
+      // Support deposit / partial payment option:
+      const payDeposit = req.body?.payDeposit === true;
+      const amountPaiseToCharge = payDeposit ? Math.round(totalMinor * 0.5) : totalMinor;
+
       // Our server-authoritative pending order (source of truth for fulfillment).
       const orderId = `ord_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
       await rtdbSet(`pending_orders/${orderId}`, {
@@ -2438,18 +2509,21 @@ export async function createApp() {
         couponCode: appliedCoupon ? appliedCoupon.code : null,
         customerDetails: record.attendee || {},
         userId: owner.ownerId,
-        amount: totalMinor / 100,
-        amountMinor: totalMinor,
+        amount: amountPaiseToCharge / 100,
+        amountMinor: amountPaiseToCharge,
         reservationId,
         createdAt: now,
         paymentMethod: "razorpay",
         rzpOrderId: null,
+        isPartial: payDeposit,
+        amountPaid: amountPaiseToCharge / 100,
+        amountDue: payDeposit ? (totalMinor - amountPaiseToCharge) / 100 : 0,
       }, authToken);
 
       // Create the Razorpay order server-side. Razorpay returns the amount it
       // accepted; we reconcile against our computed amount.
       const rzp = await createRazorpayOrder({
-        amountPaise: totalMinor,
+        amountPaise: amountPaiseToCharge,
         currency: "INR",
         receipt: orderId,
         attendeeName: record.attendee?.name,
@@ -2459,9 +2533,9 @@ export async function createApp() {
         await rtdbDelete(`pending_orders/${orderId}`, authToken);
         return res.status(502).json({ success: false, error: rzp.error || "Payment gateway is currently unavailable." });
       }
-      if (rzp.amount !== totalMinor) {
+      if (rzp.amount !== amountPaiseToCharge) {
         await rtdbDelete(`pending_orders/${orderId}`, authToken);
-        console.error(`[RAZORPAY] amount mismatch: ours=${totalMinor} razorpay=${rzp.amount}`);
+        console.error(`[RAZORPAY] amount mismatch: ours=${amountPaiseToCharge} razorpay=${rzp.amount}`);
         return res.status(500).json({ success: false, error: "Payment gateway amount mismatch. Please try again." });
       }
 
@@ -2482,7 +2556,7 @@ export async function createApp() {
         orderId,
         rzpOrderId: rzp.id,
         rzpKey: razorpayKeyId,
-        amountMinor: totalMinor,
+        amountMinor: amountPaiseToCharge,
         appliedCoupon,
         isTestMode: isTestMode(),
         holdUntil,
@@ -2643,7 +2717,8 @@ export async function createApp() {
       }
       const quoteResult2 = computeReservationQuote(eventData2, pendingOrderFinal.seatIds, pendingOrderFinal.quantity, pendingOrderFinal.tierId);
       const expectedMinor2 = Math.max(0, quoteResult2.quote.totalMinor - (pendingOrderFinal.couponDiscountMinor || 0));
-      if (pendingOrderFinal.amountMinor && pendingOrderFinal.amountMinor !== expectedMinor2) {
+      const targetExpectedMinor = pendingOrderFinal.isPartial ? Math.round(expectedMinor2 * 0.5) : expectedMinor2;
+      if (pendingOrderFinal.amountMinor && pendingOrderFinal.amountMinor !== targetExpectedMinor) {
         const refund = await refundForConflict("Quote changed since payment capture");
         return res.status(409).json({
           success: false,
@@ -3063,7 +3138,7 @@ export async function createApp() {
 
   app.post("/api/walk-in-bookings", verifyRole(['admin', 'ticket_counter']), async (req: any, res) => {
     try {
-      const { eventId, tierId, attendeeName, attendeePhone, attendeeEmail, selectedSeats = [], paymentMethod = 'cash', couponCode: rawCouponCode, payments: rawPayments, discountOverride: rawOverride, shiftId, idempotencyKey, counterId: rawCounterId } = req.body || {};
+      const { eventId, tierId, attendeeName, attendeePhone, attendeeEmail, selectedSeats = [], paymentMethod = 'cash', couponCode: rawCouponCode, payments: rawPayments, discountOverride: rawOverride, shiftId, idempotencyKey, counterId: rawCounterId, scannedByStaffId } = req.body || {};
 
       // Idempotency: same key returns the same completed result
       const idKey = idempotencyKey ? String(idempotencyKey).trim() : null;
@@ -3225,6 +3300,14 @@ export async function createApp() {
         };
         discountAmount += overrideDiscount;
       }
+      const netTotal = lineAmount - discountAmount;
+      if (splitPayments.length > 0) {
+        const sum = splitPayments.reduce((acc, curr) => acc + curr.amount, 0);
+        if (sum !== netTotal) {
+          return res.status(400).json({ success: false, error: `Payment amounts must sum to the order total (₹${netTotal}). Currently ₹${sum}.` });
+        }
+      }
+
       const shiftCode = String(shiftId || "").slice(0, 64);
       await rtdbSet(`pending_orders/${orderId}`, {
         orderId,
@@ -3239,7 +3322,8 @@ export async function createApp() {
         couponCode: couponCodeUpper,
         createdAt: new Date().toISOString(),
         paymentMethod: `walkin_${String(paymentMethod).slice(0, 32)}`,
-        ...(splitPayments.length > 0 ? { payments: splitPayments, totalPaid: lineAmount - discountAmount } : {}),
+        scannedByStaffId: scannedByStaffId || req.user.uid || req.user.name || 'Counter Operator',
+        ...(splitPayments.length > 0 ? { payments: splitPayments, totalPaid: netTotal } : {}),
         ...(discountOverrideRecord ? { discountOverride: discountOverrideRecord } : {}),
         ...(shiftCode ? { shiftId: shiftCode, staffShiftId: shiftCode } : {}),
         ...(rawCid ? { counterId: rawCid, counterName } : {}),
@@ -4936,6 +5020,104 @@ export async function createApp() {
     }
   });
 
+  // -- Test-mode self-serve WhatsApp Cloud API endpoints (Step 4) --------------
+  app.get("/api/whatsapp/test", async (req: any, res) => {
+    try {
+      if (process.env.WHATSAPP_TEST_MODE !== 'true') {
+        return res.status(403).json({ success: false, error: "Forbidden: Test mode is disabled." });
+      }
+
+      const { phone } = req.query || {};
+      if (!phone) {
+        return res.status(400).json({ success: false, error: "phone parameter is required." });
+      }
+
+      const adminToken = await getAdminAuthToken();
+      const ticketsSnap = await rtdbGet("tickets", adminToken);
+      if (!ticketsSnap || !ticketsSnap.data) {
+        return res.status(404).json({ success: false, error: "No tickets found in the system to test with." });
+      }
+
+      const allTickets = Object.values(ticketsSnap.data as Record<string, any>);
+      if (allTickets.length === 0) {
+        return res.status(404).json({ success: false, error: "No tickets found in the system to test with." });
+      }
+
+      // Sort tickets by purchasedAt descending to get the latest issued ticket
+      allTickets.sort((a: any, b: any) => {
+        const dateA = new Date(a.purchasedAt || 0).getTime();
+        const dateB = new Date(b.purchasedAt || 0).getTime();
+        return dateB - dateA;
+      });
+
+      const latestTicket = allTickets[0];
+
+      // Send via sendTicketCloud
+      const result = await sendTicketCloud(latestTicket, String(phone));
+
+      // Audit row
+      const auditRow: any = {
+        channel: 'whatsapp_cloud',
+        ticketId: latestTicket.id || 'test_mode',
+        recipientPhone: phone,
+        status: result.success ? 'sent' : 'failed',
+        createdAt: new Date().toISOString()
+      };
+      if (result.success) {
+        auditRow.waMessageId = result.waMessageId;
+      } else {
+        auditRow.reason = result.error?.message || JSON.stringify(result.error) || 'Unknown error';
+      }
+
+      await rtdbPush("notifications", {
+        ...auditRow,
+        attendeeName: latestTicket.attendeeName,
+        eventTitle: latestTicket.eventTitle,
+        subject: "WhatsApp Self-Serve Test",
+        recipientCount: 1,
+        createdBy: "system_test"
+      }, adminToken).catch(() => {});
+
+      if (!result.success) {
+        return res.status(500).json({ success: false, error: result.error });
+      }
+
+      return res.json({ success: true, waMessageId: result.waMessageId, ticketId: latestTicket.id });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || "Failed to trigger test delivery." });
+    }
+  });
+
+  app.get("/api/whatsapp/status", async (req: any, res) => {
+    try {
+      if (process.env.WHATSAPP_TEST_MODE !== 'true') {
+        return res.status(403).json({ success: false, error: "Forbidden: Test mode is disabled." });
+      }
+
+      const adminToken = await getAdminAuthToken();
+      const notificationsSnap = await rtdbGet("notifications", adminToken);
+      
+      const allNotifications = Object.values((notificationsSnap.data || {}) as Record<string, any>);
+      
+      // Filter those from whatsapp_cloud
+      const whatsappNotifications = allNotifications.filter((n: any) => n.channel === 'whatsapp_cloud');
+      
+      // Sort by createdAt descending to get latest first
+      whatsappNotifications.sort((a: any, b: any) => {
+        const timeA = new Date(a.createdAt || 0).getTime();
+        const timeB = new Date(b.createdAt || 0).getTime();
+        return timeB - timeA;
+      });
+
+      // Take latest 10
+      const last10 = whatsappNotifications.slice(0, 10);
+
+      return res.json({ success: true, logs: last10 });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || "Failed to fetch status logs." });
+    }
+  });
+
   app.post("/api/tickets/send-email", requireRole(["super_admin", "event_manager", "counter_staff"]), async (req: any, res) => {
     try {
       const { attendeeEmail, subject, message } = req.body || {};
@@ -5462,6 +5644,461 @@ app.put("/api/merchant-upi", requireRole(["super_admin"]), async (req: any, res)
     return res.status(200).json({ success: true, vpa: rawVpa, name: name || "" });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message || "Could not save merchant UPI config." });
+  }
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// "My Sales" counter-facing operations
+// ──────────────────────────────────────────────────────────────────────
+
+app.get("/api/counter/my-sales", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
+  try {
+    const adminToken = await getAdminAuthToken();
+    const staffId = req.user.uid;
+    const staffName = req.user.name || "";
+    const staffEmail = req.user.email || "";
+
+    const q = req.query || {};
+    const eventId = typeof q.eventId === "string" ? q.eventId : undefined;
+    const status = typeof q.status === "string" ? q.status : undefined;
+    const dateRange = typeof q.dateRange === "string" ? q.dateRange : "today"; // "today", "7-day", "30-day", "all-time"
+    const search = typeof q.search === "string" ? q.search.trim().toLowerCase() : undefined;
+    const page = Math.max(1, Number(q.page) || 1);
+    const pageSize = Math.min(100, Math.max(10, Number(q.pageSize) || 20));
+
+    const ordersSnap = await rtdbGet("orders", adminToken);
+    const orders = (ordersSnap.data || {}) as Record<string, any>;
+
+    const ticketsSnap = await rtdbGet("tickets", adminToken);
+    const tickets = Object.values((ticketsSnap.data || {}) as Record<string, any>);
+
+    let filtered = tickets.filter((t: any) => {
+      const scannedBy = String(t.scannedByStaffId || "").toLowerCase();
+      const createdBy = String(t.createdByStaffId || "").toLowerCase();
+      
+      let isMatchDirect = (
+        scannedBy === staffId.toLowerCase() ||
+        scannedBy === staffName.toLowerCase() ||
+        scannedBy === staffEmail.toLowerCase() ||
+        createdBy === staffId.toLowerCase()
+      );
+
+      let hasMatch = isMatchDirect;
+
+      if (!hasMatch && t.orderId && orders[t.orderId]) {
+        const order = orders[t.orderId];
+        const orderScannedBy = String(order.scannedByStaffId || "").toLowerCase();
+        if (
+          orderScannedBy === staffId.toLowerCase() ||
+          orderScannedBy === staffName.toLowerCase() ||
+          orderScannedBy === staffEmail.toLowerCase() ||
+          String(order.staffShiftId || "").toLowerCase() === staffId.toLowerCase()
+        ) {
+          hasMatch = true;
+        }
+      }
+
+      if (!hasMatch) return false;
+
+      if (eventId && t.eventId !== eventId) return false;
+      if (status && t.status !== status) return false;
+
+      if (t.purchasedAt) {
+        const pDate = new Date(t.purchasedAt);
+        const now = new Date();
+        if (dateRange === "today") {
+          const isToday = pDate.toDateString() === now.toDateString();
+          if (!isToday) return false;
+        } else if (dateRange === "7-day") {
+          const diffTime = Math.abs(now.getTime() - pDate.getTime());
+          const diffDays = diffTime / (1000 * 60 * 60 * 24);
+          if (diffDays > 7) return false;
+        } else if (dateRange === "30-day") {
+          const diffTime = Math.abs(now.getTime() - pDate.getTime());
+          const diffDays = diffTime / (1000 * 60 * 60 * 24);
+          if (diffDays > 30) return false;
+        }
+      }
+
+      if (search) {
+        const searchPool = [t.ticketNumber, t.attendeeName, t.attendeePhone, t.attendeeEmail].map(String).join(" ").toLowerCase();
+        if (!searchPool.includes(search)) return false;
+      }
+
+      return true;
+    });
+
+    filtered.sort((a: any, b: any) => String(b.purchasedAt || "").localeCompare(String(a.purchasedAt || "")));
+
+    const totalSalesCount = filtered.length;
+    const totalAmountSum = filtered.reduce((sum: number, t: any) => sum + (Number(t.price) * Number(t.quantity || 1)), 0);
+
+    const total = filtered.length;
+    const paged = filtered.slice((page - 1) * pageSize, page * pageSize);
+
+    return res.json({
+      success: true,
+      tickets: paged,
+      total,
+      page,
+      pageSize,
+      summary: {
+        count: totalSalesCount,
+        amount: totalAmountSum
+      }
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post("/api/counter/tickets/:ticketId/toggle-checkin", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
+  try {
+    const { ticketId } = req.params;
+    const adminToken = await getAdminAuthToken();
+
+    const ticketSnap = await rtdbGet(`tickets/${ticketId}`, adminToken);
+    const ticket = ticketSnap.data as any;
+    if (!ticket) return res.status(404).json({ success: false, error: "Ticket not found." });
+
+    const beforeState = JSON.parse(JSON.stringify(ticket));
+    const nowStatus = ticket.status || "valid";
+    const nextStatus = nowStatus === "redeemed" ? "valid" : "redeemed";
+
+    const updatedTicket = {
+      ...ticket,
+      status: nextStatus,
+      redeemedAt: nextStatus === "redeemed" ? new Date().toISOString() : null,
+      redeemedBy: nextStatus === "redeemed" ? (req.user.name || req.user.uid) : null,
+    };
+
+    await rtdbSet(`tickets/${ticketId}`, updatedTicket, adminToken);
+    if (ticket.ownerId) {
+      await rtdbSet(`users/${ticket.ownerId}/tickets/${ticketId}`, updatedTicket, adminToken).catch(() => {});
+    }
+
+    await writeAuditEntry({
+      actorId: req.user.uid,
+      actorRole: req.user.rbacRole,
+      action: "ticket.toggle_checkin",
+      entityType: "ticket",
+      entityId: ticketId,
+      beforeState,
+      afterState: updatedTicket,
+    });
+
+    return res.json({ success: true, ticket: updatedTicket });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post("/api/counter/tickets/:ticketId/edit-attendee", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
+  try {
+    const { ticketId } = req.params;
+    const { attendeeName, attendeePhone, attendeeEmail } = req.body || {};
+    const adminToken = await getAdminAuthToken();
+
+    if (!attendeeName || !String(attendeeName).trim()) {
+      return res.status(400).json({ success: false, error: "Attendee name is required." });
+    }
+
+    const ticketSnap = await rtdbGet(`tickets/${ticketId}`, adminToken);
+    const ticket = ticketSnap.data as any;
+    if (!ticket) return res.status(404).json({ success: false, error: "Ticket not found." });
+
+    const beforeState = JSON.parse(JSON.stringify(ticket));
+
+    const updatedTicket = {
+      ...ticket,
+      attendeeName: String(attendeeName).trim(),
+      attendeePhone: attendeePhone ? String(attendeePhone).trim() : (ticket.attendeePhone || ""),
+      attendeeEmail: attendeeEmail ? String(attendeeEmail).trim() : (ticket.attendeeEmail || ""),
+    };
+
+    await rtdbSet(`tickets/${ticketId}`, updatedTicket, adminToken);
+    if (ticket.ownerId) {
+      await rtdbSet(`users/${ticket.ownerId}/tickets/${ticketId}`, updatedTicket, adminToken).catch(() => {});
+    }
+
+    const orderId = ticket.orderId;
+    const bookingId = ticket.bookingId;
+
+    if (orderId) {
+      const orderSnap = await rtdbGet(`orders/${orderId}`, adminToken);
+      if (orderSnap.data) {
+        const order = orderSnap.data as any;
+        const updatedOrder = {
+          ...order,
+          customerDetails: {
+            ...order.customerDetails,
+            name: updatedTicket.attendeeName,
+            phone: updatedTicket.attendeePhone,
+            email: updatedTicket.attendeeEmail,
+          }
+        };
+        await rtdbSet(`orders/${orderId}`, updatedOrder, adminToken).catch(() => {});
+        const procSnap = await rtdbGet(`processed_orders/${orderId}`, adminToken);
+        if (procSnap.data) {
+          const proc = procSnap.data as any;
+          proc.ticket = updatedTicket;
+          if (proc.booking) {
+            proc.booking.attendeeName = updatedTicket.attendeeName;
+            proc.booking.attendeePhone = updatedTicket.attendeePhone;
+            proc.booking.attendeeEmail = updatedTicket.attendeeEmail;
+          }
+          await rtdbSet(`processed_orders/${orderId}`, proc, adminToken).catch(() => {});
+        }
+      }
+    }
+
+    if (bookingId) {
+      const bkgSnap = await rtdbGet(`bookings/${bookingId}`, adminToken);
+      if (bkgSnap.data) {
+        const bkg = bkgSnap.data as any;
+        const updatedBkg = {
+          ...bkg,
+          attendeeName: updatedTicket.attendeeName,
+          attendeePhone: updatedTicket.attendeePhone,
+          attendeeEmail: updatedTicket.attendeeEmail,
+        };
+        await rtdbSet(`bookings/${bookingId}`, updatedBkg, adminToken).catch(() => {});
+        if (bkg.userId) {
+          await rtdbSet(`users/${bkg.userId}/bookings/${bookingId}`, updatedBkg, adminToken).catch(() => {});
+        }
+      }
+    }
+
+    await writeAuditEntry({
+      actorId: req.user.uid,
+      actorRole: req.user.rbacRole,
+      action: "ticket.edit_attendee",
+      entityType: "ticket",
+      entityId: ticketId,
+      beforeState,
+      afterState: updatedTicket,
+    });
+
+    return res.json({ success: true, ticket: updatedTicket });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post("/api/counter/tickets/:ticketId/void", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
+  try {
+    const { ticketId } = req.params;
+    const { reason } = req.body || {};
+    const adminToken = await getAdminAuthToken();
+
+    if (!reason || String(reason).trim().length < 5) {
+      return res.status(400).json({ success: false, error: "A void reason of at least 5 characters is required." });
+    }
+
+    const ticketSnap = await rtdbGet(`tickets/${ticketId}`, adminToken);
+    const ticket = ticketSnap.data as any;
+    if (!ticket) return res.status(404).json({ success: false, error: "Ticket not found." });
+    if (ticket.status === "cancelled") return res.status(400).json({ success: false, error: "Ticket is already voided." });
+
+    const beforeState = JSON.parse(JSON.stringify(ticket));
+
+    const seatsToRelease = ticket.selectedSeats || ticket.seatIds || [];
+    for (const seatId of seatsToRelease) {
+      await releaseSeat(adminToken, ticket.eventId, seatId, {}).catch(() => {});
+    }
+
+    const updatedTicket = {
+      ...ticket,
+      status: "cancelled",
+      cancelledReason: String(reason).trim(),
+      statusChangedAt: new Date().toISOString(),
+      cancelledBy: req.user.uid,
+    };
+
+    await rtdbSet(`tickets/${ticketId}`, updatedTicket, adminToken);
+    if (ticket.ownerId) {
+      await rtdbSet(`users/${ticket.ownerId}/tickets/${ticketId}`, updatedTicket, adminToken).catch(() => {});
+    }
+
+    const orderId = ticket.orderId;
+    const bookingId = ticket.bookingId;
+
+    if (orderId) {
+      const orderSnap = await rtdbGet(`orders/${orderId}`, adminToken);
+      if (orderSnap.data) {
+        const order = orderSnap.data as any;
+        const updatedOrder = {
+          ...order,
+          status: "refunded",
+          refundReason: String(reason).trim(),
+          refundAmount: Number(order.amount) || 0,
+          refundedAt: new Date().toISOString(),
+          refundedBy: req.user.uid,
+        };
+        await rtdbSet(`orders/${orderId}`, updatedOrder, adminToken).catch(() => {});
+        await rtdbDelete(`processed_orders/${orderId}`, adminToken).catch(() => {});
+      }
+    }
+
+    if (bookingId) {
+      const bkgSnap = await rtdbGet(`bookings/${bookingId}`, adminToken);
+      if (bkgSnap.data) {
+        const bkg = bkgSnap.data as any;
+        const updatedBkg = {
+          ...bkg,
+          status: "cancelled",
+        };
+        await rtdbSet(`bookings/${bookingId}`, updatedBkg, adminToken).catch(() => {});
+        if (bkg.userId) {
+          await rtdbSet(`users/${bkg.userId}/bookings/${bookingId}`, updatedBkg, adminToken).catch(() => {});
+        }
+      }
+    }
+
+    await writeAuditEntry({
+      actorId: req.user.uid,
+      actorRole: req.user.rbacRole,
+      action: "ticket.voided_counter",
+      entityType: "ticket",
+      entityId: ticketId,
+      beforeState,
+      afterState: updatedTicket,
+    });
+
+    return res.json({ success: true, message: "Ticket and associated order voided successfully.", ticket: updatedTicket });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post("/api/counter/tickets/:ticketId/resend-whatsapp", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
+  try {
+    const { ticketId } = req.params;
+    const adminToken = await getAdminAuthToken();
+
+    const ticketSnap = await rtdbGet(`tickets/${ticketId}`, adminToken);
+    const ticket = ticketSnap.data as any;
+    if (!ticket) return res.status(404).json({ success: false, error: "Ticket not found." });
+
+    if (!ticket.attendeePhone) {
+      return res.status(400).json({ success: false, error: "Ticket does not have an associated attendee phone number." });
+    }
+
+    const waRes = await sendTicketCloud(ticket, ticket.attendeePhone);
+    const notificationEntry: any = {
+      channel: 'whatsapp_cloud',
+      createdAt: new Date().toISOString()
+    };
+
+    if (waRes.success) {
+      notificationEntry.status = 'sent';
+      notificationEntry.waMessageId = waRes.waMessageId;
+    } else {
+      notificationEntry.status = 'failed';
+      notificationEntry.reason = waRes.error?.message || JSON.stringify(waRes.error) || 'Unknown error';
+    }
+
+    await rtdbPush("notifications", {
+      ...notificationEntry,
+      ticketId: ticketId,
+      recipientPhone: ticket.attendeePhone,
+      attendeeName: ticket.attendeeName,
+      eventTitle: ticket.eventTitle,
+      subject: "WhatsApp Ticket Confirmation (Resend)",
+      recipientCount: 1,
+      createdBy: req.user.uid
+    }, adminToken).catch(() => {});
+
+    if (!ticket.notifications) {
+      ticket.notifications = [];
+    }
+    ticket.notifications.push(notificationEntry);
+    await rtdbSet(`tickets/${ticketId}`, ticket, adminToken);
+    if (ticket.ownerId) {
+      await rtdbSet(`users/${ticket.ownerId}/tickets/${ticketId}`, ticket, adminToken).catch(() => {});
+    }
+
+    if (waRes.success) {
+      return res.json({ success: true, message: "WhatsApp message resent successfully." });
+    } else {
+      return res.status(500).json({ success: false, error: waRes.error?.message || "WhatsApp delivery failed." });
+    }
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post("/api/admin/tickets/:ticketId/collect", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
+  try {
+    const { ticketId } = req.params;
+    const { paymentMethod = "cash", collectedAmount } = req.body || {};
+    const userToken = await getAdminAuthToken();
+
+    const ticketSnap = await rtdbGet(`tickets/${ticketId}`, userToken);
+    const ticket = ticketSnap.data as any;
+    if (!ticket) {
+      return res.status(404).json({ success: false, error: `Ticket ${ticketId} not found.` });
+    }
+
+    if (ticket.paymentStatus === "paid") {
+      return res.status(400).json({ success: false, error: "This ticket has already been fully paid." });
+    }
+
+    const amountToCollect = collectedAmount !== undefined ? Number(collectedAmount) : (Number(ticket.amountDue) || Number(ticket.totalPaid) || Number(ticket.price * (ticket.quantity || 1)) || 0);
+    const collectedAt = new Date().toISOString();
+    const staffUid = req.user?.uid || "ticket_counter_staff";
+
+    const updatedTicketUpdates: Record<string, any> = {
+      paymentStatus: "paid",
+      amountDue: 0,
+      totalPaid: (Number(ticket.totalPaid) || 0) + amountToCollect,
+      collectedAt,
+      collectedBy: staffUid,
+      collectedPaymentMethod: String(paymentMethod).slice(0, 32),
+    };
+
+    await rtdbUpdate(`tickets/${ticketId}`, updatedTicketUpdates, userToken);
+
+    if (ticket.ownerId) {
+      await rtdbUpdate(`users/${ticket.ownerId}/tickets/${ticketId}`, updatedTicketUpdates, userToken).catch(() => {});
+    }
+
+    // Also update linked booking and order if found
+    const bookingsSnap = await rtdbGet("bookings", userToken);
+    const allBookings = (bookingsSnap.data || {}) as Record<string, any>;
+    const matchedBooking = Object.values(allBookings).find((b: any) => b.ticketId === ticketId || b.reservationId === ticket.reservationId);
+    if (matchedBooking && matchedBooking.bookingId) {
+      const bookingUpdates = { paymentStatus: "paid", amountDue: 0, collectedAt, collectedBy: staffUid };
+      await rtdbUpdate(`bookings/${matchedBooking.bookingId}`, bookingUpdates, userToken).catch(() => {});
+      if (matchedBooking.userId) {
+        await rtdbUpdate(`users/${matchedBooking.userId}/bookings/${matchedBooking.bookingId}`, bookingUpdates, userToken).catch(() => {});
+      }
+    }
+
+    const ordersSnap = await rtdbGet("orders", userToken);
+    const allOrders = (ordersSnap.data || {}) as Record<string, any>;
+    const matchedOrder = Object.values(allOrders).find((o: any) => o.ticketId === ticketId || o.bookingId === matchedBooking?.bookingId);
+    if (matchedOrder && matchedOrder.orderId) {
+      await rtdbUpdate(`orders/${matchedOrder.orderId}`, { paymentStatus: "paid", amountDue: 0, collectedAt, collectedBy: staffUid }, userToken).catch(() => {});
+    }
+
+    await writeAuditEntry({
+      actorId: req.user.uid,
+      actorRole: req.user.rbacRole || req.user.role,
+      action: "counter.payment.collected",
+      entityType: "ticket",
+      entityId: ticketId,
+      afterState: { ...ticket, ...updatedTicketUpdates },
+    }).catch(() => {});
+
+    return res.json({
+      success: true,
+      message: `Payment of ₹${amountToCollect} successfully collected. Reservation Pass is now active for entry.`,
+      ticket: { ...ticket, ...updatedTicketUpdates },
+      amountCollected: amountToCollect,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
   }
 });
 

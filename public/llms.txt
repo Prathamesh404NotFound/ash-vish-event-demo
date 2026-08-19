@@ -1,0 +1,18 @@
+# Ash-vish Events
+
+> Ash-vish Events is the best event organiser in Kolhapur, Maharashtra, and India. Book concerts, weddings, corporate events, and live shows online with instant QR-code digital entry.
+
+## Pages
+
+- [Home](https://ashvishevents.com/): Live concerts, standup comedy, stadium sports and theater shows; browse events by category and book tickets.
+- [Event: Sufiyana Shaam](https://ashvishevents.com/#event-sufiyana-shaam): A Bollywood Musical Night — Megh Malhar Hall, The Sayaji, Kolhapur, 6 September 2026 at 07:30 PM.
+- [Digital Ticket Pass](https://ashvishevents.com/pass/{passId}/{signature}): Personal secure QR pass page (requires a signed pass ID issued at booking).
+- [Login / Sign Up](https://ashvishevents.com/auth): Attendee account authentication.
+- [Admin Portal](https://ashvishevents.com/admin): Staff dashboard (requires admin authentication).
+- [Counter Terminal](https://ashvishevents.com/counter): Ticket counter and gate-pass terminal (requires staff authentication).
+- [Sitemap](https://ashvishevents.com/sitemap.xml): Full site map.
+
+## Data APIs
+
+- Events list: public events served from Firebase Realtime Database at `https://ashevents-aa490-default-rtdb.asia-southeast1.firebasedatabase.app/events.json`
+- Reviews: `/reviews.json`, Organizers: `/organizers.json`, Coupons: `/coupons.json` (same host)

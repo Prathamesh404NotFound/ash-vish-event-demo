@@ -153,13 +153,14 @@ export function useRazorpay() {
   const createOrder = useCallback(async (
     reservationId: string,
     identityHeaders: () => Promise<Record<string, string>>,
-    couponCode?: string | null
+    couponCode?: string | null,
+    payDeposit?: boolean
   ): Promise<{ session: RazorpaySession | null; error?: string }> => {
     try {
       const res = await safeFetch<RazorpayOrderResponse>('/api/razorpay/create-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(await identityHeaders()) },
-        body: JSON.stringify({ reservationId, couponCode: couponCode || null }),
+        body: JSON.stringify({ reservationId, couponCode: couponCode || null, payDeposit: payDeposit || false }),
       });
       if (!res.ok || !res.data?.success) {
         return { session: null, error: res.data?.error || `Could not create payment order (${res.status}).` };
@@ -346,13 +347,18 @@ export function useRazorpay() {
       getEventTitle: () => string;
       getPrefill: () => RazorpayPrefill;
     },
-    options?: { reservationRef?: { current: string | null } }
+    options?: { reservationRef?: { current: string | null }; payDeposit?: boolean }
   ) => {
     if (isProcessing || retryCountRef.current > maxRetries) return;
     setIsProcessing(true);
     errorHandledRef.current = false;
 
-    const { session: currentSession, error: createError } = await createOrder(reservationId, identityHeaders, couponCode);
+    const { session: currentSession, error: createError } = await createOrder(
+      reservationId,
+      identityHeaders,
+      couponCode,
+      options?.payDeposit
+    );
     if (!currentSession || createError) {
       setIsProcessing(false);
       handlers.onError(createError || 'Could not start payment.');

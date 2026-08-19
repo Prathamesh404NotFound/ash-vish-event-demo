@@ -1,4 +1,3 @@
-import jsPDF from 'jspdf';
 import { Ticket, EventItem } from '../types';
 
 export const generateTicketPDF = async (
@@ -6,6 +5,7 @@ export const generateTicketPDF = async (
   event?: EventItem,
   signedToken?: string
 ): Promise<void> => {
+  const { default: jsPDF } = await import('jspdf');
   const doc = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',

@@ -1,5 +1,4 @@
 import React, { useEffect } from 'react';
-import confetti from 'canvas-confetti';
 import { CheckCircle, Download, Ticket as TicketIcon, Calendar, MapPin, Share2, Sparkles, ArrowRight, MessageSquareCode } from 'lucide-react';
 import { useBooking } from '../contexts/BookingContext';
 import { QRPlaceholder } from '../components/QRPlaceholder';
@@ -19,11 +18,13 @@ export const ConfirmationPage: React.FC<ConfirmationPageProps> = ({
 
   useEffect(() => {
     // Launch celebratory confetti burst
-    confetti({
-      particleCount: 80,
-      spread: 70,
-      origin: { y: 0.6 },
-      colors: ['#FF6B00', '#FF8A26', '#ffffff', '#22C55E'],
+    import('canvas-confetti').then(({ default: confetti }) => {
+      confetti({
+        particleCount: 80,
+        spread: 70,
+        origin: { y: 0.6 },
+        colors: ['#FF6B00', '#FF8A26', '#ffffff', '#22C55E'],
+      });
     });
   }, []);
 

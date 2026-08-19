@@ -14,7 +14,9 @@
         { "key": "Access-Control-Allow-Methods", "value": "GET, POST, PUT, PATCH, DELETE, OPTIONS" },
         { "key": "Access-Control-Allow-Headers", "value": "Origin, X-Requested-With, Content-Type, Accept, Authorization, X-User-Role" },
         { "key": "Access-Control-Max-Age", "value": "86400" },
-        { "key": "X-Content-Type-Options", "value": "nosniff" }
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Strict-Transport-Security", "value": "max-age=63072000; includeSubDomains" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
       ]
     },
     {
@@ -30,19 +32,7 @@
       "destination": "/api/[[...route]]"
     },
     {
-      "source": "/public/sitemap(.*)",
-      "destination": "/sitemap.xml"
-    },
-    {
-      "source": "/sitemap.xml",
-      "destination": "/sitemap.xml"
-    },
-    {
-      "source": "/robots.txt",
-      "destination": "/robots.txt"
-    },
-    {
-      "source": "/((?!api/|sitemap\\.xml|robots\\.txt|favicon.*|manifest\\.json|.*\\..*).*)",
+      "source": "/((?!api/).*)",
       "destination": "/index.html"
     }
   ]
