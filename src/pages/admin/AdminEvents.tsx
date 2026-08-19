@@ -22,11 +22,12 @@ import {
   Armchair,
   Copy,
   Mail,
+  Building2,
 } from 'lucide-react';
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { storage } from '../../lib/firebase';
 import { useBooking } from '../../contexts/BookingContext';
-import { EventCategory, EventItem, EventStatus, TicketTier, Artist } from '../../types';
+import { EventCategory, EventItem, EventStatus, TicketTier, Artist, PublicCounter } from '../../types';
 import { formatINR } from '../../utils/formatters';
 
 interface TierInput {
@@ -107,7 +108,27 @@ export const AdminEvents: React.FC = () => {
   const [counterTimingText, setCounterTimingText] = useState('');
   const [counterContactPhone, setCounterContactPhone] = useState('');
 
-  // Upload & Validation States
+  // Counter Panel Integration: Available & Assigned Counters
+  const [availableCounters, setAvailableCounters] = useState<PublicCounter[]>([]);
+  const [assignedCounterIds, setAssignedCounterIds] = useState<string[]>([]);
+
+  // Fetch available counters from Counter Panel
+  React.useEffect(() => {
+    const fetchCounters = async () => {
+      try {
+        const res = await fetch('/api/counters');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && Array.isArray(data.counters)) {
+            setAvailableCounters(data.counters);
+          }
+        }
+      } catch {
+        /* fallback empty */
+      }
+    };
+    fetchCounters();
+  }, []);
   const [isUploading, setIsUploading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -250,6 +271,7 @@ export const AdminEvents: React.FC = () => {
     setCounterLocation('');
     setCounterTimingText('');
     setCounterContactPhone('');
+    setAssignedCounterIds([]);
     setScheduledPublishAt('');
     setScheduledUnpublishAt('');
     setFormError(null);
@@ -291,6 +313,7 @@ export const AdminEvents: React.FC = () => {
     setCounterLocation(evt.counterLocation || '');
     setCounterTimingText(evt.counterTimingText || '');
     setCounterContactPhone(evt.counterContactPhone || '');
+    setAssignedCounterIds(evt.assignedCounterIds || []);
     setGalleryUrls(evt.gallery || []);
     setScheduleText((evt.schedule || [])
       .map((s) => [s.time, s.title, s.description].map((x) => (x || '').toString()).join(' | '))
@@ -569,6 +592,7 @@ export const AdminEvents: React.FC = () => {
       counterLocation: counterLocation.trim() || null,
       counterTimingText: counterTimingText.trim() || null,
       counterContactPhone: counterContactPhone.trim() || null,
+      assignedCounterIds,
       rating: editingEventId && existingEvt?.rating !== undefined ? existingEvt.rating : 5.0,
       reviewsCount: editingEventId && existingEvt?.reviewsCount !== undefined ? existingEvt.reviewsCount : 0,
       scheduledPublishAt: scheduledPublishAt ? new Date(scheduledPublishAt).toISOString() : null,
@@ -1283,6 +1307,85 @@ export const AdminEvents: React.FC = () => {
                           />
                         </div>
                       </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Assign Multiple Physical Ticket Counters from Admin Counter Panel */}
+                <div className="p-4 rounded-xl bg-[#1C1C1C] border border-[#D4AF37]/30 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <label className="text-white font-bold block mb-0.5 text-xs flex items-center gap-1.5">
+                        <Building2 className="w-4 h-4 text-[#D4AF37]" />
+                        Assigned Ticket Counters (Box Office Stations)
+                      </label>
+                      <p className="text-[11px] text-gray-400">
+                        Select physical ticket counters from the Counter Panel where attendees can purchase or pick up tickets for this event.
+                      </p>
+                    </div>
+                    {availableCounters.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (assignedCounterIds.length === availableCounters.length) {
+                            setAssignedCounterIds([]);
+                          } else {
+                            setAssignedCounterIds(availableCounters.map((c) => c.id));
+                          }
+                        }}
+                        className="text-[11px] font-bold text-[#D4AF37] hover:underline cursor-pointer shrink-0"
+                      >
+                        {assignedCounterIds.length === availableCounters.length ? 'Deselect All' : 'Select All Counters'}
+                      </button>
+                    )}
+                  </div>
+
+                  {availableCounters.length === 0 ? (
+                    <div className="p-3 bg-black/40 rounded-xl text-xs text-gray-400 border border-white/5">
+                      No active counters configured in the Counter Panel yet. You can create ticket counter stations under <span className="text-[#D4AF37] font-semibold">Admin Panel &rarr; Ticket Counters</span>.
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-52 overflow-y-auto p-1">
+                      {availableCounters.map((c) => {
+                        const isChecked = assignedCounterIds.includes(c.id);
+                        return (
+                          <div
+                            key={c.id}
+                            onClick={() => {
+                              if (isChecked) {
+                                setAssignedCounterIds(assignedCounterIds.filter((id) => id !== c.id));
+                              } else {
+                                setAssignedCounterIds([...assignedCounterIds, c.id]);
+                              }
+                            }}
+                            className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
+                              isChecked
+                                ? 'bg-[#D4AF37]/15 border-[#D4AF37] text-white shadow-md'
+                                : 'bg-[#121212] border-white/10 text-gray-400 hover:border-white/25'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={() => {}}
+                              className="mt-0.5 rounded text-[#D4AF37] focus:ring-[#D4AF37] accent-[#D4AF37]"
+                            />
+                            <div className="text-xs space-y-0.5 min-w-0 flex-1">
+                              <span className="font-bold text-white block truncate">{c.name}</span>
+                              {(c.venue || c.city) && (
+                                <span className="text-[10px] text-gray-400 block truncate">
+                                  📍 {c.venue}{c.city ? `, ${c.city}` : ''}
+                                </span>
+                              )}
+                              {c.operatingHours && (
+                                <span className="text-[10px] text-amber-300/90 block">
+                                  🕒 {c.operatingHours}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>

@@ -2979,6 +2979,7 @@ export async function createApp() {
         counterLocation: event.counterLocation ? String(event.counterLocation).trim() : null,
         counterTimingText: event.counterTimingText ? String(event.counterTimingText).trim() : null,
         counterContactPhone: event.counterContactPhone ? String(event.counterContactPhone).trim() : null,
+        assignedCounterIds: Array.isArray(event.assignedCounterIds) ? event.assignedCounterIds : [],
         createdBy: req.user.uid,
         createdAt: event.createdAt || new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -3073,6 +3074,7 @@ export async function createApp() {
         counterLocation: body.counterLocation === "" ? null : (body.counterLocation !== undefined ? body.counterLocation : (existing.counterLocation ?? null)),
         counterTimingText: body.counterTimingText === "" ? null : (body.counterTimingText !== undefined ? body.counterTimingText : (existing.counterTimingText ?? null)),
         counterContactPhone: body.counterContactPhone === "" ? null : (body.counterContactPhone !== undefined ? body.counterContactPhone : (existing.counterContactPhone ?? null)),
+        assignedCounterIds: Array.isArray(body.assignedCounterIds) ? body.assignedCounterIds : (existing.assignedCounterIds ?? []),
         isFeatured: typeof body.isFeatured === 'boolean' ? body.isFeatured : Boolean(existing.isFeatured),
         isTrending: typeof body.isTrending === 'boolean' ? body.isTrending : Boolean(existing.isTrending),
         isPopularThisWeek: typeof body.isPopularThisWeek === 'boolean' ? body.isPopularThisWeek : Boolean(existing.isPopularThisWeek),
@@ -6115,6 +6117,30 @@ app.post("/api/admin/tickets/:ticketId/collect", requireRole(["counter_staff", "
 // ──────────────────────────────────────────────────────────────────────
 
 const COUNTER_VPA_RE = /^[A-Za-z0-9.\-_]{2,64}@[A-Za-z0-9.\-_]{2,64}$/;
+
+// Public counters list for event pages and counter selection
+app.get("/api/counters", async (req, res) => {
+  try {
+    const snap = await rtdbGet("counters", await getAdminAuthToken());
+    const nodes = (snap.data || {}) as Record<string, any>;
+    const counters = Object.entries(nodes)
+      .map(([id, c]) => ({
+        id,
+        name: c.name || "Box Office Counter",
+        venue: c.venue || "",
+        address: c.address || "",
+        city: c.city || "",
+        mapsUrl: c.mapsUrl || "",
+        operatingHours: c.operatingHours || "",
+        phone: c.phone || "",
+        status: c.status || "active",
+      }))
+      .filter((c) => c.status === "active");
+    return res.status(200).json({ success: true, counters });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || "Could not fetch counters." });
+  }
+});
 
 app.get("/api/admin/counters", requireRole(["event_manager", "super_admin"]), async (req: any, res) => {
   try {

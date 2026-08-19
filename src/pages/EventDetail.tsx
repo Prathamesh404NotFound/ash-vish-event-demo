@@ -16,8 +16,10 @@ import {
   Users,
   Building2,
   HelpCircle,
+  Phone,
+  ExternalLink,
 } from 'lucide-react';
-import { EventItem, TicketTier } from '../types';
+import { EventItem, TicketTier, PublicCounter } from '../types';
 import { useBooking } from '../contexts/BookingContext';
 import { useAuth } from '../contexts/AuthContext';
 import { EventCard } from '../components/EventCard';
@@ -63,6 +65,31 @@ export const EventDetail: React.FC<EventDetailProps> = ({
   });
   const [quantity, setQuantity] = useState(1);
   const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(0);
+  const [allCounters, setAllCounters] = useState<PublicCounter[]>([]);
+
+  React.useEffect(() => {
+    const fetchCounters = async () => {
+      try {
+        const res = await fetch('/api/counters');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && Array.isArray(data.counters)) {
+            setAllCounters(data.counters);
+          }
+        }
+      } catch {
+        /* fallback empty */
+      }
+    };
+    fetchCounters();
+  }, []);
+
+  const assignedCounters = React.useMemo(() => {
+    if (event.assignedCounterIds && event.assignedCounterIds.length > 0) {
+      return allCounters.filter((c) => event.assignedCounterIds?.includes(c.id));
+    }
+    return [];
+  }, [event.assignedCounterIds, allCounters]);
 
   const similarEvents = events.filter((e) => e.category === event.category && e.id !== event.id);
 
@@ -415,30 +442,82 @@ export const EventDetail: React.FC<EventDetailProps> = ({
                   </p>
                 </div>
 
-                {/* Minimal Counter Location & Details Box */}
-                <div className="bg-[#1C1C1C] border border-white/10 rounded-2xl p-4 space-y-3">
-                  <div className="flex items-center gap-2 text-xs text-[#D4AF37] font-bold uppercase tracking-wider border-b border-white/5 pb-2">
-                    <MapPin className="w-4 h-4 shrink-0" />
-                    <span>Ticket Counter & Location</span>
-                  </div>
-                  <div className="space-y-2 text-xs text-gray-300">
-                    <div className="flex flex-col gap-0.5">
-                      <span className="text-gray-400 text-[11px]">Location / Gate:</span>
-                      <span className="font-semibold text-white">{event.counterLocation || `${event.venue} Box Office Counter`}</span>
+                {/* Assigned Ticket Counters Box */}
+                <div className="bg-[#1C1C1C] border border-[#D4AF37]/30 rounded-2xl p-4 space-y-3">
+                  <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                    <div className="flex items-center gap-2 text-xs text-[#D4AF37] font-bold uppercase tracking-wider">
+                      <Building2 className="w-4 h-4 shrink-0" />
+                      <span>Ticket Counters & Box Office</span>
                     </div>
-                    {event.counterTimingText && (
-                      <div className="flex flex-col gap-0.5 pt-1.5 border-t border-white/5">
-                        <span className="text-gray-400 text-[11px]">Counter Hours:</span>
-                        <span className="font-medium text-gray-200">{event.counterTimingText}</span>
-                      </div>
-                    )}
-                    {event.counterContactPhone && (
-                      <div className="flex flex-col gap-0.5 pt-1.5 border-t border-white/5">
-                        <span className="text-gray-400 text-[11px]">Helpdesk / Phone:</span>
-                        <span className="font-medium text-emerald-400">{event.counterContactPhone}</span>
-                      </div>
+                    {assignedCounters.length > 0 && (
+                      <span className="text-[10px] font-bold bg-[#D4AF37]/20 text-[#D4AF37] px-2 py-0.5 rounded-full">
+                        {assignedCounters.length} Station{assignedCounters.length > 1 ? 's' : ''} Available
+                      </span>
                     )}
                   </div>
+
+                  {assignedCounters.length > 0 ? (
+                    <div className="space-y-3">
+                      {assignedCounters.map((counter) => (
+                        <div key={counter.id} className="p-3 bg-[#121212] border border-white/10 rounded-xl space-y-1.5 text-xs">
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-white text-sm">{counter.name}</span>
+                            <span className="text-[9px] uppercase font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                              Active Counter
+                            </span>
+                          </div>
+                          {(counter.venue || counter.city || counter.address) && (
+                            <div className="flex items-start gap-1.5 text-gray-300 text-[11px]">
+                              <MapPin className="w-3.5 h-3.5 text-gray-400 shrink-0 mt-0.5" />
+                              <span>{counter.address ? `${counter.address}, ` : ''}{counter.venue}{counter.city ? `, ${counter.city}` : ''}</span>
+                            </div>
+                          )}
+                          {counter.operatingHours && (
+                            <div className="flex items-center gap-1.5 text-amber-300/90 text-[11px]">
+                              <Clock className="w-3.5 h-3.5 shrink-0" />
+                              <span>{counter.operatingHours}</span>
+                            </div>
+                          )}
+                          {counter.phone && (
+                            <div className="flex items-center gap-1.5 text-gray-300 text-[11px]">
+                              <Phone className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                              <span>{counter.phone}</span>
+                            </div>
+                          )}
+                          {counter.mapsUrl && (
+                            <a
+                              href={counter.mapsUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-[11px] font-bold text-[#D4AF37] hover:underline pt-1"
+                            >
+                              <span>Open Location in Maps</span>
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="space-y-2 text-xs text-gray-300">
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-gray-400 text-[11px]">Location / Gate:</span>
+                        <span className="font-semibold text-white">{event.counterLocation || `${event.venue} Box Office Counter`}</span>
+                      </div>
+                      {event.counterTimingText && (
+                        <div className="flex flex-col gap-0.5 pt-1.5 border-t border-white/5">
+                          <span className="text-gray-400 text-[11px]">Counter Hours:</span>
+                          <span className="font-medium text-gray-200">{event.counterTimingText}</span>
+                        </div>
+                      )}
+                      {event.counterContactPhone && (
+                        <div className="flex flex-col gap-0.5 pt-1.5 border-t border-white/5">
+                          <span className="text-gray-400 text-[11px]">Helpdesk / Phone:</span>
+                          <span className="font-medium text-emerald-400">{event.counterContactPhone}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* Event Quick Specs */}

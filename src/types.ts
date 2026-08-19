@@ -137,6 +137,7 @@ export interface EventItem {
   counterLocation?: string;
   counterTimingText?: string;
   counterContactPhone?: string;
+  assignedCounterIds?: string[];
 }
 
 export interface PublicCounter {
