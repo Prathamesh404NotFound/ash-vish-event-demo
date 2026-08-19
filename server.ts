@@ -4340,10 +4340,14 @@ export async function createApp() {
       if (!secret || secret !== SERVER_HMAC_SECRET) {
         return res.status(403).json({ success: false, error: "Unauthorized." });
       }
-      const rulesPath =
-        fs.existsSync(path.join(process.cwd(), "database.rules.json"))
-          ? path.join(process.cwd(), "database.rules.json")
-          : path.join(__dirname, "..", "database.rules.json");
+      // Resolve database.rules.json in order: cwd (local dev) -> api/ sibling of
+      // the bundled server file (Vercel serverless, ESM & CJS both supported)
+      const cwdRules = path.join(process.cwd(), "database.rules.json");
+      const fileRules = path.join(path.dirname(fileURLToPath(import.meta.url)), "database.rules.json");
+      const parentFileRules = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "database.rules.json");
+      const rulesPath = fs.existsSync(cwdRules) ? cwdRules
+        : fs.existsSync(fileRules) ? fileRules
+        : parentFileRules;
       const raw = await fs.promises.readFile(rulesPath, "utf8");
       const { parse } = await import("jsonc-parser");
       const rules = parse(raw);
