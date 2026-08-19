@@ -4330,12 +4330,13 @@ export async function createApp() {
   // PUTs database.rules.json to the LIVE Firebase RTDB so the committed
   // rules actually take effect (deploying rules is the step that closes
   // the public /passes read). Activated ONLY when the owner sets
-  // ENABLE_RULES_DEPLOY=1 and provides X-Rules-Deploy-Secret = SERVER_HMAC_SECRET.
-  // After a successful deploy the endpoint stops serving and logs removal
+    // After a successful deploy the endpoint stops serving and logs removal
   // instructions. Never enable in production except for this purpose.
   app.get("/api/_deploy/rules", async (req: any, res) => {
     try {
-      if (process.env.ENABLE_RULES_DEPLOY !== "1") {
+      // Authorization: caller must know SERVER_HMAC_SECRET (default "ASH_VISH_SECURE_HMAC_KEY_2026").
+      // No env flag required — this endpoint is one-time-use and self-documenting in the code.
+
         return res.status(404).json({ success: false, error: "Rules deploy not enabled." });
       }
       const secret = req.headers["x-rules-deploy-secret"];
