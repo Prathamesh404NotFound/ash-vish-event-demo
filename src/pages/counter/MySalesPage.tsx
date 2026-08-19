@@ -5,7 +5,6 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useBooking } from '../../contexts/BookingContext';
-import { authenticatedApiHeaders } from '../../lib/authHeaders';
 
 interface Ticket {
   id: string;
@@ -31,7 +30,7 @@ interface Summary {
 }
 
 export const MySalesPage: React.FC = () => {
-  const { user, firebaseUser, isAuthenticated } = useAuth();
+  const { user, firebaseUser } = useAuth();
   const { events } = useBooking();
 
   const [tickets, setTickets] = useState<Ticket[]>([]);
@@ -60,7 +59,8 @@ export const MySalesPage: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      if (!isAuthenticated) throw new Error("Not authenticated. Please log in again.");
+      const idToken = await firebaseUser?.getIdToken();
+      if (!idToken) throw new Error("No authentication token found.");
 
       const params = new URLSearchParams({
         page: String(page),
@@ -73,7 +73,7 @@ export const MySalesPage: React.FC = () => {
       if (searchQuery.trim()) params.append('search', searchQuery.trim());
 
       const res = await fetch(`/api/counter/my-sales?${params.toString()}`, {
-        headers: await authenticatedApiHeaders()
+        headers: { 'Authorization': `Bearer ${idToken}` }
       });
       const data = await res.json();
 
@@ -99,9 +99,10 @@ export const MySalesPage: React.FC = () => {
     setActionLoading(ticket.id);
     setSuccessMsg(null);
     try {
+      const idToken = await firebaseUser?.getIdToken();
       const res = await fetch(`/api/counter/tickets/${ticket.id}/toggle-checkin`, {
         method: 'POST',
-        headers: await authenticatedApiHeaders()
+        headers: { 'Authorization': `Bearer ${idToken}` }
       });
       const data = await res.json();
       if (data.success) {
@@ -136,10 +137,11 @@ export const MySalesPage: React.FC = () => {
 
     setActionLoading('edit');
     try {
+      const idToken = await firebaseUser?.getIdToken();
       const res = await fetch(`/api/counter/tickets/${editingTicket.id}/edit-attendee`, {
         method: 'POST',
-        headers: {
-          ...(await authenticatedApiHeaders()),
+        headers: { 
+          'Authorization': `Bearer ${idToken}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
@@ -173,10 +175,11 @@ export const MySalesPage: React.FC = () => {
 
     setActionLoading('void');
     try {
+      const idToken = await firebaseUser?.getIdToken();
       const res = await fetch(`/api/counter/tickets/${voidingTicket.id}/void`, {
         method: 'POST',
         headers: {
-          ...(await authenticatedApiHeaders()),
+          'Authorization': `Bearer ${idToken}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({ reason: voidReason })
@@ -201,9 +204,10 @@ export const MySalesPage: React.FC = () => {
     setActionLoading(`wa-${ticket.id}`);
     setSuccessMsg(null);
     try {
+      const idToken = await firebaseUser?.getIdToken();
       const res = await fetch(`/api/counter/tickets/${ticket.id}/resend-whatsapp`, {
         method: 'POST',
-        headers: await authenticatedApiHeaders()
+        headers: { 'Authorization': `Bearer ${idToken}` }
       });
       const data = await res.json();
       if (data.success) {

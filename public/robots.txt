@@ -1,20 +1,21 @@
 User-agent: *
 Allow: /
-Disallow: /admin
-Disallow: /counter
-Disallow: /organizer
-Disallow: /account
+Allow: /events/
+Allow: /kolhapur
+Allow: /maharashtra
+Allow: /india
+Allow: /pune
+Allow: /mumbai
+Allow: /blog/
+Allow: /about
+Allow: /contact
 
-User-agent: GPTBot
-Allow: /
-
-User-agent: ChatGPT-User
-Allow: /
-
-User-agent: CCBot
-Allow: /
-
-User-agent: Google-Extended
-Allow: /
+# Block admin/counter/organizer
+Disallow: /admin/
+Disallow: /counter/
+Disallow: /organizer/
+Disallow: /checkout
+Disallow: /confirmation
+Disallow: /account/
 
 Sitemap: https://ashvishevents.com/sitemap.xml

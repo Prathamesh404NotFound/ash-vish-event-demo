@@ -8,7 +8,6 @@ dotenv.config();
 import { verifyFirebaseIdToken, TokenVerificationError } from "./src/lib/verify-token.js";
 import { rtdbGet, rtdbSet, rtdbUpdate, rtdbDelete, rtdbTransaction, rtdbPush } from "./src/lib/rtdb.js";
 import { getFirebaseAdminIdToken } from "./src/lib/identity-admin.js";
-// Sole WhatsApp sender: enotify.app (Meta Cloud API removed)
 import { sendTicketWhatsApp } from "./src/lib/enotify.js";
 import {
   isRazorpayConfigured,
@@ -728,19 +727,48 @@ async function finalizeBookingServerSide(
   const authToken = userToken || (await getAdminAuthToken());
 
   try {
-    // 1. Idempotency Check
-    const processedRes = await rtdbGet(`processed_orders/${orderId}`, authToken);
-    if (processedRes.data) {
-      return { success: true, ticket: processedRes.data.ticket, booking: processedRes.data.booking };
-    }
-
-    // 2. Fetch pending order details
+    // 1. Fetch pending order details first to get necessary context
     const pendingRes = await rtdbGet(`pending_orders/${orderId}`, authToken);
     if (!pendingRes.data) {
       return { success: false, error: "Pending order details not found. Booking session may have expired." };
     }
 
     pendingOrder = pendingRes.data;
+
+    // 1.5. Idempotency Check with Atomic Transaction Lock to prevent double-decrement and duplicate tickets
+    const processedTx = await rtdbTransaction(`processed_orders/${orderId}`, (curr: any) => {
+      if (curr) {
+        // If it already exists, return undefined to abort writing the placeholder
+        return undefined;
+      }
+      // Otherwise, acquire the lock by setting state to "processing"
+      return { status: "processing", createdAt: Date.now() };
+    }, authToken);
+
+    if (!processedTx.committed) {
+      const existing = processedTx.snapshot as any;
+      if (existing) {
+        if (existing.status === "processed" || existing.ticket) {
+          return { success: true, ticket: existing.ticket, booking: existing.booking };
+        } else if (existing.status === "processing") {
+          console.log(`[IDEMPOTENCY LOCK] Order ${orderId} is being processed elsewhere. Polling...`);
+          for (let poll = 0; poll < 6; poll++) {
+            await new Promise((resolve) => setTimeout(resolve, 500));
+            const recheck = await rtdbGet(`processed_orders/${orderId}`, authToken);
+            if (recheck.data && (recheck.data.status === "processed" || recheck.data.ticket)) {
+              return { success: true, ticket: recheck.data.ticket, booking: recheck.data.booking };
+            }
+          }
+          return { success: false, error: "This booking is currently being processed by another request. Please refresh." };
+        }
+      }
+      return { success: false, error: "This order has already been processed." };
+    }
+
+    const cleanupLock = async () => {
+      await rtdbDelete(`processed_orders/${orderId}`, authToken).catch(() => {});
+    };
+
     const { eventId, tierId, seatIds, quantity, customerDetails, userId, amount, discount } = pendingOrder;
     // Coupon code source of truth: prefer pending_order couponCode, fall back to
     // the explicitly-passed counter code (the walk-in endpoint validates the
@@ -762,9 +790,11 @@ async function finalizeBookingServerSide(
       serverCalculatedRecheck = dbRecheckPrice * (quantity || 1);
     }
     if (amount && serverCalculatedRecheck > 0 && amount > serverCalculatedRecheck * 1.5) {
+      await cleanupLock();
       return { success: false, error: "Order amount anomaly detected. Fulfillment aborted." };
     }
     if (!amount || amount <= 0) {
+      await cleanupLock();
       return { success: false, error: "Invalid order amount. Fulfillment aborted." };
     }
 
@@ -791,6 +821,7 @@ async function finalizeBookingServerSide(
         for (const rolledSeatId of claimedSeats) {
           await releaseSeat(authToken, eventId, rolledSeatId, {});
         }
+        await cleanupLock();
         return { success: false, error: seatClaimError };
       }
     }
@@ -827,6 +858,7 @@ async function finalizeBookingServerSide(
         for (const rolledSeatId of claimedSeats) {
           await releaseSeat(authToken, eventId, rolledSeatId, {});
         }
+        await cleanupLock();
         return { success: false, error: couponError || "Failed to redeem coupon atomically." };
       }
       couponIncremented = true;
@@ -834,7 +866,7 @@ async function finalizeBookingServerSide(
 
     // 5. Decrement ticket tier inventory
     let inventoryError: string | null = null;
-        const inventoryTxResult = await rtdbTransaction(`events/${eventId}`, (currEvent: any) => {
+    const inventoryTxResult = await rtdbTransaction(`events/${eventId}`, (currEvent: any) => {
       if (!currEvent || !currEvent.ticketTiers) {
         inventoryError = "Event or ticket tiers not found.";
         return undefined;
@@ -876,6 +908,7 @@ async function finalizeBookingServerSide(
       for (const rolledSeatId of claimedSeats) {
         await releaseSeat(authToken, eventId, rolledSeatId, {});
       }
+      await cleanupLock();
       return { success: false, error: inventoryError || "Failed to deduct ticket inventory atomically." };
     }
     inventoryDeducted = true;
@@ -1109,7 +1142,6 @@ async function finalizeBookingServerSide(
 
     // Fire-and-forget: sendTicketWhatsApp(ticket, ticket.attendeePhone).
     // Wrap in try/catch; NEVER let a WhatsApp failure affect booking success.
-    // On non-retryable failure, record { channel: 'whatsapp_cloud', status: 'failed', reason, createdAt } into notifications if that array exists; on success record { channel: 'whatsapp_cloud', status: 'sent', waMessageId }.
     if (newTicket && newTicket.attendeePhone) {
       (async () => {
         try {
@@ -1127,7 +1159,6 @@ async function finalizeBookingServerSide(
           } else {
             notificationEntry.status = 'failed';
             notificationEntry.reason = res.error?.message || JSON.stringify(res.error) || 'Unknown error';
-            console.error(`[WHATSAPP CLOUD TRIGGER] Send FAILED for ticket ${ticketId} to ${newTicket.attendeePhone}: ${notificationEntry.reason}`);
           }
 
           // Record to the root notifications node in RTDB (for audit log status)
@@ -1142,7 +1173,7 @@ async function finalizeBookingServerSide(
             createdBy: "system"
           }, adminToken).catch(() => {});
 
-          // Also, if the ticket has a notifications array (or we can append/update it in the DB to keep history), record it:
+          // Also, if the ticket has a notifications array, record it:
           const ticketSnap = await rtdbGet(`tickets/${ticketId}`, adminToken);
           if (ticketSnap && ticketSnap.data) {
             const currentTicket = ticketSnap.data;
@@ -1156,13 +1187,14 @@ async function finalizeBookingServerSide(
             await rtdbSet(`users/${userId}/tickets/${ticketId}`, currentTicket, adminToken).catch(() => {});
           }
         } catch (e: any) {
-          console.error(`[WHATSAPP CLOUD TRIGGER] Async send crashed for ticket ${ticketId}:`, e?.message);
+          console.warn("[ENOTIFY TRIGGER] Async send failed:", e?.message);
         }
       })();
     }
 
     return { success: true, ticket: newTicket, booking: newBookingRecord };
   } catch (err: any) {
+    await rtdbDelete(`processed_orders/${orderId}`, authToken).catch(() => {});
     console.error("Error finalizing booking server side:", err);
     return { success: false, error: err.message || "Failed to finalize booking server side" };
   }
@@ -5022,20 +5054,6 @@ export async function createApp() {
     }
   });
 
-  // Diagnostic: verify the Firebase admin credential exchange (no secrets exposed).
-  app.get("/api/_debug/firebase-auth", async (req: any, res) => {
-    try {
-      const token = await getAdminAuthToken();
-      if (!token) {
-        return res.status(500).json({ success: false, error: "admin_token_unavailable" });
-      }
-      // Smoke-test the token against a minimal RTDB read to confirm rules pass.
-      const snap = await rtdbGet("tickets", token);
-      return res.json({ success: true, tokenMint: "ok", databaseAccess: snap.data !== undefined ? "ok" : "denied_or_empty" });
-    } catch (err: any) {
-      return res.status(500).json({ success: false, error: err.message || "unknown" });
-    }
-  });
   app.post("/api/tickets/send-email", requireRole(["super_admin", "event_manager", "counter_staff"]), async (req: any, res) => {
     try {
       const { attendeeEmail, subject, message } = req.body || {};

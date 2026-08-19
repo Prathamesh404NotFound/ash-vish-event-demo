@@ -1380,7 +1380,7 @@ export const WalkInPage: React.FC = () => {
                     }`}>
                       <span className="text-gray-500">Paid: {formatRupee(paymentsSum)}</span>
                       <span>/</span>
-                      <span>Due: {formatRupee(Math.max(0, Math.round((netTotal - paymentsSum) * 100) / 100))}</span>
+                      <span>Due: {formatRupee(netTotal)}</span>
                       {paymentsValid ? <CheckCircle2 className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
                     </div>
                   </div>
@@ -1389,7 +1389,7 @@ export const WalkInPage: React.FC = () => {
             </div>
 
             {/* UPI payment panel */}
-            {paymentMethod === 'upi' && !showSplit && (
+            {paymentMethod === 'upi' && (
               <div className="p-5 rounded-3xl bg-[#141414] border border-[#D4AF37]/30">
                 <div className="flex items-center justify-between">
                   <label className="block text-[10px] font-bold text-[#D4AF37] uppercase tracking-widest flex items-center gap-1.5">
