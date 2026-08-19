@@ -70,6 +70,7 @@ import { CounterOverview } from './pages/counter/CounterOverview';
 import { WalkInPage } from './pages/counter/WalkInPage';
 import { ShiftPage } from './pages/counter/ShiftPage';
 import { CounterOrders } from './pages/counter/CounterOrders';
+import { MySalesPage } from './pages/counter/MySalesPage';
 
 // Main Public Customer Shell Layout
 function MainLayout() {
@@ -293,6 +294,7 @@ export default function App() {
             >
               <Route index element={<CounterOverview />} />
               <Route path="shift" element={<ShiftPage />} />
+              <Route path="my-sales" element={<MySalesPage />} />
               <Route path="scan" element={<QRScanner />} />
               <Route path="walk-in" element={<WalkInPage />} />
               <Route path="orders" element={<CounterOrders />} />
