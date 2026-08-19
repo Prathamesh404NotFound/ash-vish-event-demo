@@ -419,62 +419,99 @@ export const EventDetail: React.FC<EventDetailProps> = ({
               </p>
             </div>
 
-            {/* Quantity Stepper */}
-            <div className="space-y-2">
-              <label className="text-xs font-semibold text-gray-300 block">
-                Select Quantity (Max 6)
-              </label>
-              <div className="flex items-center justify-between bg-[#1C1C1C] border border-white/10 rounded-xl p-2">
+            {event.isAdvertiseOnly ? (
+              <div className="space-y-4 pt-2">
+                <div className="bg-amber-500/10 border-2 border-amber-500/40 rounded-2xl p-4 text-center space-y-2">
+                  <div className="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-amber-500/20 text-amber-400 mb-1">
+                    <Building2 className="w-5 h-5" />
+                  </div>
+                  <h3 className="font-heading font-extrabold text-sm text-amber-400 tracking-wide uppercase">
+                    Walk-In Ticket Counter Booking Only
+                  </h3>
+                  <p className="text-xs text-gray-300 leading-relaxed">
+                    Online ticket checkout is disabled for this event. Tickets are available exclusively at venue ticket counters and authorized offline booking outlets.
+                  </p>
+                </div>
+
+                <div className="bg-[#1C1C1C] border border-white/10 rounded-2xl p-4 space-y-3">
+                  <div className="flex items-center gap-2.5 text-xs text-gray-200 font-semibold">
+                    <MapPin className="w-4 h-4 text-[#D4AF37] shrink-0" />
+                    <span>Venue Box Office & Gate Counters</span>
+                  </div>
+                  <p className="text-[11px] text-gray-400 leading-normal pl-6">
+                    {event.venue}, {event.city}
+                  </p>
+                  <div className="pt-2 border-t border-white/10 flex items-center justify-between text-xs">
+                    <span className="text-gray-400">Fixed Counter Rate:</span>
+                    <span className="font-bold text-[#D4AF37] text-sm">{formatINR(flatPrice)}</span>
+                  </div>
+                </div>
+
+                <div className="p-3 bg-white/5 rounded-xl border border-white/5 text-[11px] text-gray-400 text-center flex items-center justify-center gap-1.5">
+                  <Ticket className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <span>Subject to gate capacity & counter availability</span>
+                </div>
+              </div>
+            ) : (
+              <>
+                {/* Quantity Stepper */}
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold text-gray-300 block">
+                    Select Quantity (Max 6)
+                  </label>
+                  <div className="flex items-center justify-between bg-[#1C1C1C] border border-white/10 rounded-xl p-2">
+                    <button
+                      onClick={() => {
+                        setQuantity(Math.max(1, quantity - 1));
+                      }}
+                      className="w-9 h-9 rounded-lg bg-[#141414] hover:bg-black text-white font-bold text-base flex items-center justify-center border border-white/10 transition-colors"
+                    >
+                      -
+                    </button>
+                    <span className="font-heading font-bold text-lg text-white">
+                      {quantity}
+                    </span>
+                    <button
+                      onClick={() => setQuantity(Math.min(6, quantity + 1))}
+                      className="w-9 h-9 rounded-lg bg-[#141414] hover:bg-black text-white font-bold text-base flex items-center justify-center border border-white/10 transition-colors"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+
+                {/* Price Breakdown */}
+                <div className="space-y-2 text-xs text-gray-300 pt-2 border-t border-white/10">
+                  <div className="flex justify-between">
+                    <span>Standard Ticket ({formatINR(flatPrice)} × {quantity})</span>
+                    <span className="font-semibold text-white">{formatINR(flatPrice * quantity)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>GST & Service Charge</span>
+                    <span className="font-semibold text-emerald-400">INCLUDED</span>
+                  </div>
+                  <div className="pt-2 border-t border-white/10 flex justify-between items-center">
+                    <span className="font-heading font-bold text-sm text-white">Total Amount</span>
+                    <span className="font-heading font-extrabold text-2xl text-[#D4AF37]">
+                      {formatINR(flatPrice * quantity)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Book Now Button */}
                 <button
-                  onClick={() => {
-                    setQuantity(Math.max(1, quantity - 1));
-                  }}
-                  className="w-9 h-9 rounded-lg bg-[#141414] hover:bg-black text-white font-bold text-base flex items-center justify-center border border-white/10 transition-colors"
+                  onClick={handleBookNow}
+                  className="w-full py-4 rounded-2xl bg-gradient-to-r from-[#F3E5AB] via-[#D4AF37] to-[#C5A059] hover:brightness-110 text-black font-extrabold text-base flex items-center justify-center gap-2 shadow-xl shadow-[#D4AF37]/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
                 >
-                  -
+                  <Ticket className="w-5 h-5 stroke-[2.5]" />
+                  <span>Proceed To Checkout</span>
                 </button>
-                <span className="font-heading font-bold text-lg text-white">
-                  {quantity}
-                </span>
-                <button
-                  onClick={() => setQuantity(Math.min(6, quantity + 1))}
-                  className="w-9 h-9 rounded-lg bg-[#141414] hover:bg-black text-white font-bold text-base flex items-center justify-center border border-white/10 transition-colors"
-                >
-                  +
-                </button>
-              </div>
-            </div>
 
-            {/* Price Breakdown */}
-            <div className="space-y-2 text-xs text-gray-300 pt-2 border-t border-white/10">
-              <div className="flex justify-between">
-                <span>Standard Ticket ({formatINR(flatPrice)} × {quantity})</span>
-                <span className="font-semibold text-white">{formatINR(flatPrice * quantity)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>GST & Service Charge</span>
-                <span className="font-semibold text-emerald-400">INCLUDED</span>
-              </div>
-              <div className="pt-2 border-t border-white/10 flex justify-between items-center">
-                <span className="font-heading font-bold text-sm text-white">Total Amount</span>
-                <span className="font-heading font-extrabold text-2xl text-[#D4AF37]">
-                  {formatINR(flatPrice * quantity)}
-                </span>
-              </div>
-            </div>
-
-            {/* Book Now Button */}
-            <button
-              onClick={handleBookNow}
-              className="w-full py-4 rounded-2xl bg-gradient-to-r from-[#F3E5AB] via-[#D4AF37] to-[#C5A059] hover:brightness-110 text-black font-extrabold text-base flex items-center justify-center gap-2 shadow-xl shadow-[#D4AF37]/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
-            >
-              <Ticket className="w-5 h-5 stroke-[2.5]" />
-              <span>Proceed To Checkout</span>
-            </button>
-
-            <p className="text-[11px] text-gray-400 text-center flex items-center justify-center gap-1">
-              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> Instant QR Pass Confirmation
-            </p>
+                <p className="text-[11px] text-gray-400 text-center flex items-center justify-center gap-1">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> Instant QR Pass Confirmation
+                </p>
+              </>
+            )}
 
           </div>
         </div>

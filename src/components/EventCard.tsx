@@ -1,5 +1,5 @@
 import React from 'react';
-import { Calendar, MapPin, Heart, Star, Ticket } from 'lucide-react';
+import { Calendar, MapPin, Heart, Star, Ticket, Building2 } from 'lucide-react';
 import { EventItem } from '../types';
 import { useBooking } from '../contexts/BookingContext';
 import { formatINR } from '../utils/formatters';
@@ -125,16 +125,29 @@ export const EventCard: React.FC<EventCardProps> = ({ event, onSelectEvent, onBo
             </span>
           </div>
 
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onBookNow(event);
-            }}
-            className="flex items-center justify-center gap-1.5 px-3.5 sm:px-4 py-2 sm:py-2 min-h-[44px] rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] hover:brightness-110 text-black font-bold text-xs shadow-md shadow-[#D4AF37]/25 hover:scale-105 active:scale-95 transition-all cursor-pointer whitespace-nowrap"
-          >
-            <Ticket className="w-3.5 h-3.5 stroke-[2.5]" />
-            <span>Book Now</span>
-          </button>
+          {event.isAdvertiseOnly ? (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onSelectEvent(event);
+              }}
+              className="flex items-center justify-center gap-1.5 px-3.5 sm:px-4 py-2 min-h-[44px] rounded-xl bg-amber-500/15 border border-amber-500/50 hover:bg-amber-500/25 text-amber-300 font-bold text-xs shadow-md transition-all cursor-pointer whitespace-nowrap"
+            >
+              <Building2 className="w-3.5 h-3.5 text-amber-400 stroke-[2.5]" />
+              <span>Counter Only</span>
+            </button>
+          ) : (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onBookNow(event);
+              }}
+              className="flex items-center justify-center gap-1.5 px-3.5 sm:px-4 py-2 sm:py-2 min-h-[44px] rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] hover:brightness-110 text-black font-bold text-xs shadow-md shadow-[#D4AF37]/25 hover:scale-105 active:scale-95 transition-all cursor-pointer whitespace-nowrap"
+            >
+              <Ticket className="w-3.5 h-3.5 stroke-[2.5]" />
+              <span>Book Now</span>
+            </button>
+          )}
         </div>
 
       </div>

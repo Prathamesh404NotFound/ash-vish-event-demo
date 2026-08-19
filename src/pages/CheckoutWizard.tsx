@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, CheckCircle2, AlertCircle, Lock, Clock, RefreshCw, ShieldCheck, Ticket } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CheckCircle2, AlertCircle, Lock, Clock, RefreshCw, ShieldCheck, Ticket, Building2 } from 'lucide-react';
 import { useBooking, ReservationState, QuoteResult, getSessionId } from '../contexts/BookingContext';
 import { useAuth } from '../contexts/AuthContext';
 import { CountdownTimer } from '../components/CountdownTimer';
@@ -107,6 +107,23 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
         <p className="text-xs text-gray-400">Please select an event and ticket tier first.</p>
         <button onClick={onBack} className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black font-bold text-xs cursor-pointer">
           Browse Events
+        </button>
+      </div>
+    );
+  }
+
+  if (currentCheckout.event?.isAdvertiseOnly) {
+    return (
+      <div className="pt-24 pb-12 max-w-lg mx-auto text-center px-4 space-y-4">
+        <div className="w-12 h-12 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center mx-auto">
+          <Building2 className="w-6 h-6" />
+        </div>
+        <h2 className="font-heading font-extrabold text-xl text-white">Walk-In Ticket Counter Booking Only</h2>
+        <p className="text-xs text-gray-300 leading-relaxed">
+          Online checkout is disabled for this event. Please purchase tickets directly at physical venue ticket counters.
+        </p>
+        <button onClick={onBack} className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black font-bold text-xs cursor-pointer">
+          Return to Event Details
         </button>
       </div>
     );
