@@ -1,0 +1,95 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "users": {
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || auth.token.admin === true || auth.token.role === 'admin' || root.child('staff').child(auth.uid).child('role').val() === 'admin')",
+        "id": { ".write": "auth != null && (auth.uid === $uid || auth.token.admin === true || auth.token.role === 'admin')" },
+        "name": { ".write": "auth != null && (auth.uid === $uid || auth.token.admin === true || auth.token.role === 'admin')" },
+        "email": { ".write": "auth != null && (auth.uid === $uid || auth.token.admin === true || auth.token.role === 'admin')" },
+        "phone": { ".write": "auth != null && (auth.uid === $uid || auth.token.admin === true || auth.token.role === 'admin')" },
+        "photoUrl": { ".write": "auth != null && (auth.uid === $uid || auth.token.admin === true || auth.token.role === 'admin')" },
+        "authProvider": { ".write": "auth != null && (auth.uid === $uid || auth.token.admin === true || auth.token.role === 'admin')" },
+        "joinedDate": { ".write": "auth != null && (auth.uid === $uid || auth.token.admin === true || auth.token.role === 'admin')" },
+        "createdAt": { ".write": "auth != null && (auth.uid === $uid || auth.token.admin === true || auth.token.role === 'admin')" },
+        "role": { ".write": "auth != null && (auth.token.admin === true || auth.token.role === 'admin')" },
+        "tickets": {
+          ".read": "auth != null && (auth.uid === $uid || auth.token.admin === true || auth.token.role === 'admin' || root.child('staff').child(auth.uid).exists())",
+          ".write": "auth != null && (auth.token.admin === true || auth.token.role === 'admin')"
+        },
+        "bookings": {
+          ".read": "auth != null && (auth.uid === $uid || auth.token.admin === true || auth.token.role === 'admin' || root.child('staff').child(auth.uid).exists())",
+          ".write": "auth != null && (auth.token.admin === true || auth.token.role === 'admin')"
+        }
+      }
+    },
+    "staff": {
+      ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || root.child('staff').child(auth.uid).exists())",
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || auth.token.admin === true || auth.token.role === 'admin')",
+        ".write": "auth != null && (auth.token.admin === true || auth.token.role === 'admin')",
+        ".validate": "newData.hasChildren(['email', 'role']) && (newData.child('role').val() === 'super_admin' || newData.child('role').val() === 'event_manager' || newData.child('role').val() === 'counter_staff' || newData.child('role').val() === 'auditor' || newData.child('role').val() === 'admin' || newData.child('role').val() === 'ticket_counter')"
+      }
+    },
+    "events": { ".read": true, ".write": false },
+    // INTENTIONALLY PUBLIC: the public event catalog. Guest users browse
+    // events on the marketing pages without login; restricting this would
+    // break the entire event listing. Individual pass records are NOT exposed
+    // here — guests access passes only via the HMAC-signed server endpoints
+    // (/api/passes/:slug/:signature) with their own signature and rate-limit
+    // checks (vuln-0002 remediation, 2026-08-19).
+    "coupons": {
+      ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || root.child('staff').child(auth.uid).exists())",
+      ".write": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || root.child('staff').child(auth.uid).child('role').val() === 'event_manager')"
+    },
+    "orders": { ".read": false, ".write": false },
+    "passes": {
+      ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || root.child('staff').child(auth.uid).exists())",
+      ".write": false
+    },
+    // VULN-0002 (CVSS 7.5) remediation, 2026-08-19: `.read: true` previously
+    // exposed 26+ attendee records (name + phone PII) to unauthenticated REST
+    // reads. Guests do NOT depend on client-side /passes reads — individual
+    // pass lookups are served exclusively through HMAC-signed server endpoints,
+    // so this tightening is risk-free for the guest pass flow.
+    "notifications": { ".read": false, ".write": false },
+    "bookings": {
+      ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || root.child('staff').child(auth.uid).exists())",
+      ".write": false,
+      "$bookingId": { ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || root.child('staff').child(auth.uid).exists() || data.child('userId').val() === auth.uid)" }
+    },
+    "tickets": {
+      ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || root.child('staff').child(auth.uid).exists())",
+      ".write": false,
+      "$ticketId": { ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || root.child('staff').child(auth.uid).exists() || data.child('ownerId').val() === auth.uid)" }
+    },
+    "seats": { ".read": true, ".write": false },
+    // INTENTIONALLY PUBLIC: the public seat-map/availability catalog used by
+    // the guest seat-selection flow. Contains no personal data; restricting
+    // would break checkout UX. Audit before restricting if PII is ever added.
+    "reservations": { ".read": false, ".write": false },
+    "reservation_owners": { ".read": false, ".write": false },
+    "reservation_events": { ".read": false, ".write": false },
+    "pending_orders": { ".read": false, ".write": false },
+    "processed_orders": { ".read": false, ".write": false },
+    "organizers": {
+      ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || root.child('staff').child(auth.uid).exists())",
+      ".write": false,
+      "$organizerId": { ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || root.child('staff').child(auth.uid).exists() || data.child('userId').val() === auth.uid)" }
+    },
+    "reviews": {
+      ".read": true,
+      // INTENTIONALLY PUBLIC: reviews are a public, admin-moderated catalog on
+      // the marketing pages; writes are restricted to admins (rule above).
+      "$reviewId": {
+        ".write": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || root.child('staff').child(auth.uid).child('role').val() === 'admin')"
+      }
+    },
+    "favorites": { ".read": false, ".write": false },
+    "staff_uploads": {
+      ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || root.child('staff').child(auth.uid).exists())",
+      ".write": "auth != null && (auth.token.admin === true || auth.token.role === 'admin')"
+    }
+  }
+}
