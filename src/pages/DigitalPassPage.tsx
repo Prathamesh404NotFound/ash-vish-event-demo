@@ -249,9 +249,7 @@ export function DigitalPassPage() {
                 />
                 {/* Brand logo overlay */}
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <div className="w-10 h-10 rounded-xl bg-black border-2 border-[#D4AF37] flex items-center justify-center text-[#D4AF37] font-bold text-xs shadow-lg">
-                    AV
-                  </div>
+                  <img src="/logo-tiny.webp" alt="Ash-vish Events Logo" className="w-10 h-10 rounded-xl bg-black border-2 border-[#D4AF37] object-cover shadow-lg" />
                 </div>
 
                 {/* Redeemed Overlay */}
