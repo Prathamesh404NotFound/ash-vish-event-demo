@@ -1127,6 +1127,7 @@ async function finalizeBookingServerSide(
           } else {
             notificationEntry.status = 'failed';
             notificationEntry.reason = res.error?.message || JSON.stringify(res.error) || 'Unknown error';
+            console.error(`[WHATSAPP CLOUD TRIGGER] Send FAILED for ticket ${ticketId} to ${newTicket.attendeePhone}: ${notificationEntry.reason}`);
           }
 
           // Record to the root notifications node in RTDB (for audit log status)
@@ -1155,7 +1156,7 @@ async function finalizeBookingServerSide(
             await rtdbSet(`users/${userId}/tickets/${ticketId}`, currentTicket, adminToken).catch(() => {});
           }
         } catch (e: any) {
-          console.warn("[WHATSAPP CLOUD TRIGGER] Async send failed:", e?.message);
+          console.error(`[WHATSAPP CLOUD TRIGGER] Async send crashed for ticket ${ticketId}:`, e?.message);
         }
       })();
     }
