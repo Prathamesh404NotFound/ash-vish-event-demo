@@ -137,6 +137,9 @@ export const Footer: React.FC<FooterProps> = ({ setActiveTab }) => {
           <div className="flex items-center gap-6">
             <a href="mailto:hello@ashvishevents.com" className="hover:text-[#D4AF37] transition-colors">Support</a>
             <a href="mailto:hello@ashvishevents.com" className="hover:text-[#D4AF37] transition-colors">Booking Enquiries</a>
+            <a href="/terms" className="hover:text-[#D4AF37] transition-colors">Terms & Conditions</a>
+            <a href="/privacy" className="hover:text-[#D4AF37] transition-colors">Privacy Policy</a>
+            <a href="/refund-policy" className="hover:text-[#D4AF37] transition-colors">Refund Policy</a>
           </div>
         </div>
 

@@ -24,6 +24,7 @@ import { ProfilePage } from './pages/ProfilePage';
 import { DigitalPassPage } from './pages/DigitalPassPage';
 import { TicketPassPage } from './pages/TicketPassPage';
 import { CityPage } from './pages/CityPage';
+import { TermsPage, RefundPolicyPage, PrivacyPolicyPage } from './pages/PolicyPages';
 import { BlogPage } from './pages/BlogPage';
 import { BlogPostPage } from './pages/BlogPostPage';
 
@@ -242,6 +243,11 @@ export default function App() {
               <Route path="mumbai" element={<CityPage city="mumbai" />} />
               <Route path="blog" element={<BlogPage />} />
               <Route path="blog/:slug" element={<BlogPostPage />} />
+
+              {/* Legal Policy Pages */}
+              <Route path="terms" element={<TermsPage />} />
+              <Route path="refund-policy" element={<RefundPolicyPage />} />
+              <Route path="privacy" element={<PrivacyPolicyPage />} />
 
               {/* Guarded Account Routes */}
               <Route
