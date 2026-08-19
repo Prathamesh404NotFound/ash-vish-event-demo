@@ -258,35 +258,56 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
       const box = calculateQrBox();
       setQrBoxSize(box);
 
-      const cameraSource: any = activeDeviceId
-        ? { deviceId: { exact: activeDeviceId }, width: { ideal: 1920 }, height: { ideal: 1080 } }
-        : { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } };
+      // Html5Qrcode strictly requires cameraIdOrConfig to be either a string (deviceId) or an object with exactly 1 key ({ facingMode: 'environment' })
+      const cameraSource: string | { facingMode: 'environment' | 'user' } = activeDeviceId
+        ? activeDeviceId
+        : { facingMode: 'environment' };
 
       const scanConfig = {
         fps: 30, // 30 fps decoding for rapid capture
         qrbox: box,
         disableFlip: false,
+        videoConstraints: {
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+          ...(activeDeviceId ? { deviceId: { exact: activeDeviceId } } : { facingMode: 'environment' }),
+        },
       };
 
-      await html5QrCode.start(
-        cameraSource,
-        scanConfig,
-        (decodedText) => {
-          // Live scan detected: emit log, notify parent, pause indicators and process
-          console.log('[SCAN_DETECTED]', decodedText);
-          if (hintTimerRef.current) {
-            clearTimeout(hintTimerRef.current);
-            hintTimerRef.current = null;
-          }
-          setStalledScanHint(false);
-          setIsDecodingActive(false);
-          onDecoded?.(decodedText);
-          handleScanCode(decodedText);
-        },
-        () => {
-          // Frame decode pass (ignore standard non-match frames)
+      const handleSuccess = (decodedText: string) => {
+        // Live scan detected: emit log, notify parent, pause indicators and process
+        console.log('[SCAN_DETECTED]', decodedText);
+        if (hintTimerRef.current) {
+          clearTimeout(hintTimerRef.current);
+          hintTimerRef.current = null;
         }
-      );
+        setStalledScanHint(false);
+        setIsDecodingActive(false);
+        onDecoded?.(decodedText);
+        handleScanCode(decodedText);
+      };
+
+      const handleFrameError = () => {
+        // Frame decode pass (ignore standard non-match frames)
+      };
+
+      try {
+        await html5QrCode.start(
+          cameraSource,
+          scanConfig,
+          handleSuccess,
+          handleFrameError
+        );
+      } catch (firstStartErr: any) {
+        console.warn('[CAMERA] High-res config start failed, trying basic constraints fallback:', firstStartErr);
+        // Fallback without videoConstraints in case browser rejects ideal dimensions
+        await html5QrCode.start(
+          cameraSource,
+          { fps: 30, qrbox: box, disableFlip: false },
+          handleSuccess,
+          handleFrameError
+        );
+      }
 
       setIsCameraActive(true);
       setIsDecodingActive(true);
