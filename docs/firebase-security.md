@@ -29,6 +29,8 @@ rules. Verified empirically on the live site after the rule change (see
 The following nodes remain public by design; restricting them would break the
 product. The decisions are also annotated inline in `database.rules.json`.
 
+> Runtime preference: a single `FIREBASE_SERVICE_ACCOUNT` JSON blob env var is preferred over split keys
+>
 > Alternate credential shape: if a single `FIREBASE_SERVICE_ACCOUNT` env var is
 > set, it is parsed as a JSON blob (`project_id` / `client_email` / `private_key`)
 > and used instead of the three separate `FIREBASE_*` vars. Useful on hosts whose

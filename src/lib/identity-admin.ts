@@ -7,6 +7,25 @@ interface ServiceAccount {
 }
 
 function getServiceAccount(): ServiceAccount | null {
+  // Runtime preference: a single FIREBASE_SERVICE_ACCOUNT JSON blob is the
+  // authoritative credential source — it avoids the escape/whitespace pitfalls
+  // of the split FIREBASE_PRIVATE_KEY env var. Fall back to split keys only if
+  // the blob is absent.
+  if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+    try {
+      const raw = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+      if (raw.project_id || raw.client_email || raw.private_key) {
+        return {
+          projectId: raw.project_id || raw.projectId,
+          clientEmail: raw.client_email || raw.clientEmail,
+          privateKey: raw.private_key || raw.privateKey,
+        };
+      }
+    } catch (e) {
+      console.warn('[IDENTITY ADMIN] Failed to parse FIREBASE_SERVICE_ACCOUNT json');
+    }
+  }
+
   const projectId = process.env.FIREBASE_PROJECT_ID;
   const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
   let privateKey = process.env.FIREBASE_PRIVATE_KEY;
@@ -20,19 +39,6 @@ function getServiceAccount(): ServiceAccount | null {
       pk = pk.replace(/\\n/g, '\n');
     }
     return { projectId, clientEmail, privateKey: pk };
-  }
-
-  if (process.env.FIREBASE_SERVICE_ACCOUNT) {
-    try {
-      const raw = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-      return {
-        projectId: raw.project_id || raw.projectId,
-        clientEmail: raw.client_email || raw.clientEmail,
-        privateKey: raw.private_key || raw.privateKey,
-      };
-    } catch (e) {
-      console.warn('[IDENTITY ADMIN] Failed to parse FIREBASE_SERVICE_ACCOUNT json');
-    }
   }
 
   return null;
