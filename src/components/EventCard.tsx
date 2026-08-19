@@ -1,5 +1,5 @@
 import React from 'react';
-import { Calendar, MapPin, Heart, Star, Ticket, Building2, Eye } from 'lucide-react';
+import { Calendar, MapPin, Heart, Star, Ticket, Building2, Eye, Info } from 'lucide-react';
 import { EventItem } from '../types';
 import { useBooking } from '../contexts/BookingContext';
 import { formatINR } from '../utils/formatters';

@@ -9,6 +9,7 @@ import {
   Star,
   Ticket,
   ArrowRight,
+  Info,
 } from 'lucide-react';
 import { EventItem, EventCategory } from '../types';
 import { useBooking } from '../contexts/BookingContext';
