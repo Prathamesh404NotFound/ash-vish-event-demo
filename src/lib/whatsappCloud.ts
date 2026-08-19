@@ -65,6 +65,11 @@ export function normalizePhoneNumber(phone: string): string {
 
 /**
  * Returns parameters for the ticket_confirmation WhatsApp template.
+ *
+ * Parameter order MUST match the approved template body (9 parameters):
+ *   {{1}} Event title        {{2}} Attendee name     {{3}} Date
+ *   {{4}} Time               {{5}} Venue             {{6}} Tier
+ *   {{7}} Seat               {{8}} Ticket ref        {{9}} Pass URL
  */
 export function getTicketMessageComponents(ticket: any) {
   const appUrl = (process.env.VITE_APP_URL || 'https://ashvishevents.com').replace(/\/+$/, '');
@@ -76,12 +81,14 @@ export function getTicketMessageComponents(ticket: any) {
   const formattedTime = formatTime12h(ticket.time);
 
   return [
-    { type: "text", text: ticket.attendeeName || '' },
     { type: "text", text: ticket.eventTitle || '' },
+    { type: "text", text: ticket.attendeeName || '' },
     { type: "text", text: formattedDate || '' },
     { type: "text", text: formattedTime || '' },
     { type: "text", text: `${ticket.venue || ''}, ${ticket.city || ''}` },
-    { type: "text", text: ticket.ticketNumber || '' },
+    { type: "text", text: ticket.tierName || ticket.tier || '' },
+    { type: "text", text: ticket.seatInfo || `${ticket.tierName || ticket.tier || ''}, ${ticket.seat || 'General Floor'}` },
+    { type: "text", text: ticket.ticketNumber || ticket.ref || '' },
     { type: "text", text: passUrl }
   ];
 }
@@ -111,14 +118,21 @@ export async function sendTicketCloud(ticket: any, recipientPhone: string): Prom
     return { success: false, error: { message: 'Invalid phone number format', code: 131008 } };
   }
 
+  const appUrl = (process.env.VITE_APP_URL || 'https://ashvishevents.com').replace(/\/+$/, '');
   const parameters = getTicketMessageComponents(ticket);
+  const formattedDate = formatDateDDMMMMYYYY(ticket.date);
+  const formattedTime = formatTime12h(ticket.time);
+  const slugId = ticket.passSlug?.id || '';
+  const slugSig = ticket.passSlug?.sig || '';
+  const passUrl = `${appUrl}/pass/${slugId}/${slugSig}`;
+
   const payload = {
     messaging_product: "whatsapp",
     recipient_type: "individual",
     to: normalizedPhone,
     type: "template",
     template: {
-      name: "ticket_confirmation",
+      name: "ticket_confirmation_media",
       language: { code: "en_US" },
       components: [
         {
@@ -129,18 +143,50 @@ export async function sendTicketCloud(ticket: any, recipientPhone: string): Prom
     }
   };
 
+  const mediaPayload = { ...payload, template: { ...payload.template } };
+  (mediaPayload.template as any).components.unshift({
+    type: "header",
+    parameters: [{ type: "image", image: { link: `${appUrl}/og-image.jpg` } }]
+  });
+
+  // Primary text template (no image header): ticket_qr_pass — 9 parameters
+  const qrPassPayload = { ...payload, template: { ...payload.template, name: "ticket_qr_pass" } };
+  // Fallback text template (7 parameters): ticket_confirmation
+  const fallbackPayload = {
+    messaging_product: "whatsapp",
+    recipient_type: "individual",
+    to: normalizedPhone,
+    type: "template",
+    template: {
+      name: "ticket_confirmation",
+      language: { code: "en_US" },
+      components: [
+        {
+          type: "body",
+          parameters: [
+            { type: "text", text: ticket.attendeeName || '' },
+            { type: "text", text: ticket.eventTitle || '' },
+            { type: "text", text: formattedDate || '' },
+            { type: "text", text: formattedTime || '' },
+            { type: "text", text: `${ticket.venue || ''}, ${ticket.city || ''}` },
+            { type: "text", text: ticket.ticketNumber || ticket.ref || '' },
+            { type: "text", text: passUrl }
+          ]
+        }
+      ]
+    }
+  };
+
   const url = `https://graph.facebook.com/v26.0/${phoneNumberId}/messages`;
   const truncatedToken = truncateToken(token);
 
   let attempts = 0;
-  const maxAttempts = 3;
+  let maxAttempts = 3;
   const backoffs = [1000, 3000, 9000];
   let lastError: any = null;
 
-  while (attempts < maxAttempts) {
-    attempts++;
-    console.log(`[WHATSAPP CLOUD] Send attempt ${attempts}/${maxAttempts} to ${normalizedPhone} using token ${truncatedToken}`);
-
+  // Send primary (media) payload first; fall back to text-only template on failure
+  async function send(payloadToUse: typeof payload): Promise<{ ok: boolean; data: any; status: number }> {
     try {
       const response = await fetch(url, {
         method: 'POST',
@@ -148,27 +194,61 @@ export async function sendTicketCloud(ticket: any, recipientPhone: string): Prom
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payloadToUse)
       });
-
       const responseText = await response.text();
       let responseData: any;
       try {
         responseData = JSON.parse(responseText);
-      } catch (parseErr) {
+      } catch {
         responseData = { raw: responseText };
       }
+      return { ok: response.ok, data: responseData, status: response.status };
+    } catch (networkErr: any) {
+      return { ok: false, data: { message: networkErr.message || String(networkErr), type: 'NetworkError' }, status: 0 };
+    }
+  }
 
-      if (response.ok) {
+  // Send order: media template -> ticket_qr_pass (9-var) -> ticket_confirmation (7-var)
+  const sendOrder: Array<{ payload: typeof payload; name: string }> = [
+    { payload: mediaPayload, name: 'ticket_confirmation_media' },
+    { payload: qrPassPayload, name: 'ticket_qr_pass' },
+    { payload: fallbackPayload, name: 'ticket_confirmation' }
+  ];
+  let sendIndex = 0;
+  while (sendIndex < sendOrder.length && attempts < maxAttempts) {
+    attempts++;
+    const { payload: currentPayload, name: templateName } = sendOrder[sendIndex];
+    console.log(`[WHATSAPP CLOUD] Send attempt ${attempts}/${maxAttempts} to ${normalizedPhone} using template ${templateName} and token ${truncatedToken}`);
+
+    try {
+      const { ok, data: responseData, status } = await send(currentPayload);
+
+      if (ok) {
         const waMessageId = responseData.messages?.[0]?.id;
-        console.log(`[WHATSAPP CLOUD] Success on attempt ${attempts}. Message ID: ${waMessageId}`);
+        console.log(`[WHATSAPP CLOUD] Success on attempt ${attempts} with template ${templateName}. Message ID: ${waMessageId}`);
         return { success: true, waMessageId };
       }
 
       // Handle non-ok response
       const metaError = responseData.error || responseData;
-      const status = response.status;
       console.warn(`[WHATSAPP CLOUD] Received HTTP ${status} error response:`, JSON.stringify(metaError));
+
+      // If this template is missing or has a bad parameter, try the next template in the order
+      if (status === 400 || status === 500) {
+        const errDetails = JSON.stringify(metaError);
+        const isTemplateNotFound = errDetails.includes('132001') || errDetails.includes('template') || errDetails.includes('parameter') || errDetails.includes('Header');
+        if (isTemplateNotFound) {
+          const nextIndex = sendIndex + 1;
+          if (nextIndex < sendOrder.length) {
+            console.warn(`[WHATSAPP CLOUD] Falling back to next template ${sendOrder[nextIndex].name}...`);
+          sendIndex = nextIndex;
+          attempts = 0; // reset attempt counter for the new template
+          maxAttempts = 3; // allow fresh retries with the new template
+          continue;
+          }
+        }
+      }
 
       // Retryable statuses: 429, 500, 502, 503
       if (status === 429 || status === 500 || status === 502 || status === 503) {
