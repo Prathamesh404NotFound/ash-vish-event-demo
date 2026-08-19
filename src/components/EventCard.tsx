@@ -1,5 +1,5 @@
 import React from 'react';
-import { Calendar, MapPin, Heart, Star, Ticket, Building2 } from 'lucide-react';
+import { Calendar, MapPin, Heart, Star, Ticket, Building2, Eye } from 'lucide-react';
 import { EventItem } from '../types';
 import { useBooking } from '../contexts/BookingContext';
 import { formatINR } from '../utils/formatters';
@@ -54,8 +54,8 @@ export const EventCard: React.FC<EventCardProps> = ({ event, onSelectEvent, onBo
         {/* Bottom Overlay Gradient */}
         <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-[#141414] to-transparent" />
 
-        {/* Category Badge */}
-        <div className="absolute top-3.5 left-3.5">
+        {/* Category Badge & Advertisement Badge */}
+        <div className="absolute top-3.5 left-3.5 flex items-center gap-1.5 flex-wrap">
           <span
             className={`px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider border backdrop-blur-md ${getCategoryColor(
               event.category
@@ -63,6 +63,11 @@ export const EventCard: React.FC<EventCardProps> = ({ event, onSelectEvent, onBo
           >
             {event.category}
           </span>
+          {event.isAdvertiseOnly && (
+            <span className="px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-widest bg-amber-500/90 text-black border border-amber-300 backdrop-blur-md shadow-md">
+              ADVERTISEMENT
+            </span>
+          )}
         </div>
 
         {/* Favourite Button */}
@@ -133,8 +138,8 @@ export const EventCard: React.FC<EventCardProps> = ({ event, onSelectEvent, onBo
               }}
               className="flex items-center justify-center gap-1.5 px-3.5 sm:px-4 py-2 min-h-[44px] rounded-xl bg-amber-500/15 border border-amber-500/50 hover:bg-amber-500/25 text-amber-300 font-bold text-xs shadow-md transition-all cursor-pointer whitespace-nowrap"
             >
-              <Building2 className="w-3.5 h-3.5 text-amber-400 stroke-[2.5]" />
-              <span>Counter Only</span>
+              <Eye className="w-3.5 h-3.5 text-amber-400 stroke-[2.5]" />
+              <span>View Info</span>
             </button>
           ) : (
             <button

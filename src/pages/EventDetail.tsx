@@ -396,64 +396,77 @@ export const EventDetail: React.FC<EventDetailProps> = ({
 
         </div>
 
-        {/* Right Column: Sticky Checkout Sidebar */}
+        {/* Right Column: Sticky Sidebar */}
         <div className="lg:col-span-4">
           <div className="sticky top-24 card-depth rounded-3xl p-6 bg-[#141414] border border-white/10 space-y-6 shadow-2xl">
             
-            <div className="border-b border-white/10 pb-4">
-              <span className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold block">
-                One Simple Price
-              </span>
-              <div className="flex items-center justify-between mt-1">
-                <span className="font-heading font-bold text-lg text-white">
-                  Standard Ticket — All Seats
-                </span>
-                <span className="font-heading font-extrabold text-2xl text-[#D4AF37]">
-                  {formatINR(flatPrice)}
-                </span>
-              </div>
-              <p className="text-xs text-gray-400 mt-1">
-                {isSeatBasedEvent(event)
-                  ? "Same price for every seat — pick yours on the map during checkout."
-                  : "General admission — no seat selection, quantity only."}
-              </p>
-            </div>
-
             {event.isAdvertiseOnly ? (
-              <div className="space-y-4 pt-2">
-                <div className="bg-amber-500/10 border-2 border-amber-500/40 rounded-2xl p-4 text-center space-y-2">
-                  <div className="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-amber-500/20 text-amber-400 mb-1">
-                    <Building2 className="w-5 h-5" />
-                  </div>
-                  <h3 className="font-heading font-extrabold text-sm text-amber-400 tracking-wide uppercase">
-                    Walk-In Ticket Counter Booking Only
+              <div className="space-y-5">
+                <div className="border-b border-white/10 pb-4">
+                  <span className="px-3 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-widest bg-amber-500/20 text-amber-300 border border-amber-500/40 inline-flex items-center gap-1.5 mb-3">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                    Event Advertisement
+                  </span>
+                  <h3 className="font-heading font-extrabold text-xl text-white">
+                    Promotional Listing Only
                   </h3>
-                  <p className="text-xs text-gray-300 leading-relaxed">
-                    Online ticket checkout is disabled for this event. Tickets are available exclusively at venue ticket counters and authorized offline booking outlets.
+                  <p className="text-xs text-gray-400 mt-1.5 leading-relaxed">
+                    This event is published as an informational advertisement. Online ticket purchasing and reservations are strictly disabled.
                   </p>
                 </div>
 
-                <div className="bg-[#1C1C1C] border border-white/10 rounded-2xl p-4 space-y-3">
-                  <div className="flex items-center gap-2.5 text-xs text-gray-200 font-semibold">
-                    <MapPin className="w-4 h-4 text-[#D4AF37] shrink-0" />
-                    <span>Venue Box Office & Gate Counters</span>
+                <div className="bg-[#1C1C1C] border border-amber-500/30 rounded-2xl p-4 space-y-3">
+                  <div className="flex items-center gap-2.5 text-xs text-amber-300 font-bold uppercase tracking-wider">
+                    <Building2 className="w-4 h-4 text-amber-400 shrink-0" />
+                    <span>Venue & Entry Info</span>
                   </div>
-                  <p className="text-[11px] text-gray-400 leading-normal pl-6">
-                    {event.venue}, {event.city}
-                  </p>
-                  <div className="pt-2 border-t border-white/10 flex items-center justify-between text-xs">
-                    <span className="text-gray-400">Fixed Counter Rate:</span>
-                    <span className="font-bold text-[#D4AF37] text-sm">{formatINR(flatPrice)}</span>
+                  <div className="space-y-2 text-xs text-gray-300 pt-1">
+                    <div className="flex justify-between py-1 border-b border-white/5">
+                      <span className="text-gray-400">Venue:</span>
+                      <span className="font-semibold text-white text-right">{event.venue}</span>
+                    </div>
+                    <div className="flex justify-between py-1 border-b border-white/5">
+                      <span className="text-gray-400">City:</span>
+                      <span className="font-semibold text-white">{event.city}</span>
+                    </div>
+                    <div className="flex justify-between py-1 border-b border-white/5">
+                      <span className="text-gray-400">Date:</span>
+                      <span className="font-semibold text-white">{event.date}</span>
+                    </div>
+                    <div className="flex justify-between py-1">
+                      <span className="text-gray-400">Entry / Ticket:</span>
+                      <span className="font-bold text-[#D4AF37]">{formatINR(flatPrice)}</span>
+                    </div>
                   </div>
                 </div>
 
-                <div className="p-3 bg-white/5 rounded-xl border border-white/5 text-[11px] text-gray-400 text-center flex items-center justify-center gap-1.5">
-                  <Ticket className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                  <span>Subject to gate capacity & counter availability</span>
+                <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-2xl text-center space-y-2">
+                  <p className="text-xs text-amber-200 font-medium leading-relaxed">
+                    No online tickets or reservations are available. Please visit the venue directly for event admission.
+                  </p>
                 </div>
               </div>
             ) : (
               <>
+                <div className="border-b border-white/10 pb-4">
+                  <span className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold block">
+                    One Simple Price
+                  </span>
+                  <div className="flex items-center justify-between mt-1">
+                    <span className="font-heading font-bold text-lg text-white">
+                      Standard Ticket — All Seats
+                    </span>
+                    <span className="font-heading font-extrabold text-2xl text-[#D4AF37]">
+                      {formatINR(flatPrice)}
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-400 mt-1">
+                    {isSeatBasedEvent(event)
+                      ? "Same price for every seat — pick yours on the map during checkout."
+                      : "General admission — no seat selection, quantity only."}
+                  </p>
+                </div>
+
                 {/* Quantity Stepper */}
                 <div className="space-y-2">
                   <label className="text-xs font-semibold text-gray-300 block">
