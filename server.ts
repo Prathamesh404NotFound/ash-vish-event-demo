@@ -1925,6 +1925,9 @@ export async function createApp() {
       if (!eventData) {
         return res.status(404).json({ success: false, error: "Event not found." });
       }
+      if (eventData.isAdvertiseOnly) {
+        return res.status(400).json({ success: false, error: "This event is advertise-only. Online booking is disabled. Tickets are available at physical ticket counters." });
+      }
       if ((eventData.status || "published") === "cancelled" || (eventData.status || "published") === "sold_out") {
         return res.status(409).json({ success: false, error: `Event is ${eventData.status || "unavailable"}.` });
       }
@@ -2938,6 +2941,9 @@ export async function createApp() {
       if (event.cashOnCounterOnly !== undefined && typeof event.cashOnCounterOnly !== 'boolean') {
         return res.status(400).json({ success: false, error: "cashOnCounterOnly must be a boolean." });
       }
+      if (event.isAdvertiseOnly !== undefined && typeof event.isAdvertiseOnly !== 'boolean') {
+        return res.status(400).json({ success: false, error: "isAdvertiseOnly must be a boolean." });
+      }
       if (Array.isArray(event.ticketTiers)) {
         for (const tier of event.ticketTiers) {
           if (tier) {
@@ -2969,6 +2975,7 @@ export async function createApp() {
         posterUrl: normalizedPoster,
         coverUrl: event.coverUrl || normalizedPoster,
         title: (event.title || "Untitled Event").trim() || "Untitled Event",
+        isAdvertiseOnly: typeof event.isAdvertiseOnly === 'boolean' ? event.isAdvertiseOnly : false,
         createdBy: req.user.uid,
         createdAt: event.createdAt || new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -3020,6 +3027,9 @@ export async function createApp() {
       if (body.cashOnCounterOnly !== undefined && typeof body.cashOnCounterOnly !== 'boolean') {
         return res.status(400).json({ success: false, error: "cashOnCounterOnly must be a boolean." });
       }
+      if (body.isAdvertiseOnly !== undefined && typeof body.isAdvertiseOnly !== 'boolean') {
+        return res.status(400).json({ success: false, error: "isAdvertiseOnly must be a boolean." });
+      }
       if (Array.isArray(body.ticketTiers)) {
         for (const tier of body.ticketTiers) {
           if (tier) {
@@ -3056,6 +3066,7 @@ export async function createApp() {
         scheduledUnpublishAt: body.scheduledUnpublishAt === "" ? null : (body.scheduledUnpublishAt !== undefined ? body.scheduledUnpublishAt : (existing.scheduledUnpublishAt ?? null)),
         usesSeatMap: typeof body.usesSeatMap === 'boolean' ? body.usesSeatMap : (existing.usesSeatMap !== false),
         cashOnCounterOnly: typeof body.cashOnCounterOnly === 'boolean' ? body.cashOnCounterOnly : Boolean(existing.cashOnCounterOnly),
+        isAdvertiseOnly: typeof body.isAdvertiseOnly === 'boolean' ? body.isAdvertiseOnly : Boolean(existing.isAdvertiseOnly),
         isFeatured: typeof body.isFeatured === 'boolean' ? body.isFeatured : Boolean(existing.isFeatured),
         isTrending: typeof body.isTrending === 'boolean' ? body.isTrending : Boolean(existing.isTrending),
         isPopularThisWeek: typeof body.isPopularThisWeek === 'boolean' ? body.isPopularThisWeek : Boolean(existing.isPopularThisWeek),

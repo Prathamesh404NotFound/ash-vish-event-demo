@@ -126,6 +126,34 @@ export interface EventItem {
   mapsUrl?: string;
   /** Human-readable presenter/organizer line shown on the event detail page. */
   presentedBy?: string;
+  /**
+   * When true, this event is advertised on the public portal for viewing,
+   * but online booking/checkout is disabled. Tickets can only be purchased
+   * in-person at physical booking counters. The event detail page replaces
+   * the checkout panel with a "Where to Book" counter listing.
+   */
+  isAdvertiseOnly?: boolean;
+}
+
+export interface PublicCounter {
+  id: string;
+  name: string;
+  venue?: string;
+  address?: string;
+  city?: string;
+  mapsUrl?: string;
+  operatingHours?: string;
+  phone?: string;
+  status: 'active' | 'inactive';
+}
+
+export interface Counter extends PublicCounter {
+  merchantUpi?: { vpa?: string; name?: string };
+  assignedStaffIds?: string[];
+  createdAt?: string;
+  updatedAt?: string;
+  createdBy?: string;
+  updatedBy?: string;
 }
 
 export type UserRole = 'customer' | 'admin' | 'ticket_counter' | 'organizer';
