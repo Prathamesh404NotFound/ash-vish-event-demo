@@ -102,6 +102,7 @@ export const AdminEvents: React.FC = () => {
   const [isTrending, setIsTrending] = useState(false);
   const [isPopularThisWeek, setIsPopularThisWeek] = useState(false);
   const [cashOnCounterOnly, setCashOnCounterOnly] = useState(false);
+  const [isAdvertiseOnly, setIsAdvertiseOnly] = useState(false);
 
   // Upload & Validation States
   const [isUploading, setIsUploading] = useState(false);
@@ -242,6 +243,7 @@ export const AdminEvents: React.FC = () => {
     setIsTrending(false);
     setIsPopularThisWeek(false);
     setCashOnCounterOnly(false);
+    setIsAdvertiseOnly(false);
     setScheduledPublishAt('');
     setScheduledUnpublishAt('');
     setFormError(null);
@@ -279,6 +281,7 @@ export const AdminEvents: React.FC = () => {
     setIsTrending(!!evt.isTrending);
     setIsPopularThisWeek(!!evt.isPopularThisWeek);
     setCashOnCounterOnly(!!evt.cashOnCounterOnly);
+    setIsAdvertiseOnly(!!evt.isAdvertiseOnly);
     setGalleryUrls(evt.gallery || []);
     setScheduleText((evt.schedule || [])
       .map((s) => [s.time, s.title, s.description].map((x) => (x || '').toString()).join(' | '))
@@ -553,6 +556,7 @@ export const AdminEvents: React.FC = () => {
       isTrending,
       isPopularThisWeek,
       cashOnCounterOnly,
+      isAdvertiseOnly,
       rating: editingEventId && existingEvt?.rating !== undefined ? existingEvt.rating : 5.0,
       reviewsCount: editingEventId && existingEvt?.reviewsCount !== undefined ? existingEvt.reviewsCount : 0,
       scheduledPublishAt: scheduledPublishAt ? new Date(scheduledPublishAt).toISOString() : null,
@@ -737,7 +741,14 @@ export const AdminEvents: React.FC = () => {
                             {evt.title}
                           </span>
                           <span className="text-gray-400 text-[11px] truncate block max-w-xs">{evt.subtitle}</span>
-                          <span className="text-[10px] text-gray-500 font-mono">ID: {evt.id}</span>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <span className="text-[10px] text-gray-500 font-mono">ID: {evt.id}</span>
+                            {evt.isAdvertiseOnly && (
+                              <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold bg-amber-500/20 text-amber-300 border border-amber-500/40 uppercase">
+                                Ad Only
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </td>
 
@@ -1192,6 +1203,35 @@ export const AdminEvents: React.FC = () => {
                         />
                       </button>
                     </div>
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-xl bg-[#1C1C1C] border border-amber-500/30 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <label className="text-amber-300 font-bold block mb-0.5 text-xs">Advertise Only Mode (Informational Ad)</label>
+                        <span className="px-2 py-0.5 rounded text-[9px] font-extrabold bg-amber-500/20 text-amber-300 border border-amber-500/30 uppercase">PROMO ONLY</span>
+                      </div>
+                      <p className="text-[11px] text-gray-400">
+                        When enabled, online checkout & reservations are completely disabled. The event is displayed purely as a promotional advertisement.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={isAdvertiseOnly}
+                      onClick={() => setIsAdvertiseOnly((v) => !v)}
+                      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors cursor-pointer ${
+                        isAdvertiseOnly ? 'bg-amber-500' : 'bg-gray-600'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                          isAdvertiseOnly ? 'translate-x-6' : 'translate-x-1'
+                        }`}
+                      />
+                    </button>
                   </div>
                 </div>
 
