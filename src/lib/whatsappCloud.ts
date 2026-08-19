@@ -1,3 +1,6 @@
+// NOTE (Aug 2026): The primary sender is now enotify.app (see src/lib/enotify.ts).
+// This file's sendTicketCloud() is retained as the Meta Cloud API fallback
+// invoked by enotify.ts — do not delete.
 import { Ticket } from '../types';
 
 /**

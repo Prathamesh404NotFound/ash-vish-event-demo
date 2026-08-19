@@ -8,7 +8,8 @@ dotenv.config();
 import { verifyFirebaseIdToken, TokenVerificationError } from "./src/lib/verify-token.js";
 import { rtdbGet, rtdbSet, rtdbUpdate, rtdbDelete, rtdbTransaction, rtdbPush } from "./src/lib/rtdb.js";
 import { getFirebaseAdminIdToken } from "./src/lib/identity-admin.js";
-import { sendTicketCloud } from "./src/lib/whatsappCloud.js";
+// Primary sender: enotify.app (falls back to Meta Cloud API automatically)
+import { sendTicketWhatsApp } from "./src/lib/enotify.js";
 import {
   isRazorpayConfigured,
   isTestMode,
@@ -1106,13 +1107,13 @@ async function finalizeBookingServerSide(
       time,
     }).catch((e) => console.warn("[MAIL] Confirmation email failed:", e?.message));
 
-    // Fire-and-forget: sendTicketCloud(ticket, ticket.attendeePhone).
+    // Fire-and-forget: sendTicketWhatsApp(ticket, ticket.attendeePhone).
     // Wrap in try/catch; NEVER let a WhatsApp failure affect booking success.
     // On non-retryable failure, record { channel: 'whatsapp_cloud', status: 'failed', reason, createdAt } into notifications if that array exists; on success record { channel: 'whatsapp_cloud', status: 'sent', waMessageId }.
     if (newTicket && newTicket.attendeePhone) {
       (async () => {
         try {
-          const res = await sendTicketCloud(newTicket, newTicket.attendeePhone);
+          const res = await sendTicketWhatsApp(newTicket, newTicket.attendeePhone);
           const adminToken = await getAdminAuthToken();
           
           const notificationEntry: any = {
@@ -5052,8 +5053,8 @@ export async function createApp() {
 
       const latestTicket = allTickets[0];
 
-      // Send via sendTicketCloud
-      const result = await sendTicketCloud(latestTicket, String(phone));
+      // Send via enotify (Meta fallback built in)
+      const result = await sendTicketWhatsApp(latestTicket, String(phone));
 
       // Audit row
       const auditRow: any = {
@@ -5984,7 +5985,7 @@ app.post("/api/counter/tickets/:ticketId/resend-whatsapp", requireRole(["counter
       return res.status(400).json({ success: false, error: "Ticket does not have an associated attendee phone number." });
     }
 
-    const waRes = await sendTicketCloud(ticket, ticket.attendeePhone);
+    const waRes = await sendTicketWhatsApp(ticket, ticket.attendeePhone);
     const notificationEntry: any = {
       channel: 'whatsapp_cloud',
       createdAt: new Date().toISOString()
