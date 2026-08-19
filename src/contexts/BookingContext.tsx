@@ -377,7 +377,10 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   useEffect(() => {
     const currentUserId = auth.currentUser?.uid || user?.id;
     const staffView = user?.role === 'admin' || user?.role === 'ticket_counter';
-    const ticketsRef = ref(rtdb, staffView ? 'tickets' : `users/${currentUserId || '__no_user__'}/tickets`);
+    if (!currentUserId && !staffView) return; // guest users have no ticket node
+    // (guest check-in data is served by the server via HMAC-signed endpoints);
+    // reading users/__no_user__/tickets would be denied by the tightened rules.
+    const ticketsRef = ref(rtdb, staffView ? 'tickets' : `users/${currentUserId}/tickets`);
     const unsubscribe = onValue(
       ticketsRef,
       (snapshot) => {
@@ -412,7 +415,8 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   useEffect(() => {
     const currentUserId = auth.currentUser?.uid || user?.id;
     const staffView = user?.role === 'admin' || user?.role === 'ticket_counter';
-    const bookingsRef = ref(rtdb, staffView ? 'bookings' : `users/${currentUserId || '__no_user__'}/bookings`);
+    if (!currentUserId && !staffView) return; // guest users have no bookings node
+    const bookingsRef = ref(rtdb, staffView ? 'bookings' : `users/${currentUserId}/bookings`);
     const unsubscribe = onValue(
       bookingsRef,
       (snapshot) => {
@@ -975,6 +979,12 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   useEffect(() => {
+    const role = user?.role;
+    const isAdmin =
+      role === 'admin' || role === 'ticket_counter' || role === 'event_manager' || role === 'super_admin';
+    if (!isAdmin) return; // coupons are an admin feature; direct RTDB reads are
+    // denied for guests under the tightened security rules (server APIs carry
+    // their own admin token), so only fetch when the signed-in user is staff.
     fetchCoupons();
   }, [user?.role, user?.id]);
 
@@ -1011,13 +1021,19 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     let coupon: Coupon | undefined = coupons.find(c => c.code === codeUpper);
 
     if (!coupon) {
-      try {
-        const snap = await rtdbGet(`coupons/${codeUpper}`);
-        if (snap.data) {
-          coupon = snap.data as Coupon;
+      const uid = auth.currentUser?.uid || user?.id;
+      if (uid) {
+        // Direct RTDB fallback for signed-in staff only: under the tightened
+        // rules a guest (or unauthenticated) RTDB read of coupons is denied,
+        // so unauthenticated validation relies solely on the server API above.
+        try {
+          const snap = await rtdbGet(`coupons/${codeUpper}`);
+          if (snap.data) {
+            coupon = snap.data as Coupon;
+          }
+        } catch (e) {
+          console.warn('RTDB coupon fetch warning:', e);
         }
-      } catch (e) {
-        console.warn('RTDB coupon fetch warning:', e);
       }
     }
 
@@ -1483,6 +1499,11 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   useEffect(() => {
+    const role = user?.role;
+    const isAdmin =
+      role === 'admin' || role === 'ticket_counter' || role === 'event_manager' || role === 'super_admin';
+    if (!isAdmin) return; // organizer management is an admin feature; direct
+    // RTDB reads are denied for guests under the tightened security rules.
     fetchOrganizers();
   }, [user?.role, user?.id]);
 
