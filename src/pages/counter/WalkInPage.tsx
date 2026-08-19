@@ -458,7 +458,7 @@ export const WalkInPage: React.FC = () => {
 
   // ---------- Manager-gated discount override ----------
   const handleRequestOverride = async () => {
-    if (!selectedEvent || netTotal <= 0) return;
+    if (!selectedEvent || grossTotal <= 0 || discountAmount <= 0) return;
     setIsOverrideLoading(true);
     setOverrideError('');
     try {
@@ -468,7 +468,6 @@ export const WalkInPage: React.FC = () => {
         body: JSON.stringify({
           eventId: selectedEvent.id,
           orderAmount: grossTotal,
-          discountPercent: 0,
           discountAmount: Math.round(discountAmount),
           reason: overrideReason.trim() || 'Counter discount override',
         }),
@@ -560,6 +559,43 @@ export const WalkInPage: React.FC = () => {
       return;
     }
 
+    let currentOverride = overrideApproved;
+    if (discountAmount > 0) {
+      if (!currentOverride || currentOverride.amount !== Math.round(discountAmount)) {
+        if (isApprover) {
+          try {
+            const res = await safeFetch<any>('/api/counter/discount-override', {
+              method: 'POST',
+              headers: await authenticatedApiHeaders(),
+              body: JSON.stringify({
+                eventId: selectedEventId,
+                orderAmount: grossTotal,
+                discountAmount: Math.round(discountAmount),
+                reason: overrideReason.trim() || 'Counter discount override',
+              }),
+            });
+            if (res.ok && res.data?.success && res.data.discountOverride) {
+              currentOverride = {
+                actorId: res.data.discountOverride.actorId,
+                actorName: res.data.discountOverride.actorName,
+                amount: res.data.discountOverride.discountAmount,
+              };
+              setOverrideApproved(currentOverride);
+            } else {
+              setFormError(res.data?.error || 'Manager approval failed for this discount. Please click "Approve Discount" and retry.');
+              return;
+            }
+          } catch {
+            setFormError('Failed to verify manager discount approval. Please retry.');
+            return;
+          }
+        } else {
+          setFormError('Manager approval is required for the discount before issuing tickets.');
+          return;
+        }
+      }
+    }
+
     setIsSubmitting(true);
 
     const salePayload = {
@@ -572,11 +608,11 @@ export const WalkInPage: React.FC = () => {
       quantity: isSeatBasedEvent(selectedEvent) ? undefined : quantity,
       paymentMethod,
       payments,
-      discountOverride: overrideApproved
+      discountOverride: currentOverride
         ? {
             overrideId: `${Date.now()}`,
-            discountAmount: overrideApproved.amount,
-            actorId: overrideApproved.actorId,
+            discountAmount: currentOverride.amount,
+            actorId: currentOverride.actorId,
             reason: overrideReason.trim(),
           }
         : undefined,
@@ -597,11 +633,11 @@ export const WalkInPage: React.FC = () => {
           {
             quantity: isSeatBasedEvent(selectedEvent) ? undefined : quantity,
             payments,
-            discountOverride: overrideApproved
+            discountOverride: currentOverride
               ? {
                   overrideId: `${Date.now()}`,
-                  discountAmount: overrideApproved.amount,
-                  actorId: overrideApproved.actorId,
+                  discountAmount: currentOverride.amount,
+                  actorId: currentOverride.actorId,
                   reason: overrideReason.trim(),
                 }
               : undefined,
@@ -1129,7 +1165,7 @@ export const WalkInPage: React.FC = () => {
                   <div className="flex items-end">
                     <button
                       type="button"
-                      disabled={isOverrideLoading || discountAmount <= 0 || grossTotal <= 0 || netTotal <= 0}
+                      disabled={isOverrideLoading || discountAmount <= 0 || grossTotal <= 0 || discountAmount > grossTotal}
                       onClick={handleRequestOverride}
                       className="w-full py-2.5 rounded-xl bg-[#222] hover:bg-[#333] disabled:opacity-50 border border-[#D4AF37]/40 text-[#D4AF37] font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer disabled:cursor-not-allowed"
                     >

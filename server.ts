@@ -3319,12 +3319,13 @@ export async function createApp() {
       let discountOverrideRecord: any = null;
       if (rawOverride && typeof rawOverride === "object") {
         const actorRbac = (req.user.rbacRole as string) || "";
-        if (actorRbac !== "super_admin" && actorRbac !== "event_manager") {
+        const userRole = (req.user.role as string) || "";
+        if (actorRbac !== "super_admin" && actorRbac !== "event_manager" && userRole !== "admin") {
           return res.status(403).json({ success: false, error: "Access Denied: Discount overrides require manager approval." });
         }
         const rawD = Number(rawOverride.discountAmount);
-        if (!Number.isFinite(rawD) || rawD < 0 || rawD > lineAmount / 2) {
-          return res.status(400).json({ success: false, error: "Override discount must be between 0 and 50% of the order amount." });
+        if (!Number.isFinite(rawD) || rawD < 0 || rawD > lineAmount) {
+          return res.status(400).json({ success: false, error: "Override discount must be between 0 and the order amount." });
         }
         overrideDiscount = Math.round(rawD);
         discountOverrideRecord = {
@@ -5470,10 +5471,10 @@ app.post("/api/counter/discount-override", requireRole(["event_manager", "super_
       return res.status(400).json({ success: false, error: "orderAmount must be a positive number." });
     }
     let discountAmount = 0;
-    if (discountPercent !== undefined && discountPercent !== null) {
+    if (discountPercent !== undefined && discountPercent !== null && Number(discountPercent) > 0) {
       const pct = Number(discountPercent);
-      if (!Number.isFinite(pct) || pct < 0 || pct > 50) {
-        return res.status(400).json({ success: false, error: "Discount percent must be between 0 and 50." });
+      if (!Number.isFinite(pct) || pct < 0 || pct > 100) {
+        return res.status(400).json({ success: false, error: "Discount percent must be between 0 and 100." });
       }
       discountAmount = Math.round((amount * pct) / 100);
     } else {
