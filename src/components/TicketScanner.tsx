@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import jsQR from 'jsqr';
 import {
   QrCode,
   Search,
@@ -20,7 +21,8 @@ import {
   UserX,
   ArrowRight,
   ShieldAlert,
-  Loader2
+  Loader2,
+  ZoomIn,
 } from 'lucide-react';
 import { useBooking } from '../contexts/BookingContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -175,7 +177,7 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
 
   const [flashType, setFlashType] = useState<'allowed' | 'duplicate' | 'denied' | null>(null);
 
-  // Hardware controls
+  // Hardware controls & capabilities
   const [availableCameras, setAvailableCameras] = useState<CameraDevice[]>([]);
   const [selectedCameraId, setSelectedCameraId] = useState<string>(() => {
     if (typeof window !== 'undefined') {
@@ -185,11 +187,27 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
   });
   const [hasTorch, setHasTorch] = useState(false);
   const [isTorchOn, setIsTorchOn] = useState(false);
+  const [availableZoomLevels, setAvailableZoomLevels] = useState<number[]>([1]);
+  const [currentZoom, setCurrentZoom] = useState<number>(1);
+  const [hasExposureComp, setHasExposureComp] = useState(false);
   const [isDecodingActive, setIsDecodingActive] = useState(false);
   const [stalledScanHint, setStalledScanHint] = useState(false);
   const [qrBoxSize, setQrBoxSize] = useState<{ width: number; height: number }>({ width: 320, height: 320 });
 
+  // Adaptive performance profile (low-end device detection)
+  const isLowEndDevice = useMemo(() => {
+    if (typeof navigator === 'undefined') return false;
+    const cores = navigator.hardwareConcurrency || 4;
+    const ua = navigator.userAgent || '';
+    const isLowEndUA = /Android.*(Go|SM-|Redmi 9|Moto G|K10|C11|Helio|Exynos 7|Snapdragon 4)/i.test(ua);
+    return cores <= 4 || isLowEndUA;
+  }, []);
+
   const html5QrcodeRef = useRef<any>(null);
+  const videoTrackRef = useRef<MediaStreamTrack | null>(null);
+  const roiLoopActiveRef = useRef<boolean>(false);
+  const roiRafIdRef = useRef<number | null>(null);
+  const offscreenCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const hintTimerRef = useRef<NodeJS.Timeout | null>(null);
   const autoClearTimerRef = useRef<NodeJS.Timeout | null>(null);
   const isStartingRef = useRef(false);
@@ -434,22 +452,96 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
     }
   };
 
-  // Inspect stream for torch capabilities
+  // Apply advanced hardware camera capabilities (Continuous focus, anti-glare exposure, default 1.5x zoom)
+  const applyAdvancedCameraFeatures = async (videoTrack: MediaStreamTrack) => {
+    if (!videoTrack || typeof (videoTrack as any).getCapabilities !== 'function') return;
+    try {
+      const caps = (videoTrack as any).getCapabilities() || {};
+      const advancedConstraint: any = {};
+
+      // A1. Continuous autofocus
+      if (caps.focusMode && (Array.isArray(caps.focusMode) ? caps.focusMode.includes('continuous') : caps.focusMode === 'continuous')) {
+        advancedConstraint.focusMode = 'continuous';
+      }
+
+      // Continuous exposure & white balance
+      if (caps.exposureMode && (Array.isArray(caps.exposureMode) ? caps.exposureMode.includes('continuous') : caps.exposureMode === 'continuous')) {
+        advancedConstraint.exposureMode = 'continuous';
+      }
+      if (caps.whiteBalanceMode && (Array.isArray(caps.whiteBalanceMode) ? caps.whiteBalanceMode.includes('continuous') : caps.whiteBalanceMode === 'continuous')) {
+        advancedConstraint.whiteBalanceMode = 'continuous';
+      }
+
+      // B1. Anti-glare exposure compensation (-0.5 on emissive phone screens)
+      if (caps.exposureCompensation) {
+        const minExp = typeof caps.exposureCompensation.min === 'number' ? caps.exposureCompensation.min : -2;
+        const maxExp = typeof caps.exposureCompensation.max === 'number' ? caps.exposureCompensation.max : 2;
+        const targetExp = Math.max(minExp, Math.min(maxExp, -0.5));
+        advancedConstraint.exposureCompensation = targetExp;
+        setHasExposureComp(true);
+      }
+
+      // A1. Zoom constraint & tactile step controls (1x, 1.5x, 2x)
+      if (caps.zoom) {
+        const minZoom = typeof caps.zoom.min === 'number' ? caps.zoom.min : 1;
+        const maxZoom = typeof caps.zoom.max === 'number' ? caps.zoom.max : 1;
+
+        if (maxZoom >= 1.5) {
+          const levels = [1, 1.5, 2].filter((lvl) => lvl >= minZoom && lvl <= maxZoom);
+          if (!levels.includes(1) && minZoom <= 1) levels.unshift(1);
+          setAvailableZoomLevels(levels);
+
+          const defaultZoom = Math.min(maxZoom, Math.max(minZoom, 1.5));
+          setCurrentZoom(defaultZoom);
+          advancedConstraint.zoom = defaultZoom;
+        } else if (maxZoom > 1) {
+          setAvailableZoomLevels([1, maxZoom]);
+        }
+      }
+
+      // Torch support check
+      if ('torch' in caps) {
+        setHasTorch(Boolean(caps.torch));
+      }
+
+      if (Object.keys(advancedConstraint).length > 0 && typeof videoTrack.applyConstraints === 'function') {
+        await videoTrack.applyConstraints({
+          advanced: [advancedConstraint],
+        });
+        console.log('[CAMERA] Applied advanced constraints:', advancedConstraint);
+      }
+    } catch (constraintErr) {
+      console.warn('[CAMERA] Advanced constraints gracefully degraded:', constraintErr);
+    }
+  };
+
+  // Inspect stream for torch and hardware features
   const inspectTorchCapability = () => {
     try {
       const videoEl = document.querySelector('#reader video') as HTMLVideoElement | null;
       const stream = videoEl?.srcObject as MediaStream | null;
       const track = stream?.getVideoTracks()[0];
-      if (track && typeof (track as any).getCapabilities === 'function') {
-        const capabilities = (track as any).getCapabilities();
-        if (capabilities && 'torch' in capabilities) {
-          setHasTorch(Boolean(capabilities.torch));
-          return;
-        }
+      if (track) {
+        videoTrackRef.current = track;
+        applyAdvancedCameraFeatures(track);
       }
-      setHasTorch(false);
-    } catch {
-      setHasTorch(false);
+    } catch (e) {
+      console.warn('[CAMERA] Capability inspection error:', e);
+    }
+  };
+
+  // Handle Zoom change
+  const handleSetZoom = async (targetZoom: number) => {
+    setCurrentZoom(targetZoom);
+    try {
+      const track = videoTrackRef.current;
+      if (track && typeof track.applyConstraints === 'function') {
+        await track.applyConstraints({
+          advanced: [{ zoom: targetZoom } as any],
+        });
+      }
+    } catch (err) {
+      console.warn('[CAMERA] Zoom adjustment failed:', err);
     }
   };
 
@@ -459,7 +551,7 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
     try {
       const videoEl = document.querySelector('#reader video') as HTMLVideoElement | null;
       const stream = videoEl?.srcObject as MediaStream | null;
-      const track = stream?.getVideoTracks()[0];
+      const track = stream?.getVideoTracks()[0] || videoTrackRef.current;
       if (track && typeof track.applyConstraints === 'function') {
         await track.applyConstraints({
           advanced: [{ torch: nextState } as any],
@@ -489,8 +581,97 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
     }
   };
 
+  // High-Speed ROI Crop & Contrast Normalization Decoder Loop (jsQR)
+  const startRoiDecodingLoop = (onSuccess: (code: string) => void) => {
+    if (roiLoopActiveRef.current) return;
+    roiLoopActiveRef.current = true;
+
+    const targetInterval = isLowEndDevice ? 66 : 33; // 15 FPS on low-end, 30 FPS on modern
+    let lastDecodeTime = 0;
+
+    const decodeFrame = () => {
+      if (!roiLoopActiveRef.current) return;
+
+      const videoEl = document.querySelector('#reader video') as HTMLVideoElement | null;
+      const now = performance.now();
+
+      if (
+        videoEl &&
+        videoEl.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+        videoEl.videoWidth > 0 &&
+        videoEl.videoHeight > 0 &&
+        now - lastDecodeTime >= targetInterval
+      ) {
+        lastDecodeTime = now;
+
+        try {
+          // Offscreen canvas setup
+          if (!offscreenCanvasRef.current) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 360;
+            canvas.height = 360;
+            offscreenCanvasRef.current = canvas;
+          }
+          const canvas = offscreenCanvasRef.current;
+          const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+          if (ctx) {
+            const vw = videoEl.videoWidth;
+            const vh = videoEl.videoHeight;
+
+            // Compute central ROI (+20% margin around qrbox region)
+            // Analyzing <= 25% of total frame pixels for instantaneous decoding
+            const cropDimension = Math.round(Math.min(vw, vh) * 0.70);
+            const sx = Math.round((vw - cropDimension) / 2);
+            const sy = Math.round((vh - cropDimension) / 2);
+
+            ctx.drawImage(videoEl, sx, sy, cropDimension, cropDimension, 0, 0, 360, 360);
+            const imageData = ctx.getImageData(0, 0, 360, 360);
+            const data = imageData.data;
+            const len = data.length;
+
+            // B3. Dynamic luminance contrast stretch & anti-glare normalization
+            const factor = 1.25;
+            const offset = 128 * (1 - factor) - 6;
+            for (let i = 0; i < len; i += 4) {
+              data[i] = Math.min(255, Math.max(0, data[i] * factor + offset));
+              data[i + 1] = Math.min(255, Math.max(0, data[i + 1] * factor + offset));
+              data[i + 2] = Math.min(255, Math.max(0, data[i + 2] * factor + offset));
+            }
+
+            const qrCode = jsQR(data, 360, 360, {
+              inversionAttempts: 'attemptBoth',
+            });
+
+            if (qrCode && qrCode.data) {
+              console.log('[ROI_JSQR_DECODE_SUCCESS]', qrCode.data);
+              onSuccess(qrCode.data);
+            }
+          }
+        } catch (e) {
+          // Non-critical decode cycle pass
+        }
+      }
+
+      if (roiLoopActiveRef.current) {
+        if ('requestVideoFrameCallback' in HTMLVideoElement.prototype && videoEl && (videoEl as any).requestVideoFrameCallback) {
+          (videoEl as any).requestVideoFrameCallback(decodeFrame);
+        } else {
+          roiRafIdRef.current = requestAnimationFrame(decodeFrame);
+        }
+      }
+    };
+
+    roiRafIdRef.current = requestAnimationFrame(decodeFrame);
+  };
+
   // Stop Camera Scanning
   const stopCamera = async () => {
+    roiLoopActiveRef.current = false;
+    if (roiRafIdRef.current) {
+      cancelAnimationFrame(roiRafIdRef.current);
+      roiRafIdRef.current = null;
+    }
     if (hintTimerRef.current) {
       clearTimeout(hintTimerRef.current);
       hintTimerRef.current = null;
@@ -499,6 +680,9 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
     setIsDecodingActive(false);
     setIsTorchOn(false);
     setHasTorch(false);
+    setAvailableZoomLevels([1]);
+    setCurrentZoom(1);
+    videoTrackRef.current = null;
 
     if (html5QrcodeRef.current) {
       try {
@@ -583,28 +767,26 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
       const html5QrCode = new Html5Qrcode('reader');
       html5QrcodeRef.current = html5QrCode;
 
-      // 4. Sizing & High-resolution 1080p video constraints
+      // 4. Sizing & Adaptive resolution video constraints
       const box = calculateQrBox();
       setQrBoxSize(box);
 
-      // Html5Qrcode strictly requires cameraIdOrConfig to be either a string (deviceId) or an object with exactly 1 key ({ facingMode: 'environment' })
       const cameraSource: string | { facingMode: 'environment' | 'user' } = activeDeviceId
         ? activeDeviceId
         : { facingMode: 'environment' };
 
       const scanConfig = {
-        fps: 30, // 30 fps decoding for rapid capture
+        fps: isLowEndDevice ? 15 : 30, // Adaptive FPS based on device class
         qrbox: box,
-        disableFlip: false,
+        disableFlip: true, // C3 requirement
         videoConstraints: {
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
+          width: { ideal: isLowEndDevice ? 1280 : 1920 },
+          height: { ideal: isLowEndDevice ? 720 : 1080 },
           ...(activeDeviceId ? { deviceId: { exact: activeDeviceId } } : { facingMode: 'environment' }),
         },
       };
 
       const handleSuccess = (decodedText: string) => {
-        console.log('[SCAN_DETECTED]', decodedText);
         if (hintTimerRef.current) {
           clearTimeout(hintTimerRef.current);
           hintTimerRef.current = null;
@@ -615,7 +797,7 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
       };
 
       const handleFrameError = () => {
-        // Frame decode pass (ignore standard non-match frames)
+        // Frame decode pass
       };
 
       try {
@@ -629,7 +811,7 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
         console.warn('[CAMERA] High-res config start failed, trying basic constraints fallback:', firstStartErr);
         await html5QrCode.start(
           cameraSource,
-          { fps: 30, qrbox: box, disableFlip: false },
+          { fps: isLowEndDevice ? 15 : 30, qrbox: box, disableFlip: true },
           handleSuccess,
           handleFrameError
         );
@@ -638,14 +820,17 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
       setIsCameraActive(true);
       setIsDecodingActive(true);
 
-      // Start 3s timer to offer helpful guidance if QR is stalled
+      // Start high-performance ROI decoding loop
+      startRoiDecodingLoop(handleSuccess);
+
+      // Start 4s timer (A2 requirement: 4s instead of 3s) for hold-distance guidance
       if (hintTimerRef.current) clearTimeout(hintTimerRef.current);
       hintTimerRef.current = setTimeout(() => {
         setStalledScanHint(true);
-      }, 3000);
+      }, 4000);
 
-      // Check hardware torch capabilities after stream attaches
-      setTimeout(inspectTorchCapability, 800);
+      // Inspect hardware capabilities & apply continuous focus / zoom / exposure
+      setTimeout(inspectTorchCapability, 400);
     } catch (err: any) {
       console.warn('[CAMERA] Start failure:', err);
       const errMsg = String(err?.name || err?.message || err || '');
@@ -849,6 +1034,25 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
                 </span>
 
                 <div className="flex items-center gap-2">
+                  {/* Zoom Level Switcher */}
+                  {isCameraActive && availableZoomLevels.length > 1 && (
+                    <div className="flex items-center bg-[#1C1C1C] border border-white/10 rounded-xl p-0.5 shadow-sm">
+                      {availableZoomLevels.map((lvl) => (
+                        <button
+                          key={lvl}
+                          onClick={() => handleSetZoom(lvl)}
+                          className={`px-2 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+                            currentZoom === lvl
+                              ? 'bg-[#D4AF37] text-black shadow-sm'
+                              : 'text-gray-400 hover:text-white'
+                          }`}
+                        >
+                          {lvl}x
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
                   {/* Camera Switcher Button */}
                   {isCameraActive && availableCameras.length > 1 && (
                     <button
@@ -879,7 +1083,7 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
                   {isCameraActive && (
                     <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-bold flex items-center gap-1.5">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-                      Live 30 FPS
+                      Live {isLowEndDevice ? '15 FPS (Eco)' : '30 FPS'}
                     </span>
                   )}
                 </div>
@@ -919,7 +1123,7 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
                   <div className="space-y-1.5 max-w-sm">
                     <p className="text-sm font-bold text-white uppercase tracking-wider">Fast Gate Camera Scanner</p>
                     <p className="text-gray-300 text-xs leading-relaxed">
-                      Tap below to activate 30 FPS scanning. Point your device at guest passes for instant check-in.
+                      Tap below to activate {isLowEndDevice ? '15 FPS' : '30 FPS'} scanning. Point your device at guest passes for instant check-in.
                     </p>
                   </div>
                   <button
@@ -931,67 +1135,76 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
                   </button>
                 </div>
               ) : (
-                <div className="relative rounded-2xl overflow-hidden border border-white/10 bg-black aspect-[4/3] sm:aspect-video w-full flex items-center justify-center shadow-2xl">
-                  {/* html5-qrcode reader element */}
-                  <div id="reader" className="w-full h-full" />
+                <div className="space-y-3">
+                  <div className="relative rounded-2xl overflow-hidden border border-white/10 bg-black aspect-[4/3] sm:aspect-video w-full flex items-center justify-center shadow-2xl">
+                    {/* html5-qrcode reader element */}
+                    <div id="reader" className="w-full h-full" />
 
-                  {/* Overlaid Corner Brackets & Target Frame */}
-                  {isCameraActive && scanState.phase === 'idle' && (
-                    <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center p-4">
-                      <div
-                        className="relative transition-all duration-300 flex items-center justify-center"
-                        style={{
-                          width: `${Math.min(qrBoxSize.width, 360)}px`,
-                          height: `${Math.min(qrBoxSize.height, 360)}px`,
-                        }}
-                      >
-                        {/* Gold Corner Brackets */}
-                        <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-[#D4AF37] rounded-tl-xl shadow-sm" />
-                        <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-[#D4AF37] rounded-tr-xl shadow-sm" />
-                        <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-[#D4AF37] rounded-bl-xl shadow-sm" />
-                        <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-[#D4AF37] rounded-br-xl shadow-sm" />
+                    {/* Overlaid Corner Brackets & Target Frame (Exact Geometry Match without arbitrary 360px cap) */}
+                    {isCameraActive && scanState.phase === 'idle' && (
+                      <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center p-4">
+                        <div
+                          className="relative transition-all duration-300 flex items-center justify-center"
+                          style={{
+                            width: `${qrBoxSize.width}px`,
+                            height: `${qrBoxSize.height}px`,
+                          }}
+                        >
+                          {/* Gold Corner Brackets */}
+                          <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-[#D4AF37] rounded-tl-xl shadow-sm" />
+                          <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-[#D4AF37] rounded-tr-xl shadow-sm" />
+                          <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-[#D4AF37] rounded-bl-xl shadow-sm" />
+                          <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-[#D4AF37] rounded-br-xl shadow-sm" />
 
-                        {/* Subtle Pulsing Scan Laser Line */}
-                        {isDecodingActive && (
-                          <div className="absolute inset-x-2 h-0.5 bg-gradient-to-r from-transparent via-[#D4AF37] to-transparent animate-scanline shadow-[0_0_8px_#D4AF37]" />
+                          {/* Subtle Pulsing Scan Laser Line */}
+                          {isDecodingActive && (
+                            <div className="absolute inset-x-2 h-0.5 bg-gradient-to-r from-transparent via-[#D4AF37] to-transparent animate-scanline shadow-[0_0_8px_#D4AF37]" />
+                          )}
+                        </div>
+
+                        {/* Live Guidance Subtitle */}
+                        <div className="mt-4 px-3.5 py-1.5 rounded-full bg-black/75 backdrop-blur-md border border-white/10 text-[11px] text-gray-200 flex items-center gap-2 shadow-lg">
+                          <span className="w-2 h-2 rounded-full bg-[#D4AF37] animate-pulse" />
+                          <span>Scanning… aim the QR inside the frame</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* State Machine Viewfinder Overlay: VERIFYING */}
+                    {scanState.phase === 'verifying' && (
+                      <div className="absolute inset-0 z-20 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center space-y-3 animate-in fade-in">
+                        <div className="p-4 rounded-full bg-[#D4AF37]/20 text-[#D4AF37] animate-spin">
+                          <Loader2 className="w-8 h-8" />
+                        </div>
+                        <div className="space-y-1">
+                          <p className="font-heading font-extrabold text-lg text-white tracking-wide">
+                            VERIFYING PASS…
+                          </p>
+                          <p className="text-xs text-gray-300">Checking security signature & gate database</p>
+                        </div>
+                        {scanState.scannedToken && (
+                          <div className="px-3 py-1 rounded-lg bg-black/60 border border-white/10 font-mono text-[11px] text-[#D4AF37]">
+                            TOKEN: {scanState.scannedToken}
+                          </div>
                         )}
                       </div>
+                    )}
 
-                      {/* Live Guidance Subtitle */}
-                      <div className="mt-4 px-3.5 py-1.5 rounded-full bg-black/75 backdrop-blur-md border border-white/10 text-[11px] text-gray-200 flex items-center gap-2 shadow-lg">
-                        <span className="w-2 h-2 rounded-full bg-[#D4AF37] animate-pulse" />
-                        <span>Scanning… aim the QR inside the frame</span>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* State Machine Viewfinder Overlay: VERIFYING */}
-                  {scanState.phase === 'verifying' && (
-                    <div className="absolute inset-0 z-20 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center space-y-3 animate-in fade-in">
-                      <div className="p-4 rounded-full bg-[#D4AF37]/20 text-[#D4AF37] animate-spin">
-                        <Loader2 className="w-8 h-8" />
-                      </div>
-                      <div className="space-y-1">
-                        <p className="font-heading font-extrabold text-lg text-white tracking-wide">
-                          VERIFYING PASS…
-                        </p>
-                        <p className="text-xs text-gray-300">Checking security signature & gate database</p>
-                      </div>
-                      {scanState.scannedToken && (
-                        <div className="px-3 py-1 rounded-lg bg-black/60 border border-white/10 font-mono text-[11px] text-[#D4AF37]">
-                          TOKEN: {scanState.scannedToken}
+                    {/* Stalled Scan Help Hint Banner (A2 requirement: Exact hold-distance wording) */}
+                    {isCameraActive && stalledScanHint && scanState.phase === 'idle' && (
+                      <div className="absolute bottom-3 inset-x-3 pointer-events-none animate-in fade-in slide-in-from-bottom-2">
+                        <div className="p-2.5 rounded-xl bg-black/85 backdrop-blur-md border border-[#D4AF37]/30 text-[#F3E5AB] text-[11px] text-center font-medium shadow-xl">
+                          Hold the guest&apos;s phone 10–25 cm away — closer than a hand span makes focus fail.
                         </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Stalled Scan Help Hint Banner */}
-                  {isCameraActive && stalledScanHint && scanState.phase === 'idle' && (
-                    <div className="absolute bottom-3 inset-x-3 pointer-events-none animate-in fade-in slide-in-from-bottom-2">
-                      <div className="p-2.5 rounded-xl bg-black/85 backdrop-blur-md border border-[#D4AF37]/30 text-[#F3E5AB] text-[11px] text-center font-medium shadow-xl">
-                        💡 Move the QR inside the brackets • bring the phone 10–20 cm away • brighten the screen.
                       </div>
-                    </div>
+                    )}
+                  </div>
+
+                  {/* A2. Always-visible hold-distance guidance caption during IDLE */}
+                  {isCameraActive && scanState.phase === 'idle' && (
+                    <p className="text-[11px] text-gray-400 text-center font-medium">
+                      Hold the guest&apos;s phone 10–25 cm away — closer than a hand span makes focus fail.
+                    </p>
                   )}
                 </div>
               )}

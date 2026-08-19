@@ -241,9 +241,11 @@ export function DigitalPassPage() {
                 <QRCodeSVG
                   id="pass-qr-svg"
                   value={passData?.qrCodeValue || passData?.ticketNumber}
-                  size={190}
+                  size={220}
                   level="H"
-                  includeMargin={false}
+                  includeMargin={true}
+                  bgColor="#FFFFFF"
+                  fgColor="#000000"
                 />
                 {/* Brand logo overlay */}
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
@@ -265,9 +267,13 @@ export function DigitalPassPage() {
                 )}
               </div>
 
-              <p className="text-[11px] text-gray-400 mt-3 text-center flex items-center gap-1">
+              <p className="text-[11px] text-gray-300 mt-3 text-center flex items-center gap-1 font-medium">
                 <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
                 Present this QR at the venue entrance for instant check-in
+              </p>
+
+              <p className="text-[10.5px] text-gray-400 mt-1.5 text-center max-w-xs leading-relaxed">
+                Having trouble? Lower your screen brightness to ~80% and turn your phone slightly.
               </p>
             </div>
           </div>

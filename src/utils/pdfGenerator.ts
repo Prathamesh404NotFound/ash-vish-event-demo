@@ -215,21 +215,24 @@ export const generateTicketPDF = async (
   doc.text('DIGITAL SIGNATURE & GATEPASS SCANNER', 105, 162, { align: 'center' });
 
   // Viewfinder Corner target effect around QR Code
-  // QR Position: x=80, y=168, size=50
+  // QR Position: x=80, y=168, size=50 (>= 35mm requirement) with crisp pure white background box
+  doc.setFillColor(255, 255, 255);
+  doc.roundedRect(76, 164, 58, 58, 2, 2, 'F');
+
   doc.setDrawColor(gold[0], gold[1], gold[2]);
   doc.setLineWidth(1.2);
   // Top-left
-  doc.line(77, 165, 82, 165);
-  doc.line(77, 165, 77, 170);
+  doc.line(74, 162, 80, 162);
+  doc.line(74, 162, 74, 168);
   // Top-right
-  doc.line(133, 165, 128, 165);
-  doc.line(133, 165, 133, 170);
+  doc.line(136, 162, 130, 162);
+  doc.line(136, 162, 136, 168);
   // Bottom-left
-  doc.line(77, 221, 82, 221);
-  doc.line(77, 221, 77, 216);
+  doc.line(74, 224, 80, 224);
+  doc.line(74, 224, 74, 218);
   // Bottom-right
-  doc.line(133, 221, 128, 221);
-  doc.line(133, 221, 133, 216);
+  doc.line(136, 224, 130, 224);
+  doc.line(136, 224, 136, 218);
 
   // Render the crisp high-resolution QR image
   try {
