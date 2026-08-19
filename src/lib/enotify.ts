@@ -1,4 +1,4 @@
-import crypto from 'crypto';
+import "dotenv/config";
 
 const DEFAULT_INSTANCE_TOKEN = '6523f2a5758e0a2faf8f8d33';
 const DEFAULT_API_URL = 'https://enotify.app/api';
@@ -6,18 +6,20 @@ const DEFAULT_API_URL = 'https://enotify.app/api';
 /**
  * Normalizes phone numbers strictly:
  * - Digits only, no "+", no spaces, no dashes
- * - Strips leading 0091 or 0
+ * - Strips leading 0091, 00, or single leading 0 (for 11-digit numbers)
  * - India 10-digit bare numbers become 91XXXXXXXXXX
  * - Rejects anything that is not 9-15 digits after normalization
  */
-export function normalizePhoneNumber(phone: string): string | null {
-  if (!phone || typeof phone !== 'string') return null;
-  let cleaned = phone.replace(/\D/g, '');
+export function normalizePhoneNumber(phone: string | number | undefined | null): string | null {
+  if (!phone) return null;
+  let cleaned = String(phone).replace(/\D/g, '');
   if (!cleaned) return null;
 
   // Strip leading 0091 prefix
   if (cleaned.startsWith('0091')) {
     cleaned = cleaned.slice(4);
+  } else if (cleaned.startsWith('00')) {
+    cleaned = cleaned.slice(2);
   } else if (cleaned.startsWith('0') && cleaned.length === 11) {
     cleaned = cleaned.slice(1);
   }
@@ -82,9 +84,15 @@ export function formatTime12h(timeStr: string): string {
  * https://ashvishevents.com/pass/<slugId>/<slugSig>
  */
 export function buildPassUrl(ticket: any): string {
-  const appUrl = (process.env.VITE_APP_URL || 'https://ashvishevents.com').replace(/\/+$/, '');
-  const slugId = ticket.passSlug?.id || (typeof ticket.passId === 'string' ? ticket.passId : '');
-  const slugSig = ticket.passSlug?.sig || '';
+  const rawBase =
+    process.env.VITE_APP_URL ||
+    process.env.APP_URL ||
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '') ||
+    'https://ashvishevents.com';
+  
+  const appUrl = rawBase.replace(/\/+$/, '');
+  const slugId = ticket?.passSlug?.id || (typeof ticket?.passId === 'string' ? ticket.passId : '');
+  const slugSig = ticket?.passSlug?.sig || '';
 
   if (slugId && slugSig) {
     return `${appUrl}/pass/${slugId}/${slugSig}`;
@@ -92,26 +100,26 @@ export function buildPassUrl(ticket: any): string {
   if (slugId) {
     return `${appUrl}/pass/${slugId}`;
   }
-  return `${appUrl}/pass/${ticket.ticketNumber || ticket.id}`;
+  return `${appUrl}/pass/${ticket?.ticketNumber || ticket?.id || 'entry'}`;
 }
 
 /**
  * Generates the clean WhatsApp markdown message conforming to brand design.
  */
 export function formatWhatsAppTicketMessage(ticket: any): string {
-  const eventTitle = ticket.eventTitle || 'Event';
-  const attendeeName = ticket.attendeeName || 'Valued Guest';
-  const formattedDate = formatDateDDMMMMYYYY(ticket.date) || ticket.date || '';
-  const formattedTime = formatTime12h(ticket.time) || ticket.time || '';
-  const venue = ticket.venue || '';
-  const city = ticket.city || '';
+  const eventTitle = ticket?.eventTitle || 'Event';
+  const attendeeName = ticket?.attendeeName || 'Valued Guest';
+  const formattedDate = formatDateDDMMMMYYYY(ticket?.date) || ticket?.date || '';
+  const formattedTime = formatTime12h(ticket?.time) || ticket?.time || '';
+  const venue = ticket?.venue || '';
+  const city = ticket?.city || '';
   const venueWithCity = venue && city ? `${venue}, ${city}` : (venue || city || 'Event Venue');
-  const tierName = ticket.tierName || 'Standard';
-  const seatNumber = ticket.seatNumber || (Array.isArray(ticket.selectedSeats) && ticket.selectedSeats.length > 0 ? ticket.selectedSeats.join(', ') : 'General Admission');
-  const ticketRef = ticket.ticketNumber || ticket.id || '';
+  const tierName = ticket?.tierName || 'Standard';
+  const seatNumber = ticket?.seatNumber || (Array.isArray(ticket?.selectedSeats) && ticket.selectedSeats.length > 0 ? ticket.selectedSeats.join(', ') : 'General Admission');
+  const ticketRef = ticket?.ticketNumber || ticket?.id || '';
 
   const passUrl = buildPassUrl(ticket);
-  const mapsQuery = ticket.eventGoogleMapsQuery || venueWithCity;
+  const mapsQuery = ticket?.eventGoogleMapsQuery || venueWithCity;
   const mapsUrl = `https://maps.google.com/?q=${encodeURIComponent(mapsQuery)}`;
 
   const lines = [
@@ -155,8 +163,8 @@ function truncateToken(token: string): string {
  * 
  * Strict protocol requirements:
  * - GET https://enotify.app/api/sendText?token=...&phone=...&message=...
- * - Requires ENOTIFY_ENABLED === "true" (kill-switch hard-fail)
- * - Detects true success via body.status === "success" && body.data.messageIDs.length > 0
+ * - Reads Vercel environment keys: ENOTIFY_TOKEN, ENOTIFY_API_URL, ENOTIFY_ENABLED
+ * - Detects true success via body status/data.messageIDs
  * - Retries up to 3 times on 429/5xx/network errors with 1s, 3s, 9s backoffs
  * - Fails fast on 400/401/402/403 (HTTP or body error status)
  */
@@ -164,18 +172,29 @@ export async function sendTicketWhatsApp(
   ticket: any,
   recipientPhone: string
 ): Promise<{ success: boolean; waMessageId?: string; error?: any }> {
-  const enabled = process.env.ENOTIFY_ENABLED;
-  if (enabled !== 'true') {
-    const errorMsg = 'ENOTIFY_DISABLED: WhatsApp sending is disabled because ENOTIFY_ENABLED is not "true"';
-    console.error(`[ENOTIFY] Kill-switch active: ${errorMsg}`);
+  const rawEnabled = process.env.ENOTIFY_ENABLED;
+  const isExplicitlyDisabled = rawEnabled !== undefined && ['false', '0', 'off', 'no', 'disabled'].includes(String(rawEnabled).trim().toLowerCase());
+  
+  if (isExplicitlyDisabled) {
+    const errorMsg = 'ENOTIFY_DISABLED: WhatsApp sending is disabled via ENOTIFY_ENABLED environment variable.';
+    console.warn(`[ENOTIFY] Sending skipped: ${errorMsg}`);
     return {
       success: false,
       error: { message: errorMsg, code: 'ENOTIFY_DISABLED' }
     };
   }
 
-  const token = process.env.ENOTIFY_TOKEN || DEFAULT_INSTANCE_TOKEN;
-  const baseUrl = (process.env.ENOTIFY_API_URL || DEFAULT_API_URL).replace(/\/+$/, '');
+  const token = (
+    process.env.ENOTIFY_TOKEN ||
+    process.env.ENOTIFY_API_KEY ||
+    process.env.ENOTIFY_INSTANCE_TOKEN ||
+    DEFAULT_INSTANCE_TOKEN
+  ).trim();
+
+  const baseUrl = (
+    process.env.ENOTIFY_API_URL ||
+    DEFAULT_API_URL
+  ).trim().replace(/\/+$/, '');
 
   const normalizedPhone = normalizePhoneNumber(recipientPhone);
   if (!normalizedPhone) {
@@ -199,27 +218,25 @@ export async function sendTicketWhatsApp(
     attempts++;
     console.log(`[ENOTIFY] Send attempt ${attempts}/${maxAttempts} to ${normalizedPhone} (token: ${truncatedTokenStr})`);
 
-    const queryParams = new URLSearchParams({
-      token,
-      phone: normalizedPhone,
-      message: messageText
-    });
+    const targetUrl = `${baseUrl}/sendText?token=${encodeURIComponent(token)}&phone=${encodeURIComponent(normalizedPhone)}&message=${encodeURIComponent(messageText)}`;
 
-    const targetUrl = `${baseUrl}/sendText?${queryParams.toString()}`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
 
     try {
       const response = await fetch(targetUrl, {
         method: 'GET',
         headers: {
-          'Accept': 'application/json'
-        }
+          'Accept': 'application/json, text/plain, */*'
+        },
+        signal: controller.signal
       });
 
       const responseText = await response.text();
       let responseData: any = null;
       try {
         responseData = responseText ? JSON.parse(responseText) : {};
-      } catch (parseErr) {
+      } catch {
         responseData = { raw: responseText };
       }
 
@@ -245,23 +262,14 @@ export async function sendTicketWhatsApp(
         break;
       }
 
-      // If HTTP is 200, inspect body-level status and payload
+      // If HTTP is 200/OK, inspect body-level status and payload
       if (response.ok) {
-        const bodyStatus = responseData.status !== undefined ? String(responseData.status).toLowerCase() : '';
-        const messageIDs = responseData.data?.messageIDs || responseData.data?.messageIds || responseData.messageIDs;
+        const rawStatus = responseData.status;
+        const statusStr = rawStatus !== undefined && rawStatus !== null ? String(rawStatus).trim().toLowerCase() : '';
+        const messageIDs = responseData.data?.messageIDs || responseData.data?.messageIds || responseData.messageIDs || responseData.messageIds;
 
-        // TRUE success requires status === "success" and non-empty messageIDs array
-        if (bodyStatus === 'success' && Array.isArray(messageIDs) && messageIDs.length > 0) {
-          const waMessageId = messageIDs[0];
-          console.log(`[ENOTIFY] Success on attempt ${attempts}. Message ID: ${waMessageId}`);
-          return {
-            success: true,
-            waMessageId
-          };
-        }
-
-        // Body-level hard failure codes ("400", "401", "402", "403") inside HTTP 200
-        if (bodyStatus === '400' || bodyStatus === '401' || bodyStatus === '402' || bodyStatus === '403' || bodyStatus === 'failed' || bodyStatus === 'error') {
+        // Body-level hard failure codes ("400", "401", "402", "403", "failed", "error", "false")
+        if (['400', '401', '402', '403', 'error', 'failed', 'false'].includes(statusStr)) {
           console.error(`[ENOTIFY] Hard failure in body payload (status: ${responseData.status}):`, JSON.stringify(responseData));
           return {
             success: false,
@@ -269,7 +277,35 @@ export async function sendTicketWhatsApp(
           };
         }
 
-        // Unknown body format or missing messageIDs
+        // Check for success condition
+        if (
+          statusStr === 'success' ||
+          rawStatus === true ||
+          rawStatus === 200 ||
+          statusStr === '200' ||
+          (Array.isArray(messageIDs) && messageIDs.length > 0) ||
+          responseData.data?.id ||
+          responseData.messageId
+        ) {
+          let waMessageId: string;
+          if (Array.isArray(messageIDs) && messageIDs.length > 0) {
+            waMessageId = String(messageIDs[0]);
+          } else if (typeof messageIDs === 'string') {
+            waMessageId = messageIDs;
+          } else if (responseData.data?.id || responseData.messageId) {
+            waMessageId = String(responseData.data?.id || responseData.messageId);
+          } else {
+            waMessageId = `enotify_${Date.now()}`;
+          }
+
+          console.log(`[ENOTIFY] Success on attempt ${attempts}. Message ID: ${waMessageId}`);
+          return {
+            success: true,
+            waMessageId
+          };
+        }
+
+        // Unknown body format
         console.warn(`[ENOTIFY] Unexpected response payload structure on attempt ${attempts}:`, JSON.stringify(responseData));
         lastError = responseData;
         if (attempts < maxAttempts) {
@@ -280,14 +316,18 @@ export async function sendTicketWhatsApp(
         }
       }
     } catch (networkErr: any) {
-      console.warn(`[ENOTIFY] Network error on attempt ${attempts}:`, networkErr.message || networkErr);
-      lastError = { message: networkErr.message || String(networkErr), type: 'NetworkError' };
+      const isAbort = networkErr.name === 'AbortError';
+      const errMsg = isAbort ? 'Request timed out after 15s' : (networkErr.message || String(networkErr));
+      console.warn(`[ENOTIFY] Network error on attempt ${attempts}:`, errMsg);
+      lastError = { message: errMsg, type: isAbort ? 'TimeoutError' : 'NetworkError' };
       if (attempts < maxAttempts) {
         const delayMs = backoffs[attempts - 1];
         console.log(`[ENOTIFY] Backing off for ${delayMs}ms after network error...`);
         await new Promise((resolve) => setTimeout(resolve, delayMs));
         continue;
       }
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 

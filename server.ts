@@ -1142,14 +1142,15 @@ async function finalizeBookingServerSide(
 
     // Fire-and-forget: sendTicketWhatsApp(ticket, ticket.attendeePhone).
     // Wrap in try/catch; NEVER let a WhatsApp failure affect booking success.
-    if (newTicket && newTicket.attendeePhone) {
+    const targetPhone = newTicket?.attendeePhone || customerDetails?.phone || pendingOrder?.customerDetails?.phone;
+    if (newTicket && targetPhone) {
       (async () => {
         try {
-          const res = await sendTicketWhatsApp(newTicket, newTicket.attendeePhone);
+          const res = await sendTicketWhatsApp(newTicket, targetPhone);
           const adminToken = await getAdminAuthToken();
           
           const notificationEntry: any = {
-            channel: 'whatsapp_cloud',
+            channel: 'enotify_whatsapp',
             createdAt: new Date().toISOString()
           };
 
@@ -1165,9 +1166,9 @@ async function finalizeBookingServerSide(
           await rtdbPush("notifications", {
             ...notificationEntry,
             ticketId: ticketId,
-            recipientPhone: newTicket.attendeePhone,
-            attendeeName: newTicket.attendeeName,
-            eventTitle: newTicket.eventTitle,
+            recipientPhone: targetPhone,
+            attendeeName: newTicket.attendeeName || customerDetails?.name || 'Attendee',
+            eventTitle: newTicket.eventTitle || eventTitle,
             subject: "WhatsApp Ticket Confirmation",
             recipientCount: 1,
             createdBy: "system"
@@ -5922,7 +5923,7 @@ app.post("/api/counter/tickets/:ticketId/resend-whatsapp", requireRole(["counter
 
     const waRes = await sendTicketWhatsApp(ticket, ticket.attendeePhone);
     const notificationEntry: any = {
-      channel: 'whatsapp_cloud',
+      channel: 'enotify_whatsapp',
       createdAt: new Date().toISOString()
     };
 
