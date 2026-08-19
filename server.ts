@@ -4343,7 +4343,7 @@ export async function createApp() {
       const rulesPath =
         fs.existsSync(path.join(process.cwd(), "database.rules.json"))
           ? path.join(process.cwd(), "database.rules.json")
-          : path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "database.rules.json");
+          : path.join(__dirname, "..", "database.rules.json");
       const raw = await fs.promises.readFile(rulesPath, "utf8");
       const { parse } = await import("jsonc-parser");
       const rules = parse(raw);
