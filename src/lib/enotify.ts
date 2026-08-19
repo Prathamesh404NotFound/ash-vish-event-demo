@@ -1,24 +1,27 @@
 /**
  * enotify.app WhatsApp gateway sender for ashvishevents.com.
  *
+ * Sole WhatsApp sender (Meta Cloud API removed Aug 2026 per owner request).
  * Sends ticket confirmation messages as plain WhatsApp chats from the
- * business's QR-connected number (+91 77459 98497) via enotify.app,
- * so there is no Meta template approval pipeline involved.
+ * business's QR-connected number via enotify.app, so there is no Meta
+ * template approval pipeline involved.
  *
  * Env vars:
  *   ENOTIFY_API_URL   (default: https://enotify.app/api)
  *   ENOTIFY_TOKEN     (instance ID token)
- *   ENOTIFY_ENABLED   ("true" to enable; anything else uses Meta fallback only)
- *
- * Failover: if enotify is disabled, down, or returns an error, the message
- * falls back to the existing Meta WhatsApp Cloud API sender
- * (sendTicketCloud). The channel label 'whatsapp_cloud' is kept for all
- * audit rows for continuity.
+ *   ENOTIFY_ENABLED   ("true" to enable; anything else hard-fails the send)
  *
  * API docs: https://enotify.app/dashboard/api-docs
  */
 
-import { sendTicketCloud, normalizePhoneNumber } from './whatsappCloud';
+export function normalizePhoneNumber(phone: string): string {
+  if (!phone) return '';
+  let digits = String(phone).replace(/[^\d+]/g, '');
+  if (digits.startsWith('+')) digits = digits.substring(1);
+  if (digits.startsWith('00')) digits = digits.substring(2);
+  if (!/^\d{9,15}$/.test(digits)) return '';
+  return digits;
+}
 
 export function formatDateDDMMMMYYYY(dateStr: string): string {
   if (!dateStr) return '';
@@ -55,8 +58,7 @@ export function formatTime12h(timeStr: string): string {
 
 /**
  * Builds the human-readable ticket confirmation message body
- * (WhatsApp markdown: *bold*, _italic_) identical in content to the
- * Meta template layout.
+ * (WhatsApp markdown: *bold*, _italic_).
  */
 function buildTicketMessage(ticket: any): string {
   const appUrl = (process.env.VITE_APP_URL || 'https://ashvishevents.com').replace(/\/+$/, '');
@@ -111,8 +113,7 @@ type SendResult = { success: boolean; waMessageId?: string; error?: any };
 /**
  * Sends a message via enotify.app with retry/backoff.
  * - Retries on 429/5xx and network errors (1s / 3s / 9s, max 3 attempts)
- * - Fails fast on 4xx; on 402 (credits exhausted) skips straight to
- *   the Meta fallback without retrying.
+ * - Fails fast on 4xx (auth/credits/invalid phone are not retryable)
  */
 async function sendViaEnotify(
   normalizedPhone: string,
@@ -123,8 +124,8 @@ async function sendViaEnotify(
   const truncatedToken = truncateToken(token);
 
   // enotify.app requires params as URL query parameters (JSON body is
-  // rejected with 400 "Invalid phone number"). Use GET with the params
-  // URL-encoded (the same params work on POST per docs; GET is confirmed).
+  // rejected with 400 "Invalid phone number"). GET with URL-encoded params
+  // is the confirmed working format.
   const url = `${baseUrl}/sendText?token=${encodeURIComponent(token)}&phone=${encodeURIComponent(normalizedPhone)}&message=${encodeURIComponent(message)}`;
 
   let attempts = 0;
@@ -149,7 +150,7 @@ async function sendViaEnotify(
       if (response.ok) {
         // enotify returns HTTP 200 even for some failures: success is when
         // status === "success" (messageIDs present); a JSON status "400"
-        // with "Invalid phone number" should trigger the Meta fallback.
+        // with "Invalid phone number" must fail the send.
         const bodyStatus = responseData.status;
         if (bodyStatus === 'success') {
           const msgIds = responseData.data?.messageIDs;
@@ -157,19 +158,18 @@ async function sendViaEnotify(
           console.log(`[ENOTIFY] Success on attempt ${attempts}. Response: ${JSON.stringify(responseData)}`);
           return { success: true, waMessageId };
         }
-        // Treat body-level 400 (e.g. invalid phone) as a failure to fall back
+        // Body-level error codes — fail fast (not retryable)
         if (bodyStatus === '400' || bodyStatus === '401' || bodyStatus === '402' || bodyStatus === '403') {
           const code = parseInt(String(bodyStatus), 10);
           return {
             success: false,
             error: {
               message: `enotify: ${responseData.message || responseText || 'Error'}`,
-              code,
-              fallback: 'meta'
+              code
             }
           };
         }
-        // Unknown successful-looking body — still report success with id
+        // Unknown successful-looking body — report success with id
         const waMessageId = responseData.message_id || responseData.messageId || responseData.data?.messageIDs?.[0] || undefined;
         console.log(`[ENOTIFY] Success (ambiguous body) on attempt ${attempts}. Response: ${JSON.stringify(responseData)}`);
         return { success: true, waMessageId };
@@ -177,14 +177,13 @@ async function sendViaEnotify(
 
       console.warn(`[ENOTIFY] Received HTTP ${response.status}:`, JSON.stringify(responseData));
 
-      // Credits exhausted or auth failure — fail fast and fall back to Meta
+      // Auth failure / credits exhausted / invalid phone — fail fast
       if (response.status === 402 || response.status === 401 || response.status === 403 || response.status === 400) {
         return {
           success: false,
           error: {
             message: `enotify HTTP ${response.status}: ${responseData.message || responseText || 'Error'}`,
-            code: response.status,
-            fallback: 'meta'
+            code: response.status
           }
         };
       }
@@ -214,13 +213,10 @@ async function sendViaEnotify(
 }
 
 /**
- * Primary sender contract. Same signature/shape as sendTicketCloud so all
- * callers remain unchanged.
+ * Sole WhatsApp sender contract for ashvishevents.com (Meta removed).
  *
- * Flow:
- * 1. If ENOTIFY_ENABLED !== 'true' → Meta path unchanged.
- * 2. Try enotify; on success → return success (channel stays whatsapp_cloud).
- * 3. On enotify failure → log and fall back to Meta Cloud API.
+ * - If ENOTIFY_ENABLED !== 'true' → send fails immediately (no fallback exists).
+ * - Otherwise sends the formatted ticket message via enotify.app with retry.
  */
 export async function sendTicketWhatsApp(ticket: any, recipientPhone: string): Promise<SendResult> {
   const normalizedPhone = normalizePhoneNumber(recipientPhone);
@@ -229,36 +225,12 @@ export async function sendTicketWhatsApp(ticket: any, recipientPhone: string): P
     return { success: false, error: { message: 'Invalid phone number format' } };
   }
 
-  // Kill-switch: ENOTIFY_ENABLED not 'true' → pure Meta behavior
+  // Kill-switch: ENOTIFY_ENABLED not 'true' → hard failure (no fallback)
   if (!ENOTIFY_ENABLED()) {
-    console.log('[ENOTIFY] Disabled (ENOTIFY_ENABLED !== true). Using Meta Cloud API path.');
-    return sendTicketCloud(ticket, recipientPhone);
+    console.warn('[ENOTIFY] Disabled (ENOTIFY_ENABLED !== true). Send aborted.');
+    return { success: false, error: { message: 'WhatsApp sending is disabled (ENOTIFY_ENABLED !== true)' } };
   }
 
   const message = buildTicketMessage(ticket);
-
-  // 1) Try enotify.app
-  const enResult = await sendViaEnotify(normalizedPhone, message);
-  if (enResult.success) {
-    return { success: true, waMessageId: enResult.waMessageId };
-  }
-
-  // 402/credits exhausted → skip retries, fall straight to Meta
-  const shouldFallBack = !enResult.error?.code || [400, 401, 402, 403, 429, 500, 502, 503].includes(enResult.error.code);
-  if (shouldFallBack) {
-    console.warn('[ENOTIFY] Falling back to Meta WhatsApp Cloud API after enotify failure:', JSON.stringify(enResult.error));
-    try {
-      const metaResult = await sendTicketCloud(ticket, recipientPhone);
-      if (metaResult.success) {
-        return { success: true, waMessageId: metaResult.waMessageId };
-      }
-      return { success: false, error: { message: 'Both enotify and Meta senders failed', meta: metaResult.error, enotify: enResult.error } };
-    } catch (metaErr: any) {
-      // Meta disabled (WHATSAPP_TEST_MODE !== true) is expected in production; surface enotify failure instead
-      console.warn('[ENOTIFY] Meta fallback also failed:', metaErr?.message || metaErr);
-      return { success: false, error: enResult.error };
-    }
-  }
-
-  return enResult;
+  return sendViaEnotify(normalizedPhone, message);
 }

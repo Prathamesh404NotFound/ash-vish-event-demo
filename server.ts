@@ -8,7 +8,7 @@ dotenv.config();
 import { verifyFirebaseIdToken, TokenVerificationError } from "./src/lib/verify-token.js";
 import { rtdbGet, rtdbSet, rtdbUpdate, rtdbDelete, rtdbTransaction, rtdbPush } from "./src/lib/rtdb.js";
 import { getFirebaseAdminIdToken } from "./src/lib/identity-admin.js";
-// Primary sender: enotify.app (falls back to Meta Cloud API automatically)
+// Sole WhatsApp sender: enotify.app (Meta Cloud API removed)
 import { sendTicketWhatsApp } from "./src/lib/enotify.js";
 import {
   isRazorpayConfigured,
@@ -5024,10 +5024,6 @@ export async function createApp() {
   // -- Test-mode self-serve WhatsApp Cloud API endpoints (Step 4) --------------
   app.get("/api/whatsapp/test", async (req: any, res) => {
     try {
-      if (process.env.WHATSAPP_TEST_MODE !== 'true') {
-        return res.status(403).json({ success: false, error: "Forbidden: Test mode is disabled." });
-      }
-
       const { phone } = req.query || {};
       if (!phone) {
         return res.status(400).json({ success: false, error: "phone parameter is required." });
@@ -5053,7 +5049,7 @@ export async function createApp() {
 
       const latestTicket = allTickets[0];
 
-      // Send via enotify (Meta fallback built in)
+      // Send via enotify.app (sole WhatsApp sender)
       const result = await sendTicketWhatsApp(latestTicket, String(phone));
 
       // Audit row
@@ -5091,10 +5087,6 @@ export async function createApp() {
 
   app.get("/api/whatsapp/status", async (req: any, res) => {
     try {
-      if (process.env.WHATSAPP_TEST_MODE !== 'true') {
-        return res.status(403).json({ success: false, error: "Forbidden: Test mode is disabled." });
-      }
-
       const adminToken = await getAdminAuthToken();
       const notificationsSnap = await rtdbGet("notifications", adminToken);
       
