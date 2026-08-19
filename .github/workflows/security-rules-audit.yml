@@ -1,0 +1,26 @@
+# security-rules-audit.yml
+# Fails the build if database.rules.json grants a public ".read": true to any
+# sensitive node (passes, orders, users, staff, tickets, bookings, coupons,
+# notifications, favorites, reservations). This converts pentest findings
+# (vuln-0002) into a permanent guardrail at merge time.
+name: Security Rules Audit
+
+on:
+  push:
+    branches: [main, fix/**]
+  pull_request:
+    branches: [main]
+
+jobs:
+  rules-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Audit sensitive-node reads in database.rules.json
+        run: node scripts/validate-rules.cjs

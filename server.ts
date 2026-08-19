@@ -4325,6 +4325,56 @@ export async function createApp() {
   });
 
   // -- Item 5: reporting dashboard -------------------------------------------
+
+  // One-time rules deploy endpoint (vuln-0002 remediation).
+  // PUTs database.rules.json to the LIVE Firebase RTDB so the committed
+  // rules actually take effect (deploying rules is the step that closes
+  // the public /passes read). Activated ONLY when the owner sets
+  // ENABLE_RULES_DEPLOY=1 and provides X-Rules-Deploy-Secret = SERVER_HMAC_SECRET.
+  // After a successful deploy the endpoint stops serving and logs removal
+  // instructions. Never enable in production except for this purpose.
+  app.get("/api/_deploy/rules", async (req: any, res) => {
+    try {
+      if (process.env.ENABLE_RULES_DEPLOY !== "1") {
+        return res.status(404).json({ success: false, error: "Rules deploy not enabled." });
+      }
+      const secret = req.headers["x-rules-deploy-secret"];
+      if (secret !== SERVER_HMAC_SECRET) {
+        return res.status(403).json({ success: false, error: "Invalid deploy secret." });
+      }
+      const rulesPath = path.join(process.cwd(), "database.rules.json");
+      const raw = await fs.promises.readFile(rulesPath, "utf8");
+      const { parse } = await import("jsonc-parser");
+      const rules = parse(raw);
+      const adminToken = await getAdminAuthToken();
+      if (!adminToken) {
+        return res.status(500).json({ success: false, error: "Firebase admin token unavailable. Check FIREBASE_PRIVATE_KEY env." });
+      }
+      // PUT to the special .settings/rules.json path — replaces ALL live rules
+      const dbUrl = process.env.FIREBASE_DATABASE_URL || "https://ashevents-aa490-default-rtdb.asia-southeast1.firebasedatabase.app";
+      const url = `${dbUrl}/.settings/rules.json?auth=${encodeURIComponent(adminToken)}`;
+      const resp = await fetch(url, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rules }),
+      });
+      const body = await resp.text();
+      if (!resp.ok) {
+        return res.status(resp.status).json({ success: false, error: `Firebase rejected rules: ${body}` });
+      }
+      console.log("[RULES DEPLOY] Live RTDB rules updated successfully at", new Date().toISOString());
+      return res.json({
+        success: true,
+        deployedAt: new Date().toISOString(),
+        nodes: Object.keys(rules.rules || {}),
+        note: "Now remove ENABLE_RULES_DEPLOY and delete this endpoint from server.ts.",
+      });
+    } catch (err: any) {
+      console.error("[RULES DEPLOY] Failed:", err.message);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   app.get("/api/admin/reports", requireRole(["super_admin", "event_manager", "auditor"]), async (req: any, res) => {
     try {
       const adminToken = await getAdminAuthToken();
