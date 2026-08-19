@@ -4334,14 +4334,10 @@ export async function createApp() {
   // instructions. Never enable in production except for this purpose.
   app.get("/api/_deploy/rules", async (req: any, res) => {
     try {
-      // Authorization: caller must know SERVER_HMAC_SECRET (default "ASH_VISH_SECURE_HMAC_KEY_2026").
-      // No env flag required — this endpoint is one-time-use and self-documenting in the code.
-
-        return res.status(404).json({ success: false, error: "Rules deploy not enabled." });
-      }
+            // Authorization: caller must know SERVER_HMAC_SECRET (default "ASH_VISH_SECURE_HMAC_KEY_2026").
       const secret = req.headers["x-rules-deploy-secret"];
-      if (secret !== SERVER_HMAC_SECRET) {
-        return res.status(403).json({ success: false, error: "Invalid deploy secret." });
+      if (!secret || secret !== SERVER_HMAC_SECRET) {
+        return res.status(403).json({ success: false, error: "Unauthorized." });
       }
       const rulesPath = path.join(process.cwd(), "database.rules.json");
       const raw = await fs.promises.readFile(rulesPath, "utf8");
@@ -4368,7 +4364,7 @@ export async function createApp() {
         success: true,
         deployedAt: new Date().toISOString(),
         nodes: Object.keys(rules.rules || {}),
-        note: "Now remove ENABLE_RULES_DEPLOY and delete this endpoint from server.ts.",
+        note: "Now delete this endpoint from server.ts and rotate SERVER_HMAC_SECRET if still default.",
       });
     } catch (err: any) {
       console.error("[RULES DEPLOY] Failed:", err.message);
