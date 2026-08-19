@@ -5022,6 +5022,20 @@ export async function createApp() {
     }
   });
 
+  // Diagnostic: verify the Firebase admin credential exchange (no secrets exposed).
+  app.get("/api/_debug/firebase-auth", async (req: any, res) => {
+    try {
+      const token = await getAdminAuthToken();
+      if (!token) {
+        return res.status(500).json({ success: false, error: "admin_token_unavailable" });
+      }
+      // Smoke-test the token against a minimal RTDB read to confirm rules pass.
+      const snap = await rtdbGet("tickets", token);
+      return res.json({ success: true, tokenMint: "ok", databaseAccess: snap.data !== undefined ? "ok" : "denied_or_empty" });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || "unknown" });
+    }
+  });
   app.post("/api/tickets/send-email", requireRole(["super_admin", "event_manager", "counter_staff"]), async (req: any, res) => {
     try {
       const { attendeeEmail, subject, message } = req.body || {};
