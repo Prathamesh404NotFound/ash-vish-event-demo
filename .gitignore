@@ -6,3 +6,5 @@ coverage/
 *.log
 
 .env
+_debug_eval.cjs
+_t2.cjs
