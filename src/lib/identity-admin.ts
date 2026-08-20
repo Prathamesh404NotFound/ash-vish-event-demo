@@ -46,6 +46,64 @@ function getServiceAccount(): ServiceAccount | null {
 
 let cachedAdminIdToken: { token: string; expiresAt: number } | null = null;
 
+interface CachedAccessToken {
+  token: string;
+  expiresAt: number;
+}
+let cachedAccessToken: CachedAccessToken | null = null;
+
+/**
+ * Mint a short-lived Google OAuth2 ACCESS token signed with the service
+ * account's private key. This is what the Identity Toolkit Admin REST API
+ * (accounts:update — used to set custom claims) requires. The Firebase ID
+ * token returned by getFirebaseAdminIdToken() is NOT accepted there.
+ */
+export async function getFirebaseAdminAccessToken(): Promise<string> {
+  const now = Math.floor(Date.now() / 1000);
+  if (cachedAccessToken && cachedAccessToken.expiresAt > now + 60) {
+    return cachedAccessToken.token;
+  }
+
+  const sa = getServiceAccount();
+  if (!sa) {
+    throw new Error('Service account credentials not configured in environment variables.');
+  }
+
+  const alg = 'RS256';
+  const privateKey = await importPKCS8(sa.privateKey, alg);
+
+  const jwt = await new SignJWT({ scope: 'https://www.googleapis.com/auth/identitytoolkit' })
+    .setProtectedHeader({ alg })
+    .setIssuer(sa.clientEmail)
+    .setSubject(sa.clientEmail)
+    .setAudience('https://oauth2.googleapis.com/token')
+    .setIssuedAt(now)
+    .setExpirationTime(now + 3600)
+    .sign(privateKey);
+
+  const response = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+      assertion: jwt,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Failed to exchange service-account JWT for access token: ${errorText}`);
+  }
+
+  const data = await response.json();
+  cachedAccessToken = {
+    token: data.access_token,
+    expiresAt: now + (Number(data.expires_in) || 3600),
+  };
+
+  return data.access_token;
+}
+
 /**
  * Obtains a Firebase Admin ID Token by generating a service-account signed Custom Token
  * and exchanging it via Identity Toolkit REST API (signInWithCustomToken).

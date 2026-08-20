@@ -8,7 +8,7 @@ dotenv.config();
 
 import { verifyFirebaseIdToken, TokenVerificationError } from "./src/lib/verify-token.js";
 import { rtdbGet, rtdbSet, rtdbUpdate, rtdbDelete, rtdbTransaction, rtdbPush } from "./src/lib/rtdb.js";
-import { getFirebaseAdminIdToken } from "./src/lib/identity-admin.js";
+import { getFirebaseAdminIdToken, getFirebaseAdminAccessToken } from "./src/lib/identity-admin.js";
 import { sendTicketWhatsApp } from "./src/lib/enotify.js";
 import {
   isRazorpayConfigured,
@@ -1587,7 +1587,7 @@ export async function createApp() {
         // existing server admin bot token (same credential path as
         // identity-admin.ts) — avoids the firebase-admin dynamic-import
         // module shape issues and keeps the server bundle small.
-        const adminToken = await getFirebaseAdminIdToken();
+        const adminToken = await getFirebaseAdminAccessToken();
         const apiKey = process.env.VITE_FIREBASE_API_KEY || process.env.FIREBASE_API_KEY;
         if (!apiKey) {
           throw new Error("Firebase API key not configured.");
