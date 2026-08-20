@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Search, Filter, Calendar, Edit3, Trash2, Send, CheckCircle, XCircle, 
   Download, RefreshCw, AlertCircle, ChevronLeft, ChevronRight, X 
@@ -55,7 +55,12 @@ export const MySalesPage: React.FC = () => {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  const fetchSales = async () => {
+  // Extracted into a stable callback so it can be re-run by the filter
+  // effect, the manual refresh button, and the auto-refresh interval below.
+  // The sales log is a long-lived operator page, so it re-fetches on its own
+  // cadence — new walk-in issuances otherwise only appeared after changing a
+  // filter or manually pressing refresh.
+  const fetchSales = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -89,11 +94,31 @@ export const MySalesPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [firebaseUser, selectedEventId, selectedStatus, selectedDateRange, page, searchQuery, pageSize]);
 
   useEffect(() => {
     fetchSales();
-  }, [selectedEventId, selectedStatus, selectedDateRange, page, searchQuery]);
+  }, [fetchSales]);
+
+  // Auto-refresh: cheap 30s polling while the panel stays open, plus an
+  // immediate refresh when the tab regains focus (issuance at the walk-in
+  // terminal while this page is backgrounded).
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      if (navigator.onLine) void fetchSales();
+    }, 30000);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible' && navigator.onLine) {
+        void fetchSales();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [fetchSales]);
 
   const handleToggleCheckIn = async (ticket: Ticket) => {
     setActionLoading(ticket.id);
