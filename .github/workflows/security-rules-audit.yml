@@ -22,5 +22,8 @@ jobs:
         with:
           node-version: 22
 
+      - name: Install dependencies (validate-rules needs jsonc-parser)
+        run: pnpm install --frozen-lockfile
+
       - name: Audit sensitive-node reads in database.rules.json
         run: node scripts/validate-rules.cjs

@@ -5718,15 +5718,20 @@ app.get("/api/counter/my-sales", requireRole(["counter_staff", "event_manager", 
       if (t.purchasedAt) {
         const pDate = new Date(t.purchasedAt);
         const now = new Date();
+        // Event business hours are in IST (Asia/Kolkata). Comparing dates in
+        // the server's UTC locale hides early-morning IST tickets under the
+        // previous calendar day, so all date windows are computed in IST.
+        const kolkataDate = (d: Date) =>
+          new Date(d.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
         if (dateRange === "today") {
-          const isToday = pDate.toDateString() === now.toDateString();
+          const isToday = kolkataDate(pDate).toDateString() === kolkataDate(now).toDateString();
           if (!isToday) return false;
         } else if (dateRange === "7-day") {
-          const diffTime = Math.abs(now.getTime() - pDate.getTime());
+          const diffTime = Math.abs(kolkataDate(now).getTime() - kolkataDate(pDate).getTime());
           const diffDays = diffTime / (1000 * 60 * 60 * 24);
           if (diffDays > 7) return false;
         } else if (dateRange === "30-day") {
-          const diffTime = Math.abs(now.getTime() - pDate.getTime());
+          const diffTime = Math.abs(kolkataDate(now).getTime() - kolkataDate(pDate).getTime());
           const diffDays = diffTime / (1000 * 60 * 60 * 24);
           if (diffDays > 30) return false;
         }
