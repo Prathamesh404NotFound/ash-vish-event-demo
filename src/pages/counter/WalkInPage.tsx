@@ -227,35 +227,62 @@ export const WalkInPage: React.FC = () => {
   }, []);
 
   // ---------- Counter stations (for staff operating a named counter) ----------
+  // Extracted so it can be re-run on a recurring interval and on visibility
+  // restore; counter names change server-side when admins rename them and the
+  // terminal stays open all shift, so a stale snapshot must be refreshed.
+  const loadCounters = useCallback(async () => {
+    try {
+      const res = await safeFetch<any>('/api/admin/counters', { headers: await authenticatedApiHeaders() });
+      if (res.ok && res.data?.success) {
+        const all: WalkInCounter[] = res.data.counters || [];
+        // Counter staff see only the counters they are assigned to and that
+        // are active; platform admins/super-admins see every active counter.
+        const visible = all.filter((c: WalkInCounter) => {
+          if (c.status !== 'active') return false;
+          if (isApprover) return true;
+          return c.assignedStaffIds.includes(user?.uid || '');
+        });
+        setCounters(visible);
+        // If the persisted choice is no longer available, stay on whatever is
+        // first rather than silently resetting mid-session.
+        setSelectedCounterId((prev) => {
+          if (prev && visible.some((c: WalkInCounter) => c.id === prev)) return prev;
+          if (visible.length > 0) return visible[0].id;
+          return '';
+        });
+      }
+    } catch {
+      /* best-effort; walk-in sales still work without a counter */
+    }
+  }, [isApprover, user?.uid]);
+
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      try {
-        const res = await safeFetch<any>('/api/admin/counters', { headers: await authenticatedApiHeaders() });
-        if (!cancelled && res.ok && res.data?.success) {
-          const all: WalkInCounter[] = res.data.counters || [];
-          // Counter staff see only the counters they are assigned to and that
-          // are active; platform admins/super-admins see every active counter.
-          const visible = all.filter((c: WalkInCounter) => {
-            if (c.status !== 'active') return false;
-            if (isApprover) return true;
-            return c.assignedStaffIds.includes(user?.uid || '');
-          });
-          setCounters(visible);
-          // If the persisted choice is no longer available, stay on whatever is
-          // first rather than silently resetting mid-session.
-          setSelectedCounterId((prev) => {
-            if (prev && visible.some((c: WalkInCounter) => c.id === prev)) return prev;
-            if (visible.length > 0) return visible[0].id;
-            return '';
-          });
-        }
-      } catch {
-        /* best-effort; walk-in sales still work without a counter */
-      }
+      if (cancelled) return;
+      await loadCounters();
     };
     load();
-    return () => { cancelled = true; };
+    // Cheap 60s polling while the terminal page stays open, matching the
+    // long-lived POS pattern already used for seat-map refresh on this page.
+    const interval = window.setInterval(() => {
+      if (!cancelled && navigator.onLine) {
+        void loadCounters();
+      }
+    }, 60000);
+    // Refresh instantly when the tab is brought back into view (the admin may
+    // have renamed the counter while the terminal was backgrounded).
+    const onVisible = () => {
+      if (document.visibilityState === 'visible' && navigator.onLine) {
+        void loadCounters();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
