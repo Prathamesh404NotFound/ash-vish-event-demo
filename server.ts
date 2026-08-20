@@ -1551,6 +1551,74 @@ export async function createApp() {
     }
   });
 
+  // POST /api/auth/claims — mints Firebase custom claims for signed-in staff.
+  // The client calls this right after login so the user's ID token carries
+  // { admin: true, role } and the RTDB security rules (which inspect
+  // auth.token.admin / auth.token.role) accept staff RTDB reads.
+  app.post("/api/auth/claims", async (req: any, res) => {
+    try {
+      const authHeader: string = (req.headers && req.headers.authorization) || "";
+      const bearer = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+      if (!bearer) {
+        res.status(401).json({ success: false, error: "Missing authorization token." });
+        return;
+      }
+      const verified = await verifyFirebaseToken(bearer);
+      if (!verified) {
+        res.status(401).json({ success: false, error: "Invalid authorization token." });
+        return;
+      }
+      const uid: string = verified.uid;
+      // Resolve role from staff/$uid (primary) or users/$uid/role.
+      let role = verified.role || "customer";
+      const staffSnap = await rtdbGet(`staff/${uid}`, await getAdminAuthToken());
+      if (staffSnap && staffSnap.data && staffSnap.data.role) {
+        role = staffSnap.data.role;
+      } else if (!role || role === "customer") {
+        const userSnap = await rtdbGet(`users/${uid}`, await getAdminAuthToken());
+        if (userSnap && userSnap.data && userSnap.data.role) {
+          role = userSnap.data.role;
+        }
+      }
+      const STAFF_ROLES = ["admin", "super_admin", "event_manager", "ticket_counter", "counter_staff", "auditor"];
+      const isStaff = STAFF_ROLES.includes(role);
+      try {
+        // firebase-admin is a server-only dependency (loaded dynamically so
+        // the client bundle stays small).
+        const adminSdk: any = await import("firebase-admin");
+        try {
+          adminSdk.app();
+        } catch {
+          const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || "{}");
+          if (serviceAccount.private_key) {
+            adminSdk.initializeApp({
+              credential: adminSdk.credential.cert(serviceAccount),
+              databaseURL: process.env.FIREBASE_DATABASE_URL,
+            });
+          } else {
+            adminSdk.initializeApp();
+          }
+        }
+        if (isStaff) {
+          await adminSdk.auth().setCustomUserClaims(uid, {
+            admin: role === "admin" || role === "super_admin",
+            role,
+          });
+        } else {
+          // Clear stale claims for demoted users.
+          await adminSdk.auth().setCustomUserClaims(uid, {});
+        }
+        res.json({ success: true, role, isStaff });
+      } catch (sdkErr: any) {
+        console.error("[CLAIMS] firebase-admin claims write failed:", sdkErr?.message || sdkErr);
+        res.status(500).json({ success: false, error: "Claims service unavailable." });
+      }
+    } catch (err: any) {
+      console.error("[CLAIMS] Unexpected error:", err?.message || err);
+      res.status(500).json({ success: false, error: "Internal server error." });
+    }
+  });
+
   // Coupons management
   const getCouponsList = async (idToken?: string) => {
     try {

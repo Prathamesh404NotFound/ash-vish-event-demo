@@ -969,7 +969,8 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const fetchCoupons = async () => {
     try {
-      const snap = await rtdbGet('coupons');
+      const token = auth.currentUser ? await auth.currentUser.getIdToken() : undefined;
+      const snap = await rtdbGet('coupons', token);
       if (snap.data && typeof snap.data === 'object') {
         setCoupons(Object.values(snap.data) as Coupon[]);
       }
@@ -1027,7 +1028,8 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         // rules a guest (or unauthenticated) RTDB read of coupons is denied,
         // so unauthenticated validation relies solely on the server API above.
         try {
-          const snap = await rtdbGet(`coupons/${codeUpper}`);
+          const cToken = auth.currentUser ? await auth.currentUser.getIdToken() : undefined;
+          const snap = await rtdbGet(`coupons/${codeUpper}`, cToken);
           if (snap.data) {
             coupon = snap.data as Coupon;
           }
@@ -1483,7 +1485,8 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const fetchOrganizers = async () => {
     try {
-      const snap = await rtdbGet('organizers');
+      const token = auth.currentUser ? await auth.currentUser.getIdToken() : undefined;
+      const snap = await rtdbGet('organizers', token);
       if (snap.data && typeof snap.data === 'object') {
         const list = Object.values(snap.data) as OrganizerAccount[];
         if (list.length > 0) {
