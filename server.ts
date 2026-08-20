@@ -1583,34 +1583,33 @@ export async function createApp() {
       const STAFF_ROLES = ["admin", "super_admin", "event_manager", "ticket_counter", "counter_staff", "auditor"];
       const isStaff = STAFF_ROLES.includes(role);
       try {
-        // firebase-admin is a server-only dependency (loaded dynamically so
-        // the client bundle stays small).
-        const adminSdk: any = await import("firebase-admin");
-        try {
-          adminSdk.app();
-        } catch {
-          const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || "{}");
-          if (serviceAccount.private_key) {
-            adminSdk.initializeApp({
-              credential: adminSdk.credential.cert(serviceAccount),
-              databaseURL: process.env.FIREBASE_DATABASE_URL,
-            });
-          } else {
-            adminSdk.initializeApp();
-          }
+        // Mint custom claims via the Identity Toolkit REST API using the
+        // existing server admin bot token (same credential path as
+        // identity-admin.ts) — avoids the firebase-admin dynamic-import
+        // module shape issues and keeps the server bundle small.
+        const adminToken = await getFirebaseAdminIdToken();
+        const apiKey = process.env.VITE_FIREBASE_API_KEY || process.env.FIREBASE_API_KEY;
+        if (!apiKey) {
+          throw new Error("Firebase API key not configured.");
         }
-        if (isStaff) {
-          await adminSdk.auth().setCustomUserClaims(uid, {
-            admin: role === "admin" || role === "super_admin",
-            role,
-          });
-        } else {
-          // Clear stale claims for demoted users.
-          await adminSdk.auth().setCustomUserClaims(uid, {});
+        const customAttributes = isStaff
+          ? JSON.stringify({ admin: role === "admin" || role === "super_admin", role })
+          : "{}";
+        const updateRes = await fetch(
+          `https://identitytoolkit.googleapis.com/v1/accounts:update?key=${apiKey}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${adminToken}` },
+            body: JSON.stringify({ localId: uid, customAttributes }),
+          }
+        );
+        if (!updateRes.ok) {
+          const body = await updateRes.text();
+          throw new Error(`accounts:update failed (${updateRes.status}): ${body}`);
         }
         res.json({ success: true, role, isStaff });
       } catch (sdkErr: any) {
-        console.error("[CLAIMS] firebase-admin claims write failed:", sdkErr?.message || sdkErr);
+        console.error("[CLAIMS] claims mint failed:", sdkErr?.message || sdkErr);
         res.status(500).json({ success: false, error: "Claims service unavailable." });
       }
     } catch (err: any) {

@@ -1397,6 +1397,10 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   useEffect(() => {
+    const isAdmin =
+      user?.role === 'admin' || user?.role === 'ticket_counter' || user?.role === 'event_manager' || user?.role === 'super_admin';
+    if (!isAdmin) return; // full review moderation list is an admin feature;
+    // guests and buyers only see published reviews per-event anyway.
     fetchAllReviewsForAdmin();
   }, [user?.role, user?.id]);
 
