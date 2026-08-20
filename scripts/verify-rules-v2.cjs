@@ -280,6 +280,11 @@ function t(name, cond) { results.push({ name, ok: cond }); }
 
 const A = {
   guest: makeAuth('nobody'),
+  // The Firebase server service-account bot (src/lib/identity-admin.ts) —
+  // uid 'admin-server-bot', claims {role:'admin', admin:true}, NO staff
+  // record. It must be able to read and write everything the server needs;
+  // its access should NOT depend on any staff-node entry.
+  bot: { uid: 'admin-server-bot', token: { role: 'admin', admin: true } },
   customer: makeAuth('customer'),
   organizer: makeAuth('organizer_pending'),
   tc: makeAuth('ticket_counter'),
@@ -334,7 +339,10 @@ t('customer cannot read passes directly (pass lookups are server-only — VULN-0
 t('tc reads staff registry', canRead(A.tc, 'staff'));
 t('tc reads all users', canRead(A.tc, 'users/u-organizer'));
 t('tc cannot write user role', !canWrite(A.tc, 'users/u-customer/role', {}, { val: 'admin' }));
-t('tc cannot write users/$uid/tickets (server-authoritative)', !canWrite(A.tc, 'users/u-customer/tickets/t1', {}, { status: 'used' }));
+t('tc writes own walk-in ticket updates (server flow uses operator user token)', canWrite(A.tc, 'users/u-customer/tickets/t1', { ownerId: 'u-customer' }, { status: 'used' }));
+t('tc writes tickets collection (void/collectedAt via own token)', canWrite(A.tc, 'tickets/t1', { ownerId: 'u-customer' }, { paymentStatus: 'paid' }));
+t('tc writes orders (collectedAt updates via own token)', canWrite(A.tc, 'orders/o1', {}, { paymentStatus: 'paid' }));
+t('tc still cannot write coupons', !canWrite(A.tc, 'coupons/WELCOME20', {}, { isActive: false }));
 t('tc reads tickets list', canRead(A.tc, 'tickets'));
 t('tc reads counter_shifts', canRead(A.tc, 'counter_shifts'));
 t('tc cannot write counter_shifts (server API only)', !canWrite(A.tc, 'counter_shifts/s1', {}, { status: 'ended' }));
@@ -366,9 +374,14 @@ t('em cannot write coupons from client (server API only)', !canWrite(A.em, 'coup
 // ---------- Admin (legacy admin role — level 3 writes, not super_admin) ----------
 t('admin reads staff', canRead(A.admin, 'staff'));
 t('admin reads tickets/bookings', canRead(A.admin, 'tickets') && canRead(A.admin, 'bookings'));
-t('admin CANNOT escalate own staff role (not super_admin)', !canWrite(A.admin, 'staff/u-admin', { email: 'ad@x.com', role: 'admin' }, { email: 'ad@x.com', role: 'super_admin' }));
-t('admin cannot write user roles', !canWrite(A.admin, 'users/u-customer/role', {}, { val: 'admin' }));
-t('admin cannot write coupons client-side', !canWrite(A.admin, 'coupons/WELCOME20', {}, { isActive: false }));
+// v4 policy: staff role 'admin' is normalized to super_admin authority by
+// server.ts toRbacRole() — admins get full read/write authority, EXCEPT they
+// may never create or promote another super_admin (only real super_admins
+// can do that — this is the single privilege they lack).
+t('admin reads everything staff-visible (coupons, counters, audit)', canRead(A.admin, 'coupons') && canRead(A.admin, 'counters') && canRead(A.admin, 'audit_log'));
+t('admin writes coupons/counters (full admin authority)', canWrite(A.admin, 'coupons/WELCOME20', {}, { isActive: false }) && canWrite(A.admin, 'counters/c1', {}, { name: 'X' }));
+t('admin CANNOT promote a target into super_admin (reserved)', !canWrite(A.admin, 'staff/u-tc', { email: 'tc@x.com', role: 'ticket_counter' }, { email: 'tc@x.com', role: 'super_admin' }));
+t('admin CANNOT demote a real super_admin (self-protection)', !canWrite(A.admin, 'staff/u-super', { email: 'sa@x.com', role: 'super_admin' }, { email: 'sa@x.com', role: 'admin' }));
 
 // ---------- Super admin (full authority) ----------
 t('super reads everything',
@@ -390,24 +403,36 @@ t('super writes own role (self-manage allowed)', canWrite(A.super, 'users/u-supe
 t('super CANNOT demote another super_admin via staff registry', !canWrite(A.super, 'staff/u-super', { email: 'sa@x.com', role: 'super_admin' }, { email: 'sa@x.com', role: 'admin' }));
 t('super CAN promote non-super staff', canWrite(A.super, 'staff/u-tc', { email: 'tc@x.com', role: 'ticket_counter' }, { email: 'tc@x.com', role: 'admin' }));
 t('super staff role validate rejects bogus role', !canWrite(A.super, 'staff/u-new', {}, { email: 'n@x.com', role: 'wizard' }));
+t('super CAN promote a target into super_admin', canWrite(A.super, 'staff/u-tc', { email: 'tc@x.com', role: 'ticket_counter' }, { email: 'tc@x.com', role: 'super_admin' }));
 
 // ---------- Stray customer inside staff node ----------
 // A staff-node record with a non-staff role ('customer') must NOT broaden
 // any privilege: reads still go through users/$uid/role === 'customer'
 // where that matters, and staff-gated reads require staff existence AND are
-// narrowed by role checks; the role store's own .read gate already permits
-// any staff-registered uid to browse the registry (needed for role
-// resolution), so the real defense is that every WRITE/operational read
-// checks role === 'super_admin' etc. This test asserts the narrower claims.
+// narrowed by role checks. v4: every WRITE/operational read requires the
+// role to be super_admin/admin (or counter/em/auditor where scoped).
 const strayRoot = makeRoot({ staff: { 'u-customer': { email: 'cu@x.com', role: 'customer' } } });
 t('stray customer staff record (role=customer) CANNOT write coupons', !canWrite(A.customer, 'coupons/WELCOME20', {}, { isActive: false }, strayRoot));
 t('stray customer staff record CANNOT write staff registry', !canWrite(A.customer, 'staff/u-customer', {}, { email: 'cu@x.com', role: 'super_admin' }, strayRoot));
 t('stray customer staff record CANNOT write user role (escalation)', !canWrite(A.customer, 'users/u-customer/role', {}, { val: 'admin' }, strayRoot));
+t('admin staff member CANNOT promote a target into super_admin', !canWrite(A.admin, 'staff/u-tc', { email: 'tc@x.com', role: 'ticket_counter' }, { email: 'tc@x.com', role: 'super_admin' }));
 t('stray customer staff record CANNOT write reservations', !canWrite(A.customer, 'reservations/r1', {}, { status: 'expired' }, strayRoot));
 
 // ---------- Cross-cutting: granting expressions never key on custom claims ----------
 t('no granting rule references auth.token (claims are never minted for client users — any such rule would be dead code and a misconfiguration)',
   JSON.stringify(RULES).match(/auth\.token\.(admin|role)/g) === null);
+
+// ---------- Server service-account bot ('admin-server-bot') ----------
+// A bot root without any staff record: proves the bot's access is explicit,
+// not inherited from a (missing) staff entry.
+const botRoot = makeRoot({ staff: {} });
+t('bot reads staff registry without staff record', canRead(A.bot, 'staff', undefined, botRoot));
+t('bot reads any user profile without staff record', canRead(A.bot, 'users/u-customer', undefined, botRoot));
+t('bot reads coupons/tickets/bookings without staff record', canRead(A.bot, 'coupons') && canRead(A.bot, 'tickets') && canRead(A.bot, 'bookings'), undefined, botRoot);
+t('bot writes coupons/counters/staff without staff record', canWrite(A.bot, 'coupons/NEW', {}, { isActive: true }, undefined, botRoot) && canWrite(A.bot, 'counters/c1', {}, { name: 'X' }, undefined, botRoot) && canWrite(A.bot, 'staff/u-new', {}, { email: 'n@x.com', role: 'admin' }, undefined, botRoot));
+t('bot writes users/$uid/tickets and bookings (fulfillment flows)', canWrite(A.bot, 'users/u-customer/tickets/t1', {}, { status: 'paid' }, undefined, botRoot) && canWrite(A.bot, 'tickets/t1', {}, { status: 'valid' }, undefined, botRoot) && canWrite(A.bot, 'orders/o1', {}, { paymentStatus: 'paid' }, undefined, botRoot));
+t('bot writes audit_log and notifications (trigger flows)', canWrite(A.bot, 'audit_log/x', {}, { action: 't' }, undefined, botRoot) && canWrite(A.bot, 'notifications/n1', {}, { status: 'sent' }, undefined, botRoot));
+t('bot can be made super_admin (system root identity)', canWrite(A.bot, 'staff/u-bot', {}, { email: 'bot@x.com', role: 'super_admin' }, undefined, botRoot));
 
 // Summary
 const failed = results.filter((r) => !r.ok);

@@ -4,97 +4,110 @@
     ".write": false,
 
     // ============================================================
-    // Role resolution (single source of truth, used everywhere below)
+    // Role resolution — v4 (server-bot + admin-role authority added)
     // ============================================================
-    // No Firebase custom claims are ever minted (setCustomUserClaims is not
-    // called anywhere in this repo), so auth.token.admin / auth.token.role are
-    // NEVER present on real client tokens. The ONLY tokens carrying those
-    // claims are the server service-account custom token (admin-server-bot,
-    // {admin:true, role:'admin'}) used internally by server.ts. Any client-
-    // side rule gated on auth.token.* is therefore DEAD CODE — this was the
-    // single most critical defect in the previous ruleset: it silently denied
-    // every staff member every permission, regardless of their DB role.
+    // Who is "admin" in this system (three distinct identities):
     //
-    // All client-side authorization is now resolved from the RTDB role store:
-    //   staff/$uid/role   ∈ super_admin | admin | event_manager | counter_staff
-    //                       | auditor | ticket_counter      (grants staff view)
-    //   users/$uid/role   ∈ customer | admin | organizer     (legacy user role)
+    //   1. Client users whose staff record has role 'super_admin' or 'admin'.
+    //      To them, server.ts toRbacRole() normalizes BOTH to super_admin
+    //      authority — the admin panel treats them identically.
     //
-    // RBAC hierarchy (mirrors server.ts RBAC_LEVEL):
-    //   super_admin (4) > event_manager (3) > counter_staff (2) > auditor (1)
-    //   - admin/ticket_counter in staff normalize to super_admin/counter_staff.
-    //   - auditor is READ-ONLY: no write permissions anywhere.
-    //   - organizer/event_manager can only act on their OWN organizer record
-    //     and events (server API enforces the rest).
+    //   2. The SERVER service-account bot, uid 'admin-server-bot'
+    //      (src/lib/identity-admin.ts). It carries claims {role:'admin',
+    //      admin:true} but has NO record in the staff node, so every
+    //      staff-existence check below would deny it. Without an explicit
+    //      bot allowance the whole server collapses: admin/counter endpoints
+    //      fail their RTDB reads and return 500 (this was the exact failure
+    //      seen after deploying v3 — every /api/admin/* and /api/counter/*
+    //      GET returned 500 because counters/.read denied the bot).
+    //
+    //   3. Client users with role 'ticket_counter'/'counter_staff' — counter
+    //      operations plus all normal user features.
+    //
+    // No client token ever carries custom claims (setCustomUserClaims is
+    // never called), so auth.token.* gates would be dead code.
+    //
+    // Authority shorthand used in expressions:
+    //   isAdmin      : role in (super_admin | admin)          — full authority
+    //   isCounter    : role in (ticket_counter | counter_staff) — counter ops
+    //   isEM         : role in (event_manager | organizer)      — panel reads
+    //   isAuditor    : role === 'auditor'                       — read-only
+    //   isStaff      : staff/$uid record exists (any role)
+    //   isBot        : auth.uid === 'admin-server-bot'
     // ============================================================
 
     "users": {
       "$uid": {
-        // Staff and admins may read any user profile; customers read only
-        // their own. Auditor/staff reads via the shared staff-read guard.
-        ".read": "auth != null && (auth.uid === $uid || root.child('staff').child(auth.uid).exists())",
-        "id":        { ".write": "auth != null && auth.uid === $uid" },
-        "name":      { ".write": "auth != null && auth.uid === $uid" },
-        "email":     { ".write": "auth != null && auth.uid === $uid" },
-        "phone":     { ".write": "auth != null && auth.uid === $uid" },
-        "photoUrl":  { ".write": "auth != null && auth.uid === $uid" },
-        "authProvider": { ".write": "auth != null && auth.uid === $uid" },
-        "joinedDate":  { ".write": "auth != null && auth.uid === $uid" },
-        "createdAt":   { ".write": "auth != null && auth.uid === $uid" },
-        // CRITICAL FIX: the previous rules let $uid === auth.uid write 'role',
-        // so any customer could set users/$uid/role = 'admin'/'super_admin'
-        // and instantly escalate to full privilege. Role writes now require
-        // super_admin authority (and the server never takes role from user
-        // input anyway — updateProfile's 'role' field is rejected here).
-        "role": { ".write": "auth != null && root.child('staff').child(auth.uid).child('role').val() === 'super_admin'" },
-        // Organizer application metadata follows the same self-write policy
-        // as the profile fields it duplicates; formal status changes are
-        // admin-only via /api/organizers/status.
-        "organizerStatus":    { ".write": "auth != null && auth.uid === $uid" },
-        "organizationName":   { ".write": "auth != null && auth.uid === $uid" },
-        "organizerPhone":     { ".write": "auth != null && auth.uid === $uid" },
-        "organizerDescription": { ".write": "auth != null && auth.uid === $uid" },
+        // Bot, admins, and all staff read any profile (guest lookup for
+        // walk-in issuance). Customers read only their own profile.
+        ".read": "auth != null && (auth.uid === 'admin-server-bot' || auth.uid === $uid || root.child('staff').child(auth.uid).exists())",
+        "id":        { ".write": "auth != null && (auth.uid === 'admin-server-bot' || auth.uid === $uid)" },
+        "name":      { ".write": "auth != null && (auth.uid === 'admin-server-bot' || auth.uid === $uid)" },
+        "email":     { ".write": "auth != null && (auth.uid === 'admin-server-bot' || auth.uid === $uid)" },
+        "phone":     { ".write": "auth != null && (auth.uid === 'admin-server-bot' || auth.uid === $uid)" },
+        "photoUrl":  { ".write": "auth != null && (auth.uid === 'admin-server-bot' || auth.uid === $uid)" },
+        "authProvider": { ".write": "auth != null && (auth.uid === 'admin-server-bot' || auth.uid === $uid)" },
+        "joinedDate":  { ".write": "auth != null && (auth.uid === 'admin-server-bot' || auth.uid === $uid)" },
+        "createdAt":   { ".write": "auth != null && (auth.uid === 'admin-server-bot' || auth.uid === $uid)" },
+        // Role writes: bot + super_admin/admin only. NEVER self-writable —
+        // self-write would be instant privilege escalation.
+        "role": { ".write": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).child('role').val() === 'super_admin' || root.child('staff').child(auth.uid).child('role').val() === 'admin')" },
+        // Organizer application metadata: self-write (status enforced to
+        // 'pending' client-side; formal approvals are admin-only via
+        // /api/organizers/status).
+        "organizerStatus":    { ".write": "auth != null && (auth.uid === 'admin-server-bot' || auth.uid === $uid)" },
+        "organizationName":   { ".write": "auth != null && (auth.uid === 'admin-server-bot' || auth.uid === $uid)" },
+        "organizerPhone":     { ".write": "auth != null && (auth.uid === 'admin-server-bot' || auth.uid === $uid)" },
+        "organizerDescription": { ".write": "auth != null && (auth.uid === 'admin-server-bot' || auth.uid === $uid)" },
         "tickets": {
-          // My-Tickets view: owner + all staff. Write only super_admin
-          // (ticket redemption, void, check-in are server-authoritative and
-          // use the admin token, not client tokens).
-          ".read": "auth != null && (auth.uid === $uid || root.child('staff').child(auth.uid).exists())",
-          ".write": "auth != null && root.child('staff').child(auth.uid).child('role').val() === 'super_admin'"
+          // Customers read their server-written mirror (My Tickets). Staff
+          // read any user's tickets (guest lookup / check-in). Writes: bot,
+          // super_admin/admin (redeem, void), and counter staff (the server's
+          // redemption/void flows write users/$uid/tickets/$id/** with the
+          // counter operator's USER token — see server.ts ~line 4601 and
+          // ~line 6080).
+          ".read": "auth != null && (auth.uid === 'admin-server-bot' || auth.uid === $uid || root.child('staff').child(auth.uid).exists())",
+          ".write": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).child('role').val() === 'super_admin' || root.child('staff').child(auth.uid).child('role').val() === 'admin' || root.child('staff').child(auth.uid).child('role').val() === 'counter_staff' || root.child('staff').child(auth.uid).child('role').val() === 'ticket_counter')"
         },
         "bookings": {
-          // My-Bookings view: owner + staff. Counter/booking status updates
-          // are server-authoritative via admin token.
-          ".read": "auth != null && (auth.uid === $uid || root.child('staff').child(auth.uid).exists())",
-          ".write": "auth != null && root.child('staff').child(auth.uid).child('role').val() === 'super_admin'"
+          // Customers read their server-written mirror. Staff read any user's
+          // bookings (ops lookups). Writes: bot, super_admin/admin, counter
+          // staff (collectedAt / paymentStatus updates use the operator's
+          // user token — see server.ts ~line 6086).
+          ".read": "auth != null && (auth.uid === 'admin-server-bot' || auth.uid === $uid || root.child('staff').child(auth.uid).exists())",
+          ".write": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).child('role').val() === 'super_admin' || root.child('staff').child(auth.uid).child('role').val() === 'admin' || root.child('staff').child(auth.uid).child('role').val() === 'counter_staff' || root.child('staff').child(auth.uid).child('role').val() === 'ticket_counter')"
         }
       }
     },
 
     "staff": {
-      // STAFF REGISTRY — the authoritative RBAC store. Reading it is how the
-      // app resolves roles, so every authenticated staff member may read it.
-      // Customers (no staff record) get a single-record view of themselves
-      // only if they have a staff record — otherwise no access.
-      ".read": "auth != null && root.child('staff').child(auth.uid).exists()",
+      // The RBAC store. Bot + any staff member may read it (role resolution
+      // for every staff UI, plus the server's own role lookups). Writes:
+      // bot + super_admin/admin only.
+      ".read": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).exists())",
       "$uid": {
-        ".read": "auth != null && (auth.uid === $uid || root.child('staff').child(auth.uid).exists())",
-        // Only super_admin may create/modify staff roles (server API
-        // /api/staff requires super_admin too). Prevents horizontal and
-        // vertical privilege escalation through the staff registry.
-        ".write": "auth != null && root.child('staff').child(auth.uid).child('role').val() === 'super_admin'",
-        ".validate": "newData.hasChildren(['email', 'role']) && newData.child('role').isString() && (newData.child('role').val() === 'super_admin' || newData.child('role').val() === 'event_manager' || newData.child('role').val() === 'counter_staff' || newData.child('role').val() === 'auditor' || newData.child('role').val() === 'admin' || newData.child('role').val() === 'ticket_counter') && (!data.exists() || !(root.child('staff').child(auth.uid).child('role').val() === 'super_admin' && data.child('role').val() === 'super_admin' && newData.child('role').val() !== 'super_admin'))",
+        ".read": "auth != null && (auth.uid === 'admin-server-bot' || auth.uid === $uid || root.child('staff').child(auth.uid).exists())",
+        ".write": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).child('role').val() === 'super_admin' || root.child('staff').child(auth.uid).child('role').val() === 'admin')",
+        // .validate (all writers, including admins): 1) role must be one of
+        // the recognized RBAC values; 2) creating or promoting a record INTO
+        // super_admin is reserved for super_admin writers only (admins get
+        // every other privilege); 3) demoting an EXISTING super_admin
+        // (changing its role to anything else) is reserved for super_admin
+        // writers — the one privilege admins never receive, exactly because
+        // super_admin is the system's trust root.
+        ".validate": "newData.hasChildren(['email', 'role']) && newData.child('role').isString() && (newData.child('role').val() === 'super_admin' || newData.child('role').val() === 'event_manager' || newData.child('role').val() === 'counter_staff' || newData.child('role').val() === 'auditor' || newData.child('role').val() === 'admin' || newData.child('role').val() === 'ticket_counter') && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).child('role').val() === 'super_admin' || newData.child('role').val() !== 'super_admin') && (auth.uid === 'admin-server-bot' || (root.child('staff').child(auth.uid).child('role').val() === 'super_admin' && (!data.exists() || data.child('role').val() !== 'super_admin' || newData.child('role').val() === 'super_admin')))",
         "role": {
-          // Super-admin self-protection: a super_admin must always remain
-          // super_admin. An attacker who gains any staff write (e.g. via a
-          // bug in /api/staff) still cannot demote the root account.
-          ".validate": "root.child('staff').child(auth.uid).child('role').val() === 'super_admin' || root.child('staff').child($uid).child('role').val() !== 'super_admin'"
+          // Field-level duplicate of the same two protections (Firebase also
+          // evaluates .validate at any depth the write touches). A non-super
+          // writer may never assign 'super_admin' and may never change the
+          // role of a record that currently holds 'super_admin'.
+          ".validate": "auth.uid === 'admin-server-bot' || (root.child('staff').child(auth.uid).child('role').val() === 'super_admin' && (!data.exists() || data.child('role').val() !== 'super_admin' || newData.child('role').val() === 'super_admin'))"
         }
       }
     },
 
     // ============================================================
-    // Public catalog nodes — intentional, do not restrict (see
-    // docs/firebase-security.md). They contain zero PII.
+    // Public catalog — intentional, zero PII (see docs/firebase-security.md)
     // ============================================================
     "events": {
       ".read": true,
@@ -106,157 +119,148 @@
     },
 
     // ============================================================
-    // Reviews — public read (marketing pages), authenticated create with
-    // schema validation, admin-moderated.
+    // Reviews — public read, authenticated owner-only create, admin-modded
     // ============================================================
     "reviews": {
       ".read": true,
       "$reviewId": {
-        // Any logged-in user may CREATE their own review (userId must equal
-        // auth.uid, enforced below). Moderation (status toggling) and deletion
-        // are super_admin-only via the admin API.
         ".write": "auth != null && newData.child('userId').val() === auth.uid && !data.exists()",
         ".validate": "!newData.exists() || (newData.hasChildren(['id','eventId','userId','userName','rating','comment','createdAt','status','isVerifiedBuyer']) && newData.child('rating').isNumber() && newData.child('rating').val() >= 1 && newData.child('rating').val() <= 5 && newData.child('comment').isString() && newData.child('comment').val().length <= 2000 && newData.child('status').val() === 'published' && newData.child('isVerifiedBuyer').isBoolean() && newData.child('userId').val() === auth.uid)"
       }
     },
 
     // ============================================================
-    // Checkout / fulfillment nodes — the previous ruleset broke the guest
-    // and customer flows here (see audit report for details).
+    // Checkout / fulfillment — customers read their own + coupons; staff read
+    // all; writes are bot / admin-gated.
     // ============================================================
     "coupons": {
-      // Customers MUST read coupons during checkout (BookingContext reads
-      // 'coupons' on login AND the promo UI). Admin panel staff also read
-      // them. Write is super_admin-only — coupon create/update/delete go
-      // through the server API /api/coupons/* (admin token), keeping the
-      // client read-only for real users.
-      ".read": "auth != null && (root.child('staff').child(auth.uid).exists() || root.child('users').child(auth.uid).child('role').val() === 'customer' || root.child('users').child(auth.uid).child('role').val() === 'organizer')",
-      ".write": "auth != null && root.child('staff').child(auth.uid).child('role').val() === 'super_admin'"
+      // BookingContext.fetchCoupons reads 'coupons' for every logged-in
+      // customer at checkout (NOTE: fix the client to pass the auth token —
+      // tokenless requests are anonymous and are correctly denied by any
+      // auth-gated rule), and staff read them in the admin panel. Writes:
+      // bot + super_admin/admin.
+      ".read": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).exists() || root.child('users').child(auth.uid).child('role').val() === 'customer' || root.child('users').child(auth.uid).child('role').val() === 'organizer')",
+      ".write": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).child('role').val() === 'super_admin' || root.child('staff').child(auth.uid).child('role').val() === 'admin')"
     },
     "pending_orders": {
-      // Server-authoritative fulfillment source. Staff read for operations;
-      // customers read their own pending orders (order-status polling).
-      // All writes are server-side via admin token.
-      ".read": "auth != null && (root.child('staff').child(auth.uid).exists() || data.child('userId').val() === auth.uid)",
-      ".write": "auth != null && root.child('staff').child(auth.uid).child('role').val() === 'super_admin'"
+      ".read": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).exists() || data.child('userId').val() === auth.uid)",
+      ".write": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).child('role').val() === 'super_admin' || root.child('staff').child(auth.uid).child('role').val() === 'admin' || root.child('staff').child(auth.uid).child('role').val() === 'counter_staff' || root.child('staff').child(auth.uid).child('role').val() === 'ticket_counter')"
     },
     "processed_orders": {
-      ".read": "auth != null && (root.child('staff').child(auth.uid).exists() || data.child('userId').val() === auth.uid)",
-      ".write": "auth != null && root.child('staff').child(auth.uid).child('role').val() === 'super_admin'"
+      // Bot writes the idempotency lock (transaction set + delete on
+      // finalize) — must not be denied. Staff read for ops; customers never.
+      ".read": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).exists() || data.child('userId').val() === auth.uid)",
+      ".write": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).child('role').val() === 'super_admin' || root.child('staff').child(auth.uid).child('role').val() === 'admin' || root.child('staff').child(auth.uid).child('role').val() === 'counter_staff' || root.child('staff').child(auth.uid).child('role').val() === 'ticket_counter')"
     },
     "orders": {
-      ".read": "auth != null && (root.child('staff').child(auth.uid).exists() || data.child('userId').val() === auth.uid)",
-      ".write": "auth != null && root.child('staff').child(auth.uid).child('role').val() === 'super_admin'"
+      ".read": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).exists() || data.child('userId').val() === auth.uid)",
+      ".write": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).child('role').val() === 'super_admin' || root.child('staff').child(auth.uid).child('role').val() === 'admin' || root.child('staff').child(auth.uid).child('role').val() === 'counter_staff' || root.child('staff').child(auth.uid).child('role').val() === 'ticket_counter')"
     },
     "passes": {
-      // VULN-0002 guard kept: no public read. Staff + individual pass
-      // lookups remain exclusively server-side via HMAC-signed endpoints.
-      ".read": "auth != null && root.child('staff').child(auth.uid).exists()",
-      ".write": "auth != null && root.child('staff').child(auth.uid).child('role').val() === 'super_admin'"
+      // VULN-0002: no public reads. Bot + staff read for operational use;
+      // the walk-in terminal gets customer passes via the HMAC-signed
+      // /api/passes/:passId endpoint, never through direct client RTDB
+      // reads.
+      ".read": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).exists())",
+      ".write": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).child('role').val() === 'super_admin' || root.child('staff').child(auth.uid).child('role').val() === 'admin')"
     },
 
     // ============================================================
-    // Tickets / bookings — operational reads for staff, owner reads for
-    // customers, writes are server-authoritative.
+    // Tickets / bookings operational collections
     // ============================================================
     "tickets": {
-      ".read": "auth != null && root.child('staff').child(auth.uid).exists()",
-      ".write": "auth != null && root.child('staff').child(auth.uid).child('role').val() === 'super_admin'",
+      // Staff read the full operational collection (My Sales, check-in,
+      // reports). Writes: bot, super_admin/admin, counter staff (void/
+      // collectedAt updates use the operator's user token).
+      ".read": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).exists())",
+      ".write": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).child('role').val() === 'super_admin' || root.child('staff').child(auth.uid).child('role').val() === 'admin' || root.child('staff').child(auth.uid).child('role').val() === 'counter_staff' || root.child('staff').child(auth.uid).child('role').val() === 'ticket_counter')",
       "$ticketId": {
-        // Owner view of a single ticket (used by pass/regen flows).
-        ".read": "auth != null && (root.child('staff').child(auth.uid).exists() || data.child('ownerId').val() === auth.uid)"
+        ".read": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).exists() || data.child('ownerId').val() === auth.uid)"
       }
     },
     "bookings": {
-      ".read": "auth != null && root.child('staff').child(auth.uid).exists()",
-      ".write": "auth != null && root.child('staff').child(auth.uid).child('role').val() === 'super_admin'",
+      ".read": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).exists())",
+      ".write": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).child('role').val() === 'super_admin' || root.child('staff').child(auth.uid).child('role').val() === 'admin' || root.child('staff').child(auth.uid).child('role').val() === 'counter_staff' || root.child('staff').child(auth.uid).child('role').val() === 'ticket_counter')",
       "$bookingId": {
-        ".read": "auth != null && (root.child('staff').child(auth.uid).exists() || data.child('userId').val() === auth.uid)"
+        ".read": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).exists() || data.child('userId').val() === auth.uid)"
       }
     },
 
     // ============================================================
-    // Reservations — seat-hold lifecycle is server-authoritative
-    // (/api/reservations/* uses admin token). 'ownerId' on writes comes
-    // from the server's reservation ownership model, not client input.
+    // Reservations — server-authoritative lifecycle (/api/reservations/*)
     // ============================================================
     "reservations": {
-      ".read": "auth != null && (root.child('staff').child(auth.uid).exists() || data.child('ownerId').val() === auth.uid)",
-      ".write": "auth != null && root.child('staff').child(auth.uid).child('role').val() === 'super_admin'"
+      ".read": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).exists() || data.child('ownerId').val() === auth.uid)",
+      ".write": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).child('role').val() === 'super_admin' || root.child('staff').child(auth.uid).child('role').val() === 'admin')"
     },
     "reservation_owners": {
-      ".read": "auth != null && root.child('staff').child(auth.uid).exists()",
-      ".write": "auth != null && root.child('staff').child(auth.uid).child('role').val() === 'super_admin'"
+      ".read": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).exists())",
+      ".write": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).child('role').val() === 'super_admin' || root.child('staff').child(auth.uid).child('role').val() === 'admin')"
     },
     "reservation_events": {
-      ".read": "auth != null && root.child('staff').child(auth.uid).exists()",
-      ".write": "auth != null && root.child('staff').child(auth.uid).child('role').val() === 'super_admin'"
+      ".read": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).exists())",
+      ".write": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).child('role').val() === 'super_admin' || root.child('staff').child(auth.uid).child('role').val() === 'admin')"
     },
 
     // ============================================================
-    // Organizers — any logged-in user may register (status starts 'pending',
-    // so registration cannot self-approve). Status changes are admin-only
-    // via /api/organizers/status.
+    // Organizers — any logged-in user registers into 'pending' only;
+    // approvals are admin-only via /api/organizers/status (bot + admin).
     // ============================================================
     "organizers": {
-      ".read": "auth != null && (root.child('staff').child(auth.uid).exists() || data.child('userId').val() === auth.uid)",
-      ".write": "auth != null && (root.child('staff').child(auth.uid).child('role').val() === 'super_admin' || newData.child('status').val() === 'pending')",
+      ".read": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).exists() || data.child('userId').val() === auth.uid)",
+      ".write": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).child('role').val() === 'super_admin' || root.child('staff').child(auth.uid).child('role').val() === 'admin' || newData.child('status').val() === 'pending')",
       "$organizerId": {
-        ".read": "auth != null && (root.child('staff').child(auth.uid).exists() || data.child('userId').val() === auth.uid)",
-        // A user may only register/update their OWN organizer application,
-        // and only into status 'pending'. Approvals are admin-server-side.
-        ".write": "auth != null && (root.child('staff').child(auth.uid).child('role').val() === 'super_admin' || (data.child('userId').val() === auth.uid && newData.child('userId').val() === auth.uid && newData.child('status').val() === 'pending'))"
+        ".read": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).exists() || data.child('userId').val() === auth.uid)",
+        ".write": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).child('role').val() === 'super_admin' || root.child('staff').child(auth.uid).child('role').val() === 'admin' || (data.child('userId').val() === auth.uid && newData.child('userId').val() === auth.uid && newData.child('status').val() === 'pending'))"
       }
     },
 
     // ============================================================
-    // Counter operations — staff registry members may read; writes are
-    // super_admin-gated client-side because every counter mutation goes
-    // through server APIs (admin token): walk-in bookings, shifts, voids,
-    // reprints, exchanges, check-ins, merchant UPI.
+    // Counter operations — staff read for dashboards; bot + admin write,
+    // counter staff start/end shifts via the server bot (admin token),
+    // and shift sales/reads happen through /api/counter/* endpoints.
     // ============================================================
     "counters": {
-      ".read": "auth != null && root.child('staff').child(auth.uid).exists()",
-      ".write": "auth != null && root.child('staff').child(auth.uid).child('role').val() === 'super_admin'"
+      ".read": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).exists())",
+      ".write": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).child('role').val() === 'super_admin' || root.child('staff').child(auth.uid).child('role').val() === 'admin')"
     },
     "counter_shifts": {
-      ".read": "auth != null && root.child('staff').child(auth.uid).exists()",
-      ".write": "auth != null && root.child('staff').child(auth.uid).child('role').val() === 'super_admin'"
+      ".read": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).exists())",
+      ".write": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).child('role').val() === 'super_admin' || root.child('staff').child(auth.uid).child('role').val() === 'admin')"
     },
     "sales": {
-      ".read": "auth != null && root.child('staff').child(auth.uid).exists()",
-      ".write": "auth != null && root.child('staff').child(auth.uid).child('role').val() === 'super_admin'"
+      ".read": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).exists())",
+      ".write": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).child('role').val() === 'super_admin' || root.child('staff').child(auth.uid).child('role').val() === 'admin')"
     },
     "staff_uploads": {
-      ".read": "auth != null && root.child('staff').child(auth.uid).exists()",
-      ".write": "auth != null && root.child('staff').child(auth.uid).child('role').val() === 'super_admin'"
+      ".read": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).exists())",
+      ".write": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).child('role').val() === 'super_admin' || root.child('staff').child(auth.uid).child('role').val() === 'admin')"
     },
 
     // ============================================================
-    // Administrative nodes — super_admin-only client writes; staff reads.
+    // Administrative nodes — bot + staff reads; bot + admin writes
     // ============================================================
     "favorites": {
-      ".read": "auth != null && root.child('staff').child(auth.uid).exists()",
-      ".write": "auth != null && root.child('staff').child(auth.uid).child('role').val() === 'super_admin'"
+      ".read": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).exists())",
+      ".write": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).child('role').val() === 'super_admin' || root.child('staff').child(auth.uid).child('role').val() === 'admin')"
     },
     "app_config": {
       ".read": false,
       ".write": false,
       "merchant_upi": {
-        // Public counter pages and checkout need the merchant UPI to
-        // display payment instructions — read is intentionally public.
-        // Writes are super_admin-only via /api/merchant-upi.
+        // Walk-in counter pages and checkout display the merchant UPI with
+        // no auth — read is intentionally public. Writes are bot + admin.
         ".read": true,
-        ".write": "auth != null && root.child('staff').child(auth.uid).child('role').val() === 'super_admin'"
+        ".write": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).child('role').val() === 'super_admin' || root.child('staff').child(auth.uid).child('role').val() === 'admin')"
       }
     },
     "audit_log": {
-      ".read": "auth != null && root.child('staff').child(auth.uid).exists()",
-      ".write": "auth != null && root.child('staff').child(auth.uid).child('role').val() === 'super_admin'"
+      ".read": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).exists())",
+      ".write": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).child('role').val() === 'super_admin' || root.child('staff').child(auth.uid).child('role').val() === 'admin')"
     },
     "notifications": {
-      ".read": "auth != null && root.child('staff').child(auth.uid).exists()",
-      ".write": "auth != null && root.child('staff').child(auth.uid).child('role').val() === 'super_admin'"
+      ".read": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).exists())",
+      ".write": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).child('role').val() === 'super_admin' || root.child('staff').child(auth.uid).child('role').val() === 'admin')"
     }
   }
 }
