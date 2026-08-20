@@ -16,6 +16,7 @@ type TicketPayload = {
   date: string;
   time: string;
   tierName: string;
+  quantity?: number;
   seatNumber: string;
   attendeeName: string;
   qrCodeValue: string;
@@ -74,6 +75,16 @@ export function TicketPassPage() {
         const t = data.ticket || data.pass;
         setTicket(t);
         setState(t?.status === 'redeemed' || t?.redeemed ? 'redeemed' : 'ok');
+
+        // Dynamic OpenGraph and Title metadata
+        if (t) {
+          document.title = `${t.eventTitle || 'Event Pass'} — ${t.attendeeName || 'Pass'} | Ash-vish Events`;
+          document.querySelector('meta[property="og:title"]')?.setAttribute('content', `${t.eventTitle || 'Event'} — ${t.attendeeName || 'Valued Guest'} | Ash-vish Events`);
+          document.querySelector('meta[property="og:description"]')?.setAttribute('content', `Digital pass for ${t.eventTitle || 'Event'} on ${t.date || ''} at ${t.venue || ''}, ${t.city || ''}.`);
+          if (t.eventPoster) {
+            document.querySelector('meta[property="og:image"]')?.setAttribute('content', t.eventPoster);
+          }
+        }
       })
       .catch(() => {
         setState('server_error');
@@ -90,18 +101,19 @@ export function TicketPassPage() {
   const handleOpenMaps = () => {
     if (!ticket) return;
     const query = ticket.eventGoogleMapsQuery || `${ticket.venue}, ${ticket.city}`;
+    if (/^https?:\/\//i.test(query)) {
+      window.open(query, '_blank', 'noopener,noreferrer');
+      return;
+    }
     // Deep link first: intent URL opens the Google Maps app on mobile Android,
     // fallback goes to the universal https URL for iOS / desktop browsers.
     const mapsDeepLink = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
     const mapsUniversal = `https://maps.google.com/?q=${encodeURIComponent(query)}`;
     if (/Android/i.test(navigator.userAgent)) {
-      const intentUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
-      window.location.href = intentUrl;
+      window.location.href = mapsDeepLink;
     } else {
       window.open(mapsUniversal, '_blank', 'noopener,noreferrer');
     }
-    // Fallback: if the deep link didn't launch anything, universal URL still works
-    void mapsDeepLink;
   };
 
   const handleShare = () => {
@@ -283,6 +295,10 @@ export function TicketPassPage() {
             <div className="flex justify-between items-center py-1.5 border-b border-white/10">
               <span className="text-gray-400 font-medium">Attendee</span>
               <span className="text-white font-bold text-sm">{ticket?.attendeeName}</span>
+            </div>
+            <div className="flex justify-between items-center py-1.5 border-b border-white/10">
+              <span className="text-gray-400 font-medium">Tickets</span>
+              <span className="text-white font-bold">{ticket?.quantity ?? 1} × {ticket?.tierName || 'Standard'}</span>
             </div>
             <div className="flex justify-between items-center py-1.5 border-b border-white/10">
               <span className="text-gray-400 font-medium">Ticket Ref</span>

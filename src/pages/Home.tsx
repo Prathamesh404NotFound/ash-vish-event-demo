@@ -81,7 +81,7 @@ export const Home: React.FC<HomeProps> = ({
           <img
             src={currentHeroEvent.coverUrl || currentHeroEvent.posterUrl}
             alt={currentHeroEvent.title}
-            className="w-full h-full object-cover object-center filter brightness-[0.75] contrast-[1.1] transition-all duration-700 scale-105"
+            className="aspect-ratio-fix w-full h-full object-cover object-center filter brightness-[1.02] contrast-[1.02] transition-all duration-700 scale-105"
             fetchPriority="high"
             decoding="async"
           />
@@ -89,8 +89,8 @@ export const Home: React.FC<HomeProps> = ({
             <div className="w-full h-full bg-gradient-to-br from-[#0A0A0A] via-[#1C1C1C] to-[#0A0A0A]" />
           )}
           {/* Overlay Gradients */}
-          <div className="absolute inset-0 bg-gradient-to-t from-[#070707] via-[#070707]/60 to-black/40" />
-          <div className="absolute inset-0 bg-gradient-to-r from-[#070707] via-[#070707]/80 to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-t from-[#070707]/40 via-[#070707]/15 to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-r from-[#070707]/30 via-[#070707]/5 to-transparent" />
         </div>
 
                 {/* Hero Content Container */}

@@ -1,5 +1,4 @@
 import express from "express";
-import { fileURLToPath } from "url";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
@@ -8,7 +7,7 @@ dotenv.config();
 
 import { verifyFirebaseIdToken, TokenVerificationError } from "./src/lib/verify-token.js";
 import { rtdbGet, rtdbSet, rtdbUpdate, rtdbDelete, rtdbTransaction, rtdbPush } from "./src/lib/rtdb.js";
-import { getFirebaseAdminIdToken, getFirebaseAdminAccessToken } from "./src/lib/identity-admin.js";
+import { getFirebaseAdminIdToken } from "./src/lib/identity-admin.js";
 import { sendTicketWhatsApp } from "./src/lib/enotify.js";
 import {
   isRazorpayConfigured,
@@ -1005,6 +1004,7 @@ async function finalizeBookingServerSide(
       attendeePhone: customerDetails.phone,
       qrCodeValue: signedQrToken,
       passSlug,
+      eventGoogleMapsQuery: eventData.mapsUrl || (eventData as any).eventGoogleMapsQuery || `${venue}, ${city}`,
       passType: isDeferred ? 'reservation' : (pendingOrder.isPartial ? 'reservation' : 'entry'),
       paymentStatus: isDeferred ? 'pending' : (pendingOrder.isPartial ? 'partial' : 'paid'),
       amountDue: isDeferred ? amount : (pendingOrder.isPartial ? pendingOrder.amountDue : 0),
@@ -1057,6 +1057,7 @@ async function finalizeBookingServerSide(
       date,
       time,
       tierName,
+      quantity: quantity || 1,
       seatNumber: seatLabel,
       attendeeName: customerDetails.name,
       qrCodeValue: signedQrToken,
@@ -1068,7 +1069,7 @@ async function finalizeBookingServerSide(
       redeemedBy: null,
       createdAt: Date.now(),
       openCount: 0,
-      eventGoogleMapsQuery: (eventData as any).eventGoogleMapsQuery || `${venue}, ${city}`,
+      eventGoogleMapsQuery: eventData.mapsUrl || (eventData as any).eventGoogleMapsQuery || `${venue}, ${city}`,
     }, authToken);
 
     // The seats were already transitioned to 'booked' in step 3; persist the
@@ -1548,73 +1549,6 @@ export async function createApp() {
       return res.json({ success: true, uid, email, role });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err.message });
-    }
-  });
-
-  // POST /api/auth/claims — mints Firebase custom claims for signed-in staff.
-  // The client calls this right after login so the user's ID token carries
-  // { admin: true, role } and the RTDB security rules (which inspect
-  // auth.token.admin / auth.token.role) accept staff RTDB reads.
-  app.post("/api/auth/claims", async (req: any, res) => {
-    try {
-      const authHeader: string = (req.headers && req.headers.authorization) || "";
-      const bearer = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
-      if (!bearer) {
-        res.status(401).json({ success: false, error: "Missing authorization token." });
-        return;
-      }
-      const verified = await verifyFirebaseToken(bearer);
-      if (!verified) {
-        res.status(401).json({ success: false, error: "Invalid authorization token." });
-        return;
-      }
-      const uid: string = verified.uid;
-      // Resolve role from staff/$uid (primary) or users/$uid/role.
-      let role = verified.role || "customer";
-      const staffSnap = await rtdbGet(`staff/${uid}`, await getAdminAuthToken());
-      if (staffSnap && staffSnap.data && staffSnap.data.role) {
-        role = staffSnap.data.role;
-      } else if (!role || role === "customer") {
-        const userSnap = await rtdbGet(`users/${uid}`, await getAdminAuthToken());
-        if (userSnap && userSnap.data && userSnap.data.role) {
-          role = userSnap.data.role;
-        }
-      }
-      const STAFF_ROLES = ["admin", "super_admin", "event_manager", "ticket_counter", "counter_staff", "auditor"];
-      const isStaff = STAFF_ROLES.includes(role);
-      try {
-        // Mint custom claims via the Identity Toolkit REST API using the
-        // existing server admin bot token (same credential path as
-        // identity-admin.ts) — avoids the firebase-admin dynamic-import
-        // module shape issues and keeps the server bundle small.
-        const adminToken = await getFirebaseAdminAccessToken();
-        const apiKey = process.env.VITE_FIREBASE_API_KEY || process.env.FIREBASE_API_KEY;
-        if (!apiKey) {
-          throw new Error("Firebase API key not configured.");
-        }
-        const customAttributes = isStaff
-          ? JSON.stringify({ admin: role === "admin" || role === "super_admin", role })
-          : "{}";
-        const updateRes = await fetch(
-          `https://identitytoolkit.googleapis.com/v1/accounts:update?key=${apiKey}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${adminToken}` },
-            body: JSON.stringify({ localId: uid, customAttributes }),
-          }
-        );
-        if (!updateRes.ok) {
-          const body = await updateRes.text();
-          throw new Error(`accounts:update failed (${updateRes.status}): ${body}`);
-        }
-        res.json({ success: true, role, isStaff });
-      } catch (sdkErr: any) {
-        console.error("[CLAIMS] claims mint failed:", sdkErr?.message || sdkErr);
-        res.status(500).json({ success: false, error: "Claims service unavailable." });
-      }
-    } catch (err: any) {
-      console.error("[CLAIMS] Unexpected error:", err?.message || err);
-      res.status(500).json({ success: false, error: "Internal server error." });
     }
   });
 
@@ -4396,6 +4330,54 @@ export async function createApp() {
 
   // -- Item 5: reporting dashboard -------------------------------------------
 
+  // One-time rules deploy endpoint (vuln-0002 remediation).
+  // PUTs database.rules.json to the LIVE Firebase RTDB so the committed
+  // rules actually take effect (deploying rules is the step that closes
+  // the public /passes read). Activated ONLY when the owner sets
+  // ENABLE_RULES_DEPLOY=1 and provides X-Rules-Deploy-Secret = SERVER_HMAC_SECRET.
+  // After a successful deploy the endpoint stops serving and logs removal
+  // instructions. Never enable in production except for this purpose.
+  app.get("/api/_deploy/rules", async (req: any, res) => {
+    try {
+      if (process.env.ENABLE_RULES_DEPLOY !== "1") {
+        return res.status(404).json({ success: false, error: "Rules deploy not enabled." });
+      }
+      const secret = req.headers["x-rules-deploy-secret"];
+      if (secret !== SERVER_HMAC_SECRET) {
+        return res.status(403).json({ success: false, error: "Invalid deploy secret." });
+      }
+      const rulesPath = path.join(process.cwd(), "database.rules.json");
+      const raw = await fs.promises.readFile(rulesPath, "utf8");
+      const { parse } = await import("jsonc-parser");
+      const rules = parse(raw);
+      const adminToken = await getAdminAuthToken();
+      if (!adminToken) {
+        return res.status(500).json({ success: false, error: "Firebase admin token unavailable. Check FIREBASE_PRIVATE_KEY env." });
+      }
+      // PUT to the special .settings/rules.json path — replaces ALL live rules
+      const dbUrl = process.env.FIREBASE_DATABASE_URL || "https://ashevents-aa490-default-rtdb.asia-southeast1.firebasedatabase.app";
+      const url = `${dbUrl}/.settings/rules.json?auth=${encodeURIComponent(adminToken)}`;
+      const resp = await fetch(url, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rules }),
+      });
+      const body = await resp.text();
+      if (!resp.ok) {
+        return res.status(resp.status).json({ success: false, error: `Firebase rejected rules: ${body}` });
+      }
+      console.log("[RULES DEPLOY] Live RTDB rules updated successfully at", new Date().toISOString());
+      return res.json({
+        success: true,
+        deployedAt: new Date().toISOString(),
+        nodes: Object.keys(rules.rules || {}),
+        note: "Now remove ENABLE_RULES_DEPLOY and delete this endpoint from server.ts.",
+      });
+    } catch (err: any) {
+      console.error("[RULES DEPLOY] Failed:", err.message);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
 
   app.get("/api/admin/reports", requireRole(["super_admin", "event_manager", "auditor"]), async (req: any, res) => {
     try {
@@ -4885,6 +4867,7 @@ export async function createApp() {
         date: ticketData.date,
         time: ticketData.time,
         tierName: ticketData.tierName,
+        quantity: ticketData.quantity || 1,
         seatNumber: ticketData.seatNumber,
         attendeeName: ticketData.attendeeName,
         qrCodeValue: ticketData.qrCodeValue,
@@ -4895,7 +4878,7 @@ export async function createApp() {
         redeemed: ticketData.status === 'redeemed',
         redeemedAt: ticketData.redeemedAt || null,
         redeemedBy: ticketData.redeemedBy || null,
-        eventGoogleMapsQuery: ticketData.eventGoogleMapsQuery || `${ticketData.venue}, ${ticketData.city}`,
+        eventGoogleMapsQuery: ticketData.eventGoogleMapsQuery || (ticketData as any).mapsUrl || `${ticketData.venue}, ${ticketData.city}`,
         passed,
       };
 
@@ -5037,6 +5020,7 @@ export async function createApp() {
         eventTitle: ticketData.eventTitle,
         eventPoster: ticketData.eventPoster,
         tierName: ticketData.tierName,
+        quantity: ticketData.quantity || 1,
         seatNumber: ticketData.seatNumber,
         attendeeName: ticketData.attendeeName,
         date: ticketData.date,
@@ -5052,7 +5036,7 @@ export async function createApp() {
         redeemedAt: ticketData.redeemedAt || null,
         redeemedBy: ticketData.redeemedBy || null,
         passSlug: ticketData.passSlug || { id: passId, sig: sig || '' },
-        eventGoogleMapsQuery: ticketData.eventGoogleMapsQuery || `${ticketData.venue}, ${ticketData.city}`,
+        eventGoogleMapsQuery: ticketData.eventGoogleMapsQuery || (ticketData as any).mapsUrl || `${ticketData.venue}, ${ticketData.city}`,
         passed,
       };
 
@@ -5098,6 +5082,7 @@ export async function createApp() {
         date: ticket.date,
         time: ticket.time,
         tierName: ticket.tierName,
+        quantity: ticket.quantity || 1,
         seatNumber: ticket.seatNumber,
         attendeeName: ticket.attendeeName,
         qrCodeValue: ticket.qrCodeValue,
@@ -5109,7 +5094,7 @@ export async function createApp() {
         redeemedBy: ticket.redeemedBy || null,
         createdAt: Date.now(),
         openCount: 0,
-        eventGoogleMapsQuery: (ticket as any).eventGoogleMapsQuery || `${ticket.venue}, ${ticket.city}`,
+        eventGoogleMapsQuery: (ticket as any).eventGoogleMapsQuery || (ticket as any).mapsUrl || `${ticket.venue}, ${ticket.city}`,
       };
 
       await rtdbSet(`passes/${passId}`, passPayload, adminToken);

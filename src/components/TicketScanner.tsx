@@ -1391,7 +1391,11 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2 pt-2 border-t border-white/10">
+                  <div className="grid grid-cols-3 gap-2 pt-2 border-t border-white/10">
+                    <div>
+                      <span className="text-gray-400 text-[10px] uppercase">Tickets</span>
+                      <p className="font-bold text-amber-300 text-sm">{(scanState.ticket as any)?.quantity || 1}</p>
+                    </div>
                     <div>
                       <span className="text-gray-400 text-[10px] uppercase">Pass Tier</span>
                       <p className="font-bold text-emerald-300 text-sm">{scanState.ticket.tierName}</p>
@@ -1458,6 +1462,10 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
                     </span>
                   </div>
                   <div className="flex items-center justify-between pt-2 border-t border-white/10">
+                    <span className="text-gray-400">Tickets</span>
+                    <span className="font-bold text-amber-300">{(scanState.ticket as any)?.quantity || 1}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
                     <span className="text-gray-400">Ticket #</span>
                     <span className="font-mono font-bold text-[#D4AF37]">{scanState.ticket.ticketNumber}</span>
                   </div>

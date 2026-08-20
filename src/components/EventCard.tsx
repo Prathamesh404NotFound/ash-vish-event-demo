@@ -1,5 +1,5 @@
 import React from 'react';
-import { Calendar, MapPin, Heart, Star, Ticket, Building2, Eye, Info } from 'lucide-react';
+import { Calendar, MapPin, Heart, Star, Ticket, Info } from 'lucide-react';
 import { EventItem } from '../types';
 import { useBooking } from '../contexts/BookingContext';
 import { formatINR } from '../utils/formatters';
@@ -34,50 +34,59 @@ export const EventCard: React.FC<EventCardProps> = ({ event, onSelectEvent, onBo
       onClick={() => onSelectEvent(event)}
       className="card-depth rounded-[18px] overflow-hidden flex flex-col group cursor-pointer relative transition-all duration-300"
     >
-      {/* Poster Image Container */}
-      <div className="relative aspect-[4/3] w-full overflow-hidden bg-[#1C1C1C]">
+      {/* Zone 1: Dedicated Poster Section */}
+      <div className="relative aspect-[3/4] w-full overflow-hidden bg-[#1C1C1C] border border-[#D4AF37]/25 shadow-md">
         {event.posterUrl ? (
-        <img
-          src={event.posterUrl}
-          alt={event.title}
-          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-          loading="lazy"
-        />
+          <img
+            src={event.posterUrl}
+            alt={event.title}
+            className="w-full h-full object-cover object-top transition-transform duration-500 group-hover:scale-[1.02]"
+            loading="lazy"
+            decoding="async"
+            fetchPriority="auto"
+          />
         ) : (
           <div className="w-full h-full flex items-center justify-center bg-[#262626]">
             <Ticket className="w-12 h-12 text-white/25" />
           </div>
         )}
+      </div>
 
-        {/* Top Overlay Gradient */}
-        <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/80 via-black/30 to-transparent" />
-        {/* Bottom Overlay Gradient */}
-        <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-[#141414] to-transparent" />
-
-        {/* Category Badge & Advertisement Badge */}
-        <div className="absolute top-3.5 left-3.5 flex items-center gap-1.5 flex-wrap">
+      {/* Zone 2: Slim Meta Strip */}
+      <div className="px-4 sm:px-5 pt-4 pb-1 bg-[#141414] flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {/* Category Chip */}
           <span
-            className={`px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider border backdrop-blur-md ${getCategoryColor(
+            className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border backdrop-blur-md ${getCategoryColor(
               event.category
             )}`}
           >
             {event.category}
           </span>
+
+          {/* Walk-In / Counter Info badge */}
           {event.isAdvertiseOnly && (
-            <span className="px-2.5 py-1 rounded-full text-[10px] font-semibold tracking-wider bg-black/70 text-amber-300 border border-amber-500/30 backdrop-blur-md">
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold tracking-wider bg-black/70 text-amber-300 border border-amber-500/30">
               Walk-In / Counter Info
             </span>
           )}
+
+          {/* Rating Badge */}
+          <div className="flex items-center gap-1 px-2 py-1 bg-[#1C1C1C] rounded-lg text-xs font-semibold text-white border border-white/10">
+            <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+            <span>{event.rating}</span>
+            <span className="text-gray-400 text-[10px]">({event.reviewsCount})</span>
+          </div>
         </div>
 
-        {/* Favourite Button */}
+        {/* Favourite Button (Right side of Zone 2) */}
         <button
           onClick={(e) => {
             e.stopPropagation();
             toggleFavorite(event.id);
           }}
           aria-label={isFav ? 'Remove from favorites' : 'Add to favorites'}
-          className="absolute top-3 right-3 sm:top-3.5 sm:right-3.5 min-w-[44px] min-h-[44px] p-2.5 rounded-full bg-black/60 backdrop-blur-md border border-white/10 text-white hover:text-[#D4AF37] active:scale-95 transition-all flex items-center justify-center cursor-pointer"
+          className="min-w-[44px] min-h-[44px] p-2.5 rounded-full bg-[#1C1C1C] hover:bg-white/10 border border-white/10 text-white hover:text-[#D4AF37] active:scale-95 transition-all flex items-center justify-center cursor-pointer"
         >
           <Heart
             className={`w-4 h-4 transition-transform duration-200 ${
@@ -85,18 +94,10 @@ export const EventCard: React.FC<EventCardProps> = ({ event, onSelectEvent, onBo
             }`}
           />
         </button>
-
-        {/* Rating Badge */}
-        <div className="absolute bottom-3 left-3 sm:left-3.5 flex items-center gap-1 px-2.5 py-1 bg-black/60 backdrop-blur-md rounded-lg text-xs font-semibold text-white border border-white/10">
-          <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
-          <span>{event.rating}</span>
-          <span className="text-gray-400 text-[10px]">({event.reviewsCount})</span>
-        </div>
       </div>
 
-      {/* Content Container */}
-      <div className="p-4 sm:p-5 flex-1 flex flex-col justify-between gap-3 sm:gap-4 bg-[#141414]">
-        
+      {/* Zone 3: Content Container */}
+      <div className="px-4 pb-4 pt-2 sm:px-5 sm:pb-5 sm:pt-3 flex-1 flex flex-col justify-between gap-3 sm:gap-4 bg-[#141414]">
         <div>
           <h3 className="font-heading font-bold text-base sm:text-lg text-white group-hover:text-[#D4AF37] transition-colors line-clamp-1 leading-snug">
             {event.title}
@@ -154,7 +155,6 @@ export const EventCard: React.FC<EventCardProps> = ({ event, onSelectEvent, onBo
             </button>
           )}
         </div>
-
       </div>
     </div>
   );

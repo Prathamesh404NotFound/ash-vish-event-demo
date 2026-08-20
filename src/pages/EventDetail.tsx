@@ -18,6 +18,7 @@ import {
   HelpCircle,
   Phone,
   ExternalLink,
+  Image,
 } from 'lucide-react';
 import { EventItem, TicketTier, PublicCounter } from '../types';
 import { useBooking } from '../contexts/BookingContext';
@@ -133,19 +134,19 @@ export const EventDetail: React.FC<EventDetailProps> = ({
       </div>
 
       {/* Hero Cover Image Header */}
-      <div className="relative aspect-[21/9] sm:aspect-[2.5/1] w-full rounded-3xl overflow-hidden border border-white/10 bg-[#1C1C1C] shadow-2xl">
+      <div className="relative aspect-[16/9] sm:aspect-[2.5/1] w-full rounded-3xl overflow-hidden border border-white/10 bg-[#1C1C1C] shadow-2xl">
         {event.coverUrl || event.posterUrl ? (
         <img
           src={event.coverUrl || event.posterUrl}
           alt={event.title}
-          className="w-full h-full object-cover filter brightness-[0.8]"
+          className="aspect-ratio-fix w-full h-full object-cover filter brightness-[0.95]"
         />
         ) : (
           <div className="w-full h-full flex items-center justify-center bg-[#262626]">
             <Ticket className="w-16 h-16 text-white/25" />
           </div>
         )}
-        <div className="absolute inset-0 bg-gradient-to-t from-[#090909] via-black/40 to-transparent" />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/15 via-black/5 to-transparent" />
 
         <div className="absolute bottom-6 left-6 right-6 flex flex-wrap items-end justify-between gap-4">
           <div className="space-y-2 max-w-2xl">
@@ -254,6 +255,31 @@ export const EventDetail: React.FC<EventDetailProps> = ({
                       </h4>
                       <p className="text-xs text-[#D4AF37] font-medium">{artist.role}</p>
                     </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Event Gallery */}
+          {event.gallery && event.gallery.length > 0 && (
+            <div className="space-y-4">
+              <h3 className="font-heading font-bold text-xl text-white flex items-center gap-2">
+                <Image className="w-5 h-5 text-[#D4AF37]" />
+                <span>Event Gallery</span>
+              </h3>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                {event.gallery.map((imgUrl, idx) => (
+                  <div
+                    key={idx}
+                    className="relative overflow-hidden rounded-2xl border border-white/10 bg-[#141414] group"
+                  >
+                    <img
+                      src={imgUrl}
+                      alt={`${event.title} gallery ${idx + 1}`}
+                      className="aspect-ratio-fix w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                    />
                   </div>
                 ))}
               </div>

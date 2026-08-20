@@ -87,7 +87,6 @@ export function buildPassUrl(ticket: any): string {
   const rawBase =
     process.env.VITE_APP_URL ||
     process.env.APP_URL ||
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '') ||
     'https://ashvishevents.com';
   
   const appUrl = rawBase.replace(/\/+$/, '');
@@ -104,46 +103,67 @@ export function buildPassUrl(ticket: any): string {
 }
 
 /**
+ * Builds short pass link for messages & sharing.
+ */
+export function buildShortPassUrl(ticket: any): string {
+  return buildPassUrl(ticket);
+}
+
+/**
  * Generates the clean WhatsApp markdown message conforming to brand design.
  */
 export function formatWhatsAppTicketMessage(ticket: any): string {
   const eventTitle = ticket?.eventTitle || 'Event';
   const attendeeName = ticket?.attendeeName || 'Valued Guest';
+  const quantity = Number(ticket?.quantity) > 0 ? Number(ticket.quantity) : 1;
   const formattedDate = formatDateDDMMMMYYYY(ticket?.date) || ticket?.date || '';
   const formattedTime = formatTime12h(ticket?.time) || ticket?.time || '';
   const venue = ticket?.venue || '';
   const city = ticket?.city || '';
   const venueWithCity = venue && city ? `${venue}, ${city}` : (venue || city || 'Event Venue');
   const tierName = ticket?.tierName || 'Standard';
-  const seatNumber = ticket?.seatNumber || (Array.isArray(ticket?.selectedSeats) && ticket.selectedSeats.length > 0 ? ticket.selectedSeats.join(', ') : 'General Admission');
-  const ticketRef = ticket?.ticketNumber || ticket?.id || '';
 
-  const passUrl = buildPassUrl(ticket);
-  const mapsQuery = ticket?.eventGoogleMapsQuery || venueWithCity;
-  const mapsUrl = `https://maps.google.com/?q=${encodeURIComponent(mapsQuery)}`;
+  const selectedSeats = Array.isArray(ticket?.selectedSeats) ? ticket.selectedSeats : [];
+  const rawSeatNumber = ticket?.seatNumber || (selectedSeats.length > 0 ? selectedSeats.join(', ') : '');
+  const hasSeats = selectedSeats.length > 0 || (rawSeatNumber && !/general/i.test(rawSeatNumber));
+  const seatLabel = hasSeats ? rawSeatNumber : '';
+
+  const rawTicketRef = ticket?.ticketNumber || ticket?.id || '';
+  const ticketRef = String(rawTicketRef).replace(/^ASH-/i, '');
+
+  const shortPassUrl = buildShortPassUrl(ticket);
+  const mapsRaw = ticket?.eventGoogleMapsQuery || venueWithCity;
+  const mapsUrl = /^https?:\/\//i.test(mapsRaw) ? mapsRaw : `https://maps.google.com/?q=${encodeURIComponent(mapsRaw)}`;
 
   const lines = [
-    '🎟️ *TICKET CONFIRMATION*',
-    '━━━━━━━━━━━━━━━━━━',
-    `*Event:* ${eventTitle}`,
-    `*Attendee:* ${attendeeName}`,
-    `*Date:* ${formattedDate}`,
-    `*Time:* ${formattedTime}`,
-    `*Venue:* ${venueWithCity}`,
-    `*Tier:* ${tierName}`,
-    `*Seat:* ${seatNumber}`,
-    `*Ticket Ref:* ${ticketRef}`,
-    '━━━━━━━━━━━━━━━━━━',
-    '📱 *Your Digital Pass & QR Code:*',
-    passUrl,
+    '🎟️ *TICKET CONFIRMED — You\'re In!*',
+    '━━━━━━━━━━━━━━━',
+    `🎬 *${eventTitle}*`,
+    '━━━━━━━━━━━━━━━',
     '',
-    '📍 *Google Maps Location:*',
-    mapsUrl,
+    `👤 *Attendee:* ${attendeeName}`,
+    `🎟️ *Tickets:* ${quantity || 1}`,
+    `📅 *Date:* ${formattedDate}`,
+    `🕗 *Time:* ${formattedTime}`,
+    `📍 *Venue:* ${venueWithCity}`,
+    `🪑 *Tier:* ${tierName}`,
+    ...(hasSeats ? [`💺 *Seat:* ${seatLabel}`] : []),
+    `🧾 *Ticket Ref:* \`ASH-${ticketRef}\``,
     '',
-    'ℹ️ *Check-In Instructions:*',
-    'Open the pass link above and show the QR code at the entrance gate for quick verification.',
-    '━━━━━━━━━━━━━━━━━━',
-    '*Thank you — see you at the show!* ✨'
+    '🔗 *Your Digital Pass*',
+    `👉 ${shortPassUrl}`,
+    '_Scan at the gate — no printing needed_',
+    '',
+    '🗺️ *Get Directions*',
+    `👉 ${mapsUrl}`,
+    '',
+    '⚠️ *Check-In Tips*',
+    '• Open the pass link & show the QR at the gate',
+    '• One QR per attendee — everyone gets their own pass',
+    '• Please arrive 15 minutes before show time',
+    '',
+    '✨ *Thank you for booking with Ash-vish Events!*',
+    '📩 Any help? — hello@ashvishevents.com'
   ];
 
   return lines.join('\n');

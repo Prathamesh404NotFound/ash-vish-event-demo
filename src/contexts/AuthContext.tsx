@@ -88,22 +88,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.warn('[Firebase RTDB Sync Note] Could not connect to RTDB, using fallback role logic:', err);
     }
 
-      // Mint Firebase custom claims so the ID token carries { admin: true,
-      // role } — the RTDB security rules inspect auth.token for staff reads.
-      if (resolvedRole !== 'customer') {
-        try {
-          const claimsRes = await fetch('/api/auth/claims', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await fbUser.getIdToken()}` }
-          });
-          if (claimsRes.ok) {
-            // Force a fresh ID token so the new claims are embedded.
-            await fbUser.getIdToken(true);
-          }
-        } catch (e) {
-          console.warn('[AUTH] claims mint skipped:', e);
-        }
-      }
     const userProfile: UserProfile = {
       id: fbUser.uid,
       name: fbUser.displayName || fbUser.email?.split('@')[0] || 'Ash-vish Member',

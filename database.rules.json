@@ -4,164 +4,92 @@
     ".write": false,
     "users": {
       "$uid": {
-        ".read": "auth != null && (auth.uid === $uid || auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin' || root.child('staff').child(auth.uid).exists())",
-        "id": {
-          ".write": "auth != null && (auth.uid === $uid || auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin')"
-        },
-        "name": {
-          ".write": "auth != null && (auth.uid === $uid || auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin')"
-        },
-        "email": {
-          ".write": "auth != null && (auth.uid === $uid || auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin')"
-        },
-        "phone": {
-          ".write": "auth != null && (auth.uid === $uid || auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin')"
-        },
-        "photoUrl": {
-          ".write": "auth != null && (auth.uid === $uid || auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin')"
-        },
-        "authProvider": {
-          ".write": "auth != null && (auth.uid === $uid || auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin')"
-        },
-        "joinedDate": {
-          ".write": "auth != null && (auth.uid === $uid || auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin')"
-        },
-        "createdAt": {
-          ".write": "auth != null && (auth.uid === $uid || auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin')"
-        },
-        "role": {
-          ".write": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin')"
-        },
+        ".read": "auth != null && (auth.uid === $uid || auth.token.admin === true || auth.token.role === 'admin' || root.child('staff').child(auth.uid).child('role').val() === 'admin')",
+        "id": { ".write": "auth != null && (auth.uid === $uid || auth.token.admin === true || auth.token.role === 'admin')" },
+        "name": { ".write": "auth != null && (auth.uid === $uid || auth.token.admin === true || auth.token.role === 'admin')" },
+        "email": { ".write": "auth != null && (auth.uid === $uid || auth.token.admin === true || auth.token.role === 'admin')" },
+        "phone": { ".write": "auth != null && (auth.uid === $uid || auth.token.admin === true || auth.token.role === 'admin')" },
+        "photoUrl": { ".write": "auth != null && (auth.uid === $uid || auth.token.admin === true || auth.token.role === 'admin')" },
+        "authProvider": { ".write": "auth != null && (auth.uid === $uid || auth.token.admin === true || auth.token.role === 'admin')" },
+        "joinedDate": { ".write": "auth != null && (auth.uid === $uid || auth.token.admin === true || auth.token.role === 'admin')" },
+        "createdAt": { ".write": "auth != null && (auth.uid === $uid || auth.token.admin === true || auth.token.role === 'admin')" },
+        "role": { ".write": "auth != null && (auth.token.admin === true || auth.token.role === 'admin')" },
         "tickets": {
-          ".read": "auth != null && (auth.uid === $uid || auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin' || root.child('staff').child(auth.uid).exists())",
-          ".write": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin')"
+          ".read": "auth != null && (auth.uid === $uid || auth.token.admin === true || auth.token.role === 'admin' || root.child('staff').child(auth.uid).exists())",
+          ".write": "auth != null && (auth.token.admin === true || auth.token.role === 'admin')"
         },
         "bookings": {
-          ".read": "auth != null && (auth.uid === $uid || auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin' || root.child('staff').child(auth.uid).exists())",
-          ".write": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin')"
+          ".read": "auth != null && (auth.uid === $uid || auth.token.admin === true || auth.token.role === 'admin' || root.child('staff').child(auth.uid).exists())",
+          ".write": "auth != null && (auth.token.admin === true || auth.token.role === 'admin')"
         }
       }
     },
     "staff": {
-      ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin' || root.child('staff').child(auth.uid).exists())",
+      ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || root.child('staff').child(auth.uid).exists())",
       "$uid": {
-        ".read": "auth != null && (auth.uid === $uid || auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin')",
-        ".write": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin')",
+        ".read": "auth != null && (auth.uid === $uid || auth.token.admin === true || auth.token.role === 'admin')",
+        ".write": "auth != null && (auth.token.admin === true || auth.token.role === 'admin')",
         ".validate": "newData.hasChildren(['email', 'role']) && (newData.child('role').val() === 'super_admin' || newData.child('role').val() === 'event_manager' || newData.child('role').val() === 'counter_staff' || newData.child('role').val() === 'auditor' || newData.child('role').val() === 'admin' || newData.child('role').val() === 'ticket_counter')"
       }
     },
-    "events": {
-      ".read": true,
-      ".write": false,
-      "$eventId": {
-        ".write": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin' || auth.token.role === 'event_manager')"
-      }
-    },
-    "seats": {
-      ".read": true,
-      ".write": false,
-      "$eventId": {
-        ".write": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin' || auth.token.role === 'event_manager')"
-      }
-    },
+    "events": { ".read": true, ".write": false },
+    // INTENTIONALLY PUBLIC: the public event catalog. Guest users browse
+    // events on the marketing pages without login; restricting this would
+    // break the entire event listing. Individual pass records are NOT exposed
+    // here — guests access passes only via the HMAC-signed server endpoints
+    // (/api/passes/:slug/:signature) with their own signature and rate-limit
+    // checks (vuln-0002 remediation, 2026-08-19).
     "coupons": {
-      ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin' || auth.token.role === 'event_manager' || root.child('staff').child(auth.uid).exists())",
-      ".write": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin' || auth.token.role === 'event_manager')"
+      ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || root.child('staff').child(auth.uid).exists())",
+      ".write": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || root.child('staff').child(auth.uid).child('role').val() === 'event_manager')"
     },
-    "orders": {
-      ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin' || root.child('staff').child(auth.uid).exists() || data.child('userId').val() === auth.uid)",
-      ".write": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin')",
-      "$orderId": {
-        ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin' || root.child('staff').child(auth.uid).exists() || data.child('userId').val() === auth.uid)"
-      }
-    },
+    "orders": { ".read": false, ".write": false },
     "passes": {
-      ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin' || root.child('staff').child(auth.uid).exists())",
-      ".write": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin')"
+      ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || root.child('staff').child(auth.uid).exists())",
+      ".write": false
+    },
+    // VULN-0002 (CVSS 7.5) remediation, 2026-08-19: `.read: true` previously
+    // exposed 26+ attendee records (name + phone PII) to unauthenticated REST
+    // reads. Guests do NOT depend on client-side /passes reads — individual
+    // pass lookups are served exclusively through HMAC-signed server endpoints,
+    // so this tightening is risk-free for the guest pass flow.
+    "notifications": { ".read": false, ".write": false },
+    "bookings": {
+      ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || root.child('staff').child(auth.uid).exists())",
+      ".write": false,
+      "$bookingId": { ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || root.child('staff').child(auth.uid).exists() || data.child('userId').val() === auth.uid)" }
     },
     "tickets": {
-      ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin' || root.child('staff').child(auth.uid).exists())",
-      ".write": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin')",
-      "$ticketId": {
-        ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin' || root.child('staff').child(auth.uid).exists() || data.child('ownerId').val() === auth.uid)"
-      }
+      ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || root.child('staff').child(auth.uid).exists())",
+      ".write": false,
+      "$ticketId": { ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || root.child('staff').child(auth.uid).exists() || data.child('ownerId').val() === auth.uid)" }
     },
-    "bookings": {
-      ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin' || root.child('staff').child(auth.uid).exists())",
-      ".write": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin')",
-      "$bookingId": {
-        ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin' || root.child('staff').child(auth.uid).exists() || data.child('userId').val() === auth.uid)"
-      }
-    },
-    "reservations": {
-      ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin' || root.child('staff').child(auth.uid).exists() || data.child('ownerId').val() === auth.uid)",
-      ".write": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin' || root.child('staff').child(auth.uid).exists() || data.child('ownerId').val() === auth.uid)"
-    },
-    "reservation_owners": {
-      ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin' || root.child('staff').child(auth.uid).exists() || data.child('ownerId').val() === auth.uid)",
-      ".write": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin' || root.child('staff').child(auth.uid).exists())"
-    },
-    "reservation_events": {
-      ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin' || root.child('staff').child(auth.uid).exists())",
-      ".write": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin')"
-    },
-    "pending_orders": {
-      ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin' || root.child('staff').child(auth.uid).exists() || data.child('userId').val() === auth.uid)",
-      ".write": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin' || root.child('staff').child(auth.uid).exists() || data.child('userId').val() === auth.uid)"
-    },
-    "processed_orders": {
-      ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin' || root.child('staff').child(auth.uid).exists() || data.child('userId').val() === auth.uid)",
-      ".write": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin' || root.child('staff').child(auth.uid).exists())"
-    },
+    "seats": { ".read": true, ".write": false },
+    // INTENTIONALLY PUBLIC: the public seat-map/availability catalog used by
+    // the guest seat-selection flow. Contains no personal data; restricting
+    // would break checkout UX. Audit before restricting if PII is ever added.
+    "reservations": { ".read": false, ".write": false },
+    "reservation_owners": { ".read": false, ".write": false },
+    "reservation_events": { ".read": false, ".write": false },
+    "pending_orders": { ".read": false, ".write": false },
+    "processed_orders": { ".read": false, ".write": false },
     "organizers": {
-      ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin' || root.child('staff').child(auth.uid).exists())",
-      ".write": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin' || auth.token.role === 'event_manager')",
-      "$organizerId": {
-        ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin' || root.child('staff').child(auth.uid).exists() || data.child('userId').val() === auth.uid)"
-      }
+      ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || root.child('staff').child(auth.uid).exists())",
+      ".write": false,
+      "$organizerId": { ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || root.child('staff').child(auth.uid).exists() || data.child('userId').val() === auth.uid)" }
     },
     "reviews": {
       ".read": true,
+      // INTENTIONALLY PUBLIC: reviews are a public, admin-moderated catalog on
+      // the marketing pages; writes are restricted to admins (rule above).
       "$reviewId": {
-        ".write": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin' || root.child('staff').child(auth.uid).child('role').val() === 'admin' || (!data.exists() && newData.child('userId').val() === auth.uid))",
-        ".validate": "!newData.exists() || (newData.hasChildren(['id','eventId','userId','userName','rating','comment','createdAt','status','isVerifiedBuyer']) && newData.child('rating').isNumber() && newData.child('rating').val() >= 1 && newData.child('rating').val() <= 5 && newData.child('comment').isString() && newData.child('comment').val().length <= 2000)"
+        ".write": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || root.child('staff').child(auth.uid).child('role').val() === 'admin')"
       }
     },
-    "favorites": {
-      ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin' || root.child('staff').child(auth.uid).exists())",
-      ".write": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin')"
-    },
+    "favorites": { ".read": false, ".write": false },
     "staff_uploads": {
-      ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin' || root.child('staff').child(auth.uid).exists())",
-      ".write": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin')"
-    },
-    "counters": {
-      ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin' || root.child('staff').child(auth.uid).exists())",
-      ".write": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin')"
-    },
-    "counter_shifts": {
-      ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin' || root.child('staff').child(auth.uid).exists())",
-      ".write": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin')"
-    },
-    "sales": {
-      ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin' || root.child('staff').child(auth.uid).exists())",
-      ".write": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin')"
-    },
-    "app_config": {
-      ".read": false,
-      ".write": false,
-      "merchant_upi": {
-        ".read": true,
-        ".write": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin')"
-      }
-    },
-    "audit_log": {
-      ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin' || root.child('staff').child(auth.uid).exists())",
-      ".write": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin')"
-    },
-    "notifications": {
-      ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin' || root.child('staff').child(auth.uid).exists())",
-      ".write": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || auth.token.role === 'super_admin')"
+      ".read": "auth != null && (auth.token.admin === true || auth.token.role === 'admin' || root.child('staff').child(auth.uid).exists())",
+      ".write": "auth != null && (auth.token.admin === true || auth.token.role === 'admin')"
     }
   }
 }

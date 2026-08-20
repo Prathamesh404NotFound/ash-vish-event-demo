@@ -7,16 +7,15 @@
  * Usage: node scripts/check-env.js   (run before `vite build` in CI)
  */
 
-// Build-critical set: the API key is the only value that MUST exist at build
-// time (without it the app cannot even boot; it was the vuln-0001 key).
-// The remaining keys default sensibly from the API key's project and are
-// verified at RUNTIME by the guard in src/lib/firebase.ts (missing-key list
-// thrown at boot, never a silent broken config). This two-tier design avoids
-// breaking production builds on environments where only the API key env var
-// is set (e.g. Vercel projects that expose just VITE_FIREBASE_API_KEY), while
-// still guaranteeing no garbage config ever reaches a running app.
 const REQUIRED_KEYS = [
   'VITE_FIREBASE_API_KEY',
+  'VITE_FIREBASE_AUTH_DOMAIN',
+  'VITE_FIREBASE_DATABASE_URL',
+  'VITE_FIREBASE_PROJECT_ID',
+  'VITE_FIREBASE_STORAGE_BUCKET',
+  'VITE_FIREBASE_MESSAGING_SENDER_ID',
+  'VITE_FIREBASE_APP_ID',
+  'VITE_FIREBASE_MEASUREMENT_ID',
 ];
 
 const missing = REQUIRED_KEYS.filter((k) => !process.env[k] || !String(process.env[k]).trim());

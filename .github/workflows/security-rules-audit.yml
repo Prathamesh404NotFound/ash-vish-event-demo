@@ -22,10 +22,5 @@ jobs:
         with:
           node-version: 22
 
-      - name: Install dependencies
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
-
       - name: Audit sensitive-node reads in database.rules.json
-        run: pnpm install --frozen-lockfile --ignore-scripts && node scripts/validate-rules.cjs
+        run: node scripts/validate-rules.cjs
