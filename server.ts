@@ -5500,16 +5500,14 @@ export async function createApp() {
 // ============================================================
 
 // --- Shift management helpers ---
-async function fetchCounterShifts(authToken: string | undefined, staffUid?: string, allForAdmin?: boolean, deviceId?: string): Promise<Record<string, any>> {
+async function fetchCounterShifts(authToken: string | undefined, staffUid?: string, allForAdmin?: boolean): Promise<Record<string, any>> {
   const snap = await rtdbGet("counter_shifts", authToken);
   const shifts: Record<string, any> = {};
   const data = snap.data as Record<string, any> | null;
   if (!data) return shifts;
   for (const [shiftId, shift] of Object.entries(data)) {
     const s = (shift || {}) as any;
-    // If deviceId is provided, we filter shifts for this staff member to only those on this device.
-    // This allows same staff account to have multiple concurrent shifts on different devices.
-    if (allForAdmin || (s.staffId === staffUid && (!deviceId || s.deviceId === deviceId))) {
+    if (allForAdmin || s.staffId === staffUid) {
       shifts[shiftId] = s;
     }
   }
@@ -5582,7 +5580,7 @@ async function computeShiftCashTotals(
   // Start a shift: requires staff (counter_staff and up).
   app.post("/api/counter/shifts/start", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
     try {
-      let { startingCash, counterId, subUserId, pin, deviceId } = req.body || {};
+      let { startingCash, counterId, subUserId, pin } = req.body || {};
       const staffUid = req.user.uid;
       const rbacRole = (req.user.rbacRole as string) || "counter_staff";
       
@@ -5627,12 +5625,11 @@ async function computeShiftCashTotals(
         return res.status(401).json({ success: false, error: "Invalid PIN." });
       }
 
-      // Prevent two concurrent open shifts for the same staff member ON THE SAME DEVICE.
-      // We now allow same staff to have multiple shifts if they are on different devices.
-      const existing = await fetchCounterShifts(adminToken, staffUid, false, deviceId);
+      // Prevent two concurrent open shifts for the same staff member.
+      const existing = await fetchCounterShifts(adminToken, staffUid);
       const openShift = Object.values(existing).find((s: any) => s.status === "open");
       if (openShift) {
-        return res.status(409).json({ success: false, error: "You already have an open shift on this device. End it before starting a new one." });
+        return res.status(409).json({ success: false, error: "You already have an open shift. End it before starting a new one." });
       }
 
       const shiftId = `shf_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -5645,7 +5642,6 @@ async function computeShiftCashTotals(
         counterName: counter.name,
         subUserId,
         subUserName: subUser.name,
-        deviceId: deviceId || "unknown", // Scoping shift to device
         startTime: new Date().toISOString(),
         startingCash: startCash,
         status: "open",
@@ -5726,9 +5722,8 @@ app.get("/api/counter/shifts", requireRole(["counter_staff", "auditor", "event_m
   try {
     const rbacRole = (req.user.rbacRole as string) || "counter_staff";
     const isAdmin = rbacRole === "super_admin" || rbacRole === "event_manager";
-    const { deviceId } = req.query || {};
     const adminToken = await getAdminAuthToken();
-    const shifts = await fetchCounterShifts(adminToken, req.user.uid, isAdmin, String(deviceId || ""));
+    const shifts = await fetchCounterShifts(adminToken, req.user.uid, isAdmin);
     const shiftList = await Promise.all(
       Object.values(shifts).map(async (s: any) => {
         if (s.status === "open") {
