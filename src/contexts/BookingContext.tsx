@@ -819,7 +819,7 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     scannedByStaffId?: string,
     selectedSeats?: string[],
     paymentMethod: string = 'cash',
-    options?: { payments?: { method: string; amount: number }[]; discountOverride?: { overrideId: string; discountAmount: number; actorId: string; reason: string }; shiftId?: string; idempotencyKey?: string; quantity?: number; counterId?: string }
+    options?: { payments?: { method: string; amount: number }[]; discountOverride?: { overrideId: string; discountAmount: number; actorId: string; reason: string }; shiftId?: string; idempotencyKey?: string; quantity?: number; counterId?: string; subUserId?: string; subUserName?: string }
   ): Promise<Ticket> => {
     const response = await safeFetch<any>('/api/walk-in-bookings', {
       method: 'POST',
@@ -838,6 +838,8 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         ...(options?.shiftId ? { shiftId: options.shiftId } : {}),
         ...(options?.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {}),
         ...(options?.counterId ? { counterId: options.counterId } : {}),
+        ...(options?.subUserId ? { issuedBySubUserId: options.subUserId } : {}),
+        ...(options?.subUserName ? { issuedBySubUserName: options.subUserName } : {}),
       }),
     });
     const data = response.data || {};

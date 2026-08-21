@@ -19,7 +19,11 @@ import {
   KEY_ID as razorpayKeyId,
 } from "./src/lib/payment/razorpay.js";
 
-const SERVER_HMAC_SECRET = process.env.SERVER_HMAC_SECRET || "ASH_VISH_SECURE_HMAC_KEY_2026";
+const SERVER_HMAC_SECRET = process.env.SERVER_HMAC_SECRET;
+if (!SERVER_HMAC_SECRET) {
+  console.error('[FATAL] SERVER_HMAC_SECRET is not set in environment variables. Server cannot start securely.');
+  process.exit(1);
+}
 
 // ============================================================
 // Admin Panel (Prompt B) — Item 6: minimal email service
@@ -60,8 +64,12 @@ async function sendWhatsAppText(phone: string, message: string): Promise<boolean
     process.env.ENOTIFY_TOKEN ||
     process.env.ENOTIFY_API_KEY ||
     process.env.ENOTIFY_INSTANCE_TOKEN ||
-    "6523f2a5758e0a2faf8f8d33"
+    ""
   ).trim();
+  if (!token) {
+    console.warn("[ENOTIFY] WhatsApp API token is missing in environment variables.");
+    return false;
+  }
 
   const baseUrl = (
     process.env.ENOTIFY_API_URL ||
@@ -3586,8 +3594,9 @@ export async function createApp() {
       const netTotal = lineAmount - discountAmount;
       if (splitPayments.length > 0) {
         const sum = splitPayments.reduce((acc, curr) => acc + curr.amount, 0);
-        if (sum !== netTotal) {
-          return res.status(400).json({ success: false, error: `Payment amounts must sum to the order total (₹${netTotal}). Currently ₹${sum}.` });
+        // Use 0.01 tolerance for floating point precision issues
+        if (Math.abs(sum - netTotal) > 0.01) {
+          return res.status(400).json({ success: false, error: `Payment amounts must sum to the order total (₹${netTotal}). Currently ₹${sum.toFixed(2)}.` });
         }
       }
 
@@ -5625,11 +5634,15 @@ async function computeShiftCashTotals(
         return res.status(401).json({ success: false, error: "Invalid PIN." });
       }
 
-      // Prevent two concurrent open shifts for the same staff member.
+      // Allow concurrent shifts if they are for different sub-users or different counters.
+      // This enables the same email login to be used on multiple devices (e.g. Laptop + Phone)
+      // with different sub-user identities.
       const existing = await fetchCounterShifts(adminToken, staffUid);
-      const openShift = Object.values(existing).find((s: any) => s.status === "open");
-      if (openShift) {
-        return res.status(409).json({ success: false, error: "You already have an open shift. End it before starting a new one." });
+      const openShifts = Object.values(existing).filter((s: any) => s.status === "open");
+      
+      const duplicateSubUserShift = openShifts.find((s: any) => s.subUserId === subUserId);
+      if (duplicateSubUserShift) {
+        return res.status(409).json({ success: false, error: "This sub-user already has an open shift. End it before starting a new one." });
       }
 
       const shiftId = `shf_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -6049,15 +6062,26 @@ app.get("/api/counter/my-sales", requireRole(["counter_staff", "event_manager", 
     const ticketsSnap = await rtdbGet("tickets", adminToken);
     const tickets = Object.values((ticketsSnap.data || {}) as Record<string, any>);
 
+    // If the request is from a sub-user session, we should filter by their subUserId
+    // to ensure they only see their own sales on their device.
+    const subUserId = typeof q.subUserId === "string" ? q.subUserId : undefined;
+
     let filtered = tickets.filter((t: any) => {
       const scannedBy = String(t.scannedByStaffId || "").toLowerCase();
       const createdBy = String(t.createdByStaffId || "").toLowerCase();
+      const issuedBySubId = String(t.issuedBySubUserId || "").toLowerCase();
       
+      // If a specific sub-user filter is provided (from the frontend session), prioritize it.
+      if (subUserId) {
+        if (issuedBySubId !== subUserId.toLowerCase()) return false;
+      }
+
       let isMatchDirect = (
         scannedBy === staffId.toLowerCase() ||
         scannedBy === staffName.toLowerCase() ||
         scannedBy === staffEmail.toLowerCase() ||
-        createdBy === staffId.toLowerCase()
+        createdBy === staffId.toLowerCase() ||
+        (issuedBySubId && !subUserId) // If no specific subUserId requested, show all for this staff login
       );
 
       let hasMatch = isMatchDirect;
@@ -6065,11 +6089,18 @@ app.get("/api/counter/my-sales", requireRole(["counter_staff", "event_manager", 
       if (!hasMatch && t.orderId && orders[t.orderId]) {
         const order = orders[t.orderId];
         const orderScannedBy = String(order.scannedByStaffId || "").toLowerCase();
-        if (
+        const orderCreatedBy = String(order.createdBy || "").toLowerCase();
+        const orderSubUserId = String(order.issuedBySubUserId || "").toLowerCase();
+
+        if (subUserId && orderSubUserId !== subUserId.toLowerCase()) {
+          hasMatch = false;
+        } else if (
           orderScannedBy === staffId.toLowerCase() ||
           orderScannedBy === staffName.toLowerCase() ||
           orderScannedBy === staffEmail.toLowerCase() ||
-          String(order.staffShiftId || "").toLowerCase() === staffId.toLowerCase()
+          orderCreatedBy === staffId.toLowerCase() ||
+          orderCreatedBy === staffEmail.toLowerCase() ||
+          (order.shiftId && String(order.shiftId).toLowerCase().includes(staffId.toLowerCase()))
         ) {
           hasMatch = true;
         }

@@ -69,6 +69,11 @@ export const MySalesPage: React.FC = () => {
       const idToken = await firebaseUser?.getIdToken();
       if (!idToken) throw new Error("No authentication token found.");
 
+      // Check for active shift in local storage to filter by sub-user session
+      const activeShiftStr = localStorage.getItem('ashvish_active_shift');
+      const activeShift = activeShiftStr ? JSON.parse(activeShiftStr) : null;
+      const subUserId = activeShift?.subUserId;
+
       const params = new URLSearchParams({
         page: String(page),
         pageSize: String(pageSize),
@@ -78,6 +83,7 @@ export const MySalesPage: React.FC = () => {
       if (selectedEventId) params.append('eventId', selectedEventId);
       if (selectedStatus) params.append('status', selectedStatus);
       if (searchQuery.trim()) params.append('search', searchQuery.trim());
+      if (subUserId) params.append('subUserId', subUserId);
 
       const res = await fetch(`/api/counter/my-sales?${params.toString()}`, {
         headers: { 'Authorization': `Bearer ${idToken}` }

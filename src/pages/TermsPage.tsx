@@ -134,6 +134,46 @@ export const TermsPage: React.FC = () => {
             </p>
           </div>
         </section>
+
+        {/* Section 6: Shipping & Delivery */}
+        <section id="shipping" className="space-y-4 group">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-xl bg-white/5 flex items-center justify-center text-[#D4AF37] group-hover:bg-[#D4AF37] group-hover:text-black transition-all">
+              <Info className="w-4 h-4" />
+            </div>
+            <h2 className="font-heading text-xl font-bold text-white tracking-wide uppercase">6. Shipping & Delivery</h2>
+          </div>
+          <div className="pl-11 space-y-4 text-sm text-gray-400 leading-relaxed">
+            <p>
+              Ash-vish Events is a digital-first platform. All tickets are delivered instantly via electronic means.
+            </p>
+            <ul className="list-disc pl-5 space-y-2">
+              <li>Digital passes are sent to the registered WhatsApp number and email address immediately after payment confirmation.</li>
+              <li>Physical shipping of tickets is not supported unless explicitly stated for a specific event.</li>
+              <li>Attendees are responsible for ensuring they have access to their digital tickets at the time of entry.</li>
+            </ul>
+          </div>
+        </section>
+
+        {/* Section 7: Contact Us */}
+        <section id="contact" className="space-y-4 group">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-xl bg-white/5 flex items-center justify-center text-[#D4AF37] group-hover:bg-[#D4AF37] group-hover:text-black transition-all">
+              <Mail className="w-4 h-4" />
+            </div>
+            <h2 className="font-heading text-xl font-bold text-white tracking-wide uppercase">7. Contact Information</h2>
+          </div>
+          <div className="pl-11 space-y-4 text-sm text-gray-400 leading-relaxed">
+            <p>
+              For any support, enquiries, or legal concerns, please contact us using the details below:
+            </p>
+            <ul className="list-none space-y-2">
+              <li><strong>Email:</strong> hello@ashvishevents.com</li>
+              <li><strong>Support Hours:</strong> Monday to Saturday, 10:00 AM - 7:00 PM</li>
+              <li><strong>Office:</strong> The Sayaji, Kolhapur, Maharashtra, India</li>
+            </ul>
+          </div>
+        </section>
       </div>
 
       {/* Footer Note */}
@@ -141,13 +181,12 @@ export const TermsPage: React.FC = () => {
         <p className="text-xs text-gray-500 italic">
           For any questions regarding these terms, please reach out to our legal department at legal@ashvishevents.com
         </p>
-        <div className="flex justify-center gap-4">
-          <div className="px-4 py-2 rounded-xl bg-white/5 text-[10px] font-bold text-gray-400 uppercase tracking-tighter">
-            Secure Platform
-          </div>
-          <div className="px-4 py-2 rounded-xl bg-white/5 text-[10px] font-bold text-gray-400 uppercase tracking-tighter">
-            Verified Ticketing
-          </div>
+        <div className="flex flex-wrap justify-center gap-4 text-[10px] font-bold text-gray-400 uppercase tracking-tighter">
+          <a href="/terms#ticketing" className="px-4 py-2 rounded-xl bg-white/5 hover:bg-[#D4AF37]/10 hover:text-[#D4AF37] transition-all">Terms & Conditions</a>
+          <a href="/terms#privacy" className="px-4 py-2 rounded-xl bg-white/5 hover:bg-[#D4AF37]/10 hover:text-[#D4AF37] transition-all">Privacy Policy</a>
+          <a href="/terms#refunds" className="px-4 py-2 rounded-xl bg-white/5 hover:bg-[#D4AF37]/10 hover:text-[#D4AF37] transition-all">Refund Policy</a>
+          <a href="/terms#shipping" className="px-4 py-2 rounded-xl bg-white/5 hover:bg-[#D4AF37]/10 hover:text-[#D4AF37] transition-all">Shipping Policy</a>
+          <a href="/terms#contact" className="px-4 py-2 rounded-xl bg-white/5 hover:bg-[#D4AF37]/10 hover:text-[#D4AF37] transition-all">Contact Us</a>
         </div>
       </div>
     </div>

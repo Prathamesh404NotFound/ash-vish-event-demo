@@ -106,7 +106,7 @@ export const ShiftPage: React.FC = () => {
         // Auto-resolve assigned counter for current staff
         const assigned = all.find(c => 
           c.assignedStaffIds && 
-          c.assignedStaffIds.includes(user?.id || '')
+          c.assignedStaffIds.includes(user?.uid || user?.id || '')
         );
         if (assigned) {
           setAssignedCounter(assigned);
@@ -120,7 +120,17 @@ export const ShiftPage: React.FC = () => {
         setShifts(list);
 
         // Find open shift for current user
-        const open = list.find((s) => s.status === 'open' && (!s.staffId || s.staffId === user?.uid || (user as any)?.rbacRole === 'super_admin'));
+        // Priority: 1. Locally persisted shift (this device's session) 2. Any open shift from backend
+        const localShiftStr = localStorage.getItem('ashvish_active_shift');
+        const localShift = localShiftStr ? JSON.parse(localShiftStr) : null;
+        
+        let open = list.find((s) => s.status === 'open' && s.shiftId === localShift?.shiftId);
+        if (!open) {
+          open = list.find((s) => s.status === 'open' && (!s.staffId || s.staffId === (user?.id || (user as any)?.uid) || (user as any)?.rbacRole === 'super_admin'));
+          if (open) localStorage.setItem('ashvish_active_shift', JSON.stringify(open));
+          else localStorage.removeItem('ashvish_active_shift');
+        }
+        
         setActiveShift(open || null);
       } else {
         setErrorBanner(shiftRes.data?.error || shiftRes.error || 'Failed to load shifts.');
@@ -167,6 +177,8 @@ export const ShiftPage: React.FC = () => {
 
       if (res.ok && res.data?.success && res.data.shift) {
         setSuccessBanner('Shift started successfully! Cash drawer is now open.');
+        // Persist shift to localStorage so other pages (My Sales, Walk-in) know the current sub-user session
+        localStorage.setItem('ashvish_active_shift', JSON.stringify(res.data.shift));
         setStartingCash(1000);
         setSelectedSubUserId('');
         setPin('');
@@ -210,6 +222,7 @@ export const ShiftPage: React.FC = () => {
       if (res.ok && res.data?.success && res.data.shift) {
         setRecentEndedShift(res.data.shift);
         setSuccessBanner('Shift closed and reconciled successfully.');
+        localStorage.removeItem('ashvish_active_shift');
         setCountedCash('');
         await loadShifts();
       } else {

@@ -21,11 +21,11 @@ const REQUIRED_KEYS = [
 const missing = REQUIRED_KEYS.filter((k) => !process.env[k] || !String(process.env[k]).trim());
 
 if (missing.length > 0) {
-  console.warn(
-    `[check-env] WARNING: missing or empty Firebase env vars: ${missing.join(', ')}\n` +
-    `[check-env] Falling back to default project values. Set VITE_FIREBASE_* variables in Vercel for custom config.`
+  console.error(
+    `[check-env] FATAL ERROR: missing or empty Firebase env vars: ${missing.join(', ')}\n` +
+    `[check-env] Production builds require these variables to be set in the environment.`
   );
-  process.exit(0);
+  process.exit(1);
 }
 
 console.log('[check-env] All VITE_FIREBASE_* variables present.');

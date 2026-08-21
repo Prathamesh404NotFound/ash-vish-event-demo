@@ -74,14 +74,14 @@ export const Home: React.FC<HomeProps> = ({
     <div className="space-y-12 pb-12">
       
       {/* ----------------- CINEMATIC HERO SECTION ----------------- */}
-      <section className="relative min-h-[70vh] sm:min-h-[60vh] flex items-end justify-start overflow-hidden rounded-b-[36px] bg-[#070707]">
+      <section className="relative min-h-[85vh] sm:min-h-[60vh] flex items-end justify-start overflow-hidden rounded-b-[36px] bg-[#070707]">
         {/* Hero Background Poster Image */}
         <div className="absolute inset-0">
           {currentHeroEvent ? (
           <img
             src={currentHeroEvent.coverUrl || currentHeroEvent.posterUrl}
             alt={currentHeroEvent.title}
-            className="aspect-ratio-fix w-full h-full object-cover object-top sm:object-center filter brightness-[0.9] contrast-[1.05] transition-all duration-700 scale-105"
+            className="aspect-ratio-fix w-full h-full object-cover object-center filter brightness-[0.75] contrast-[1.1] transition-all duration-700 scale-100 sm:scale-105"
             fetchPriority="high"
             decoding="async"
           />
@@ -89,66 +89,66 @@ export const Home: React.FC<HomeProps> = ({
             <div className="w-full h-full bg-gradient-to-br from-[#0A0A0A] via-[#1C1C1C] to-[#0A0A0A]" />
           )}
           {/* Overlay Gradients - Enhanced for mobile readability */}
-          <div className="absolute inset-0 bg-gradient-to-t from-[#070707] via-[#070707]/60 to-transparent lg:via-[#070707]/20" />
-          <div className="absolute inset-0 bg-gradient-to-r from-[#070707]/40 via-transparent to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-t from-[#070707] via-[#070707]/90 to-transparent lg:via-[#070707]/20" />
+          <div className="absolute inset-0 bg-gradient-to-r from-[#070707]/70 via-transparent to-transparent" />
           {/* Top fade to prevent header clash */}
-          <div className="absolute top-0 inset-x-0 h-32 bg-gradient-to-b from-[#070707]/80 to-transparent lg:from-[#070707]/40" />
+          <div className="absolute top-0 inset-x-0 h-48 bg-gradient-to-b from-[#070707]/95 to-transparent lg:from-[#070707]/40" />
         </div>
 
-                {/* Hero Content Container */}
-        <div className="relative z-10 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pb-8 pt-32 sm:pb-12 sm:pt-20">
+        {/* Hero Content Container */}
+        <div className="relative z-10 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pb-12 pt-56 sm:pb-12 sm:pt-20">
           {currentHeroEvent ? (
-          <div className="max-w-2xl space-y-4 sm:space-y-6 min-h-[320px] sm:min-h-[300px] flex flex-col justify-end">
+          <div className="max-w-2xl space-y-6 sm:space-y-6 flex flex-col justify-end">
             {/* Category Eyebrow */}
-            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#D4AF37]/15 text-[#F3E5AB] border border-[#D4AF37]/30 text-xs font-bold uppercase tracking-wider backdrop-blur-md">
+            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#D4AF37]/20 text-[#F3E5AB] border border-[#D4AF37]/40 text-[10px] sm:text-xs font-bold uppercase tracking-widest backdrop-blur-xl w-fit">
               <Sparkles className="w-3.5 h-3.5" />
               <span>FEATURED HEADLINER SHOW</span>
             </div>
             {/* Title & Subtitle */}
-            <div className="space-y-2 sm:space-y-3">
-              <h1 className="font-heading font-extrabold text-3xl sm:text-6xl text-white tracking-tight leading-[1.1] drop-shadow-[0_4px_12px_rgba(0,0,0,0.8)]">
+            <div className="space-y-3 sm:space-y-3">
+              <h1 className="font-heading font-extrabold text-4xl sm:text-6xl text-white tracking-tight leading-[1.1] drop-shadow-[0_4px_16px_rgba(0,0,0,1)]">
                 {currentHeroEvent.title}
               </h1>
-              <p className="text-gray-200 text-sm sm:text-base line-clamp-3 leading-relaxed drop-shadow-md max-w-lg">
+              <p className="text-gray-100 text-sm sm:text-base line-clamp-3 leading-relaxed drop-shadow-[0_2px_8px_rgba(0,0,0,0.8)] max-w-lg font-medium">
                 {currentHeroEvent.subtitle}
               </p>
             </div>
             {/* Event Quick Meta */}
-            <div className="flex flex-wrap items-center gap-4 text-xs sm:text-sm text-gray-200">
-              <div className="flex items-center gap-1.5 bg-black/50 px-3 py-1.5 rounded-xl border border-white/10 backdrop-blur-md">
+            <div className="flex flex-wrap items-center gap-3 sm:gap-4 text-xs sm:text-sm text-white">
+              <div className="flex items-center gap-1.5 bg-black/60 px-3 py-2 rounded-xl border border-white/20 backdrop-blur-xl shadow-lg">
                 <Calendar className="w-4 h-4 text-[#D4AF37]" />
-                <span className="font-medium">{currentHeroEvent.date} @ {currentHeroEvent.time}</span>
+                <span className="font-bold">{currentHeroEvent.date} @ {currentHeroEvent.time}</span>
               </div>
-              <div className="flex items-center gap-1.5 bg-black/50 px-3 py-1.5 rounded-xl border border-white/10 backdrop-blur-md">
-                <MapPin className="w-4 h-4 text-gray-400" />
-                <span>{currentHeroEvent.venue}, {currentHeroEvent.city}</span>
+              <div className="flex items-center gap-1.5 bg-black/60 px-3 py-2 rounded-xl border border-white/20 backdrop-blur-xl shadow-lg">
+                <MapPin className="w-4 h-4 text-[#D4AF37]" />
+                <span className="font-semibold">{currentHeroEvent.venue}</span>
               </div>
-              <div className="flex items-center gap-1.5 bg-black/50 px-3 py-1.5 rounded-xl border border-white/10 backdrop-blur-md">
+              <div className="flex items-center gap-1.5 bg-black/60 px-3 py-2 rounded-xl border border-white/20 backdrop-blur-xl shadow-lg">
                 <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
                 <span className="font-bold">{currentHeroEvent.rating}</span>
               </div>
             </div>
             {/* CTAs */}
-            <div className="pt-2 flex flex-wrap items-center gap-4">
+            <div className="pt-4 flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
               <button
                 onClick={() => currentHeroEvent.isAdvertiseOnly ? onSelectEvent(currentHeroEvent) : onBookNow(currentHeroEvent)}
-                className="px-7 py-3.5 rounded-2xl bg-gradient-to-r from-[#F3E5AB] via-[#D4AF37] to-[#C5A059] hover:brightness-110 text-black font-extrabold text-sm sm:text-base flex items-center gap-2 shadow-xl shadow-[#D4AF37]/25 hover:scale-105 active:scale-95 transition-all"
+                className="px-8 py-4 rounded-2xl bg-gradient-to-r from-[#F3E5AB] via-[#D4AF37] to-[#C5A059] hover:brightness-110 text-black font-black text-sm sm:text-base flex items-center justify-center gap-2 shadow-2xl shadow-[#D4AF37]/30 hover:scale-[1.02] active:scale-95 transition-all"
               >
                 {currentHeroEvent.isAdvertiseOnly ? (
                   <>
-                    <Info className="w-5 h-5 stroke-[2.5]" />
+                    <Info className="w-5 h-5 stroke-[3]" />
                     <span>View Event Details</span>
                   </>
                 ) : (
                   <>
-                    <Ticket className="w-5 h-5 stroke-[2.5]" />
-                    <span>Book Tickets Now (From {formatINR(currentHeroEvent.startingPrice)})</span>
+                    <Ticket className="w-5 h-5 stroke-[3]" />
+                    <span>Book Now (From {formatINR(currentHeroEvent.startingPrice)})</span>
                   </>
                 )}
               </button>
               <button
                 onClick={() => onSelectEvent(currentHeroEvent)}
-                className="px-6 py-3.5 rounded-2xl bg-white/10 hover:bg-white/20 text-white font-semibold text-sm backdrop-blur-md border border-white/15 transition-all"
+                className="px-7 py-4 rounded-2xl bg-white/10 hover:bg-white/20 text-white font-bold text-sm backdrop-blur-xl border border-white/20 transition-all flex items-center justify-center"
               >
                 View Event Info
               </button>

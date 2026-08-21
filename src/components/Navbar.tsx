@@ -53,16 +53,14 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSearch }) => {
               <div className="relative">
                 <div className="absolute -inset-0.5 bg-gradient-to-r from-[#F3E5AB] via-[#D4AF37] to-[#C5A059] rounded-xl opacity-40 group-hover:opacity-100 blur-[3px] transition-opacity duration-300"></div>
                 <img
-                  src="/logo-tiny.webp"
-                  srcSet="/logo-tiny.webp 1x, /logo-small.webp 2x"
+                  src="/favicon-192.png"
                   alt="Ash-vish Events Logo"
                   onError={(e) => {
                     const target = e.currentTarget;
-                    if (target.src.includes('.webp')) {
-                      target.srcset = '';
+                    if (target.src.includes('favicon-192.png')) {
+                      target.src = '/logo-tiny.webp';
+                    } else if (target.src.includes('logo-tiny.webp')) {
                       target.src = '/ash-vish-events-logo.png';
-                    } else if (target.src.includes('ash-vish-events-logo.png')) {
-                      target.src = '/av-logo.png';
                     }
                   }}
                   className="relative w-9 h-9 sm:w-10 sm:h-10 rounded-xl object-cover border border-[#D4AF37]/40 shadow-lg group-hover:scale-105 transition-transform duration-200"

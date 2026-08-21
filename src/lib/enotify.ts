@@ -1,6 +1,6 @@
 import "dotenv/config";
 
-const DEFAULT_INSTANCE_TOKEN = '6523f2a5758e0a2faf8f8d33';
+const DEFAULT_INSTANCE_TOKEN = '';
 const DEFAULT_API_URL = 'https://enotify.app/api';
 
 /**
@@ -211,6 +211,11 @@ export async function sendTicketWhatsApp(
     DEFAULT_INSTANCE_TOKEN
   ).trim();
 
+  if (!token) {
+    console.error('[ENOTIFY] WhatsApp API token is missing in environment variables.');
+    return { success: false, error: 'MISSING_API_TOKEN' };
+  }
+
   const baseUrl = (
     process.env.ENOTIFY_API_URL ||
     DEFAULT_API_URL
@@ -379,6 +384,8 @@ export async function sendTicketWhatsAppWithImage(
     process.env.ENOTIFY_INSTANCE_TOKEN ||
     DEFAULT_INSTANCE_TOKEN
   ).trim();
+
+  if (!token) return { success: false, error: 'MISSING_API_TOKEN' };
 
   const baseUrl = (
     process.env.ENOTIFY_API_URL ||

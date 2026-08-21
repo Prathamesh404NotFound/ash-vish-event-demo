@@ -371,7 +371,20 @@ export const WalkInPage: React.FC = () => {
       try {
         const res = await safeFetch<any>('/api/counter/shifts', { headers: await authenticatedApiHeaders() });
         if (cancelled || !res.ok) return;
-        const openShift = (res.data?.shifts || []).find((s: any) => s.status === 'open' && (!s.staffId || s.staffId === user?.uid));
+        
+        // Priority: 1. Locally persisted shift (this device's session) 2. Any open shift from backend
+        const localShiftStr = localStorage.getItem('ashvish_active_shift');
+        const localShift = localShiftStr ? JSON.parse(localShiftStr) : null;
+        
+        const openShifts = (res.data?.shifts || []).filter((s: any) => s.status === 'open');
+        let openShift = openShifts.find((s: any) => s.shiftId === localShift?.shiftId);
+        
+        if (!openShift) {
+          openShift = openShifts.find((s: any) => !s.staffId || s.staffId === user?.uid);
+          if (openShift) localStorage.setItem('ashvish_active_shift', JSON.stringify(openShift));
+          else localStorage.removeItem('ashvish_active_shift');
+        }
+
         setActiveShiftId(openShift ? openShift.shiftId : null);
         if (openShift && openShift.subUserId) {
           setActiveSubUser({ id: openShift.subUserId, name: openShift.subUserName || '' });
@@ -486,7 +499,9 @@ export const WalkInPage: React.FC = () => {
   };
   const autofillRemaining = (index: number) => {
     const other = payments.reduce((acc, p, i) => (i === index ? acc : acc + p.amount), 0);
-    updatePayment(index, { amount: Math.max(0, Math.round((netTotal - other) * 100) / 100) });
+    // Use Number.EPSILON to handle floating point precision issues
+    const remaining = Math.max(0, netTotal - other);
+    updatePayment(index, { amount: Math.round((remaining + Number.EPSILON) * 100) / 100 });
   };
 
   // ---------- Manager-gated discount override ----------
@@ -1449,13 +1464,27 @@ export const WalkInPage: React.FC = () => {
                     >
                       <Plus className="w-3 h-3" /> Add method
                     </button>
-                    <div className={`text-[11px] font-bold flex items-center gap-2 ${
-                      paymentsValid ? 'text-emerald-400' : 'text-amber-400'
+                    <div className={`text-[11px] font-bold flex flex-wrap items-center gap-x-4 gap-y-1 p-2 rounded-xl ${
+                      paymentsValid ? 'bg-emerald-500/5 text-emerald-400' : 'bg-amber-500/5 text-amber-400'
                     }`}>
-                      <span className="text-gray-500">Paid: {formatRupee(paymentsSum)}</span>
-                      <span>/</span>
-                      <span>Due: {formatRupee(netTotal)}</span>
-                      {paymentsValid ? <CheckCircle2 className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-gray-500 font-medium uppercase tracking-wider text-[9px]">Net Due:</span>
+                        <span className="text-white">{formatRupee(netTotal)}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-gray-500 font-medium uppercase tracking-wider text-[9px]">Total Allocated:</span>
+                        <span className={paymentsValid ? 'text-emerald-400' : 'text-amber-400'}>{formatRupee(paymentsSum)}</span>
+                      </div>
+                      {Math.abs(netTotal - paymentsSum) > 0.01 && (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-gray-500 font-medium uppercase tracking-wider text-[9px]">Remaining:</span>
+                          <span className="text-amber-400 underline decoration-dotted">{formatRupee(netTotal - paymentsSum)}</span>
+                        </div>
+                      )}
+                      {paymentsValid && <div className="flex items-center gap-1 text-emerald-400 ml-auto">
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        <span className="text-[9px] uppercase tracking-widest">Balanced</span>
+                      </div>}
                     </div>
                   </div>
                 )}

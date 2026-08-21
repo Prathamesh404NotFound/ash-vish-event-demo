@@ -43,12 +43,9 @@ export const AuthPage: React.FC = () => {
   const handleGoogleSignIn = async () => {
     setErrorMsg('');
     const ok = await loginWithGoogle();
-    if (ok) {
-      // We need the user profile to check terms
-      // The user state in AuthContext might not be updated yet, so we'll wait a bit or use a flag
-      setShowTerms(true); 
+    if (!ok) {
+      setErrorMsg('Google sign-in did not complete. Please try again.');
     }
-    else setErrorMsg('Google sign-in did not complete. Please try again.');
   };
 
   const handleEmailSubmit = async (e: React.FormEvent) => {
@@ -63,8 +60,7 @@ export const AuthPage: React.FC = () => {
 
     if (mode === 'login') {
       const ok = await loginWithEmail(sanitizedEmail, password);
-      if (ok) setShowTerms(true);
-      else setErrorMsg('Invalid email or password.');
+      if (!ok) setErrorMsg('Invalid email or password.');
     } else {
       const sanitizedName = sanitizeString(name, 100);
       if (sanitizedName.length < 2) {
@@ -76,10 +72,21 @@ export const AuthPage: React.FC = () => {
         return;
       }
       const result = await signupWithEmail(sanitizedName, sanitizedEmail, password);
-      if (result.success) setShowTerms(true);
-      else setErrorMsg(result.error || 'Signup failed. Please try again.');
+      if (!result.success) setErrorMsg(result.error || 'Signup failed. Please try again.');
     }
   };
+
+  // Listen for user changes to handle redirection or terms popup
+  React.useEffect(() => {
+    if (authUser) {
+      if (!authUser.termsAccepted) {
+        setShowTerms(true);
+      } else {
+        setShowTerms(false);
+        navigate(redirectPath, { replace: true });
+      }
+    }
+  }, [authUser, navigate, redirectPath]);
 
   const handleSendOTP = async () => {
     setErrorMsg('');

@@ -48,6 +48,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // after refresh. Firebase is now the sole session authority.
   useEffect(() => {
     localStorage.removeItem('ash_vish_user_session');
+    localStorage.removeItem('ashvish_active_shift');
   }, []);
 
   // Sync profile from Realtime Database users/$uid and staff/$uid
@@ -98,6 +99,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.warn('[Firebase RTDB Sync Note] Could not connect to RTDB, using fallback role logic:', err);
     }
 
+    // Fetch existing user data to check terms acceptance
+    const userRef = ref(rtdb, `users/${fbUser.uid}`);
+    const userSnap = await get(userRef);
+    const userData = userSnap.val();
+
     const userProfile: UserProfile = {
       id: fbUser.uid,
       name: fbUser.displayName || fbUser.email?.split('@')[0] || 'Ash-vish Member',
@@ -108,6 +114,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       joinedDate: 'August 2026',
       role: resolvedRole,
       rbacRole: rbacRole as any,
+      termsAccepted: !!userData?.termsAccepted
     };
 
     return userProfile;
@@ -154,7 +161,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 prev.name === uData.name &&
                 prev.email === uData.email &&
                 prev.phone === uData.phone &&
-                prev.role === updatedRole
+                prev.role === updatedRole &&
+                prev.termsAccepted === !!uData.termsAccepted
               ) {
                 return prev;
               }
@@ -163,7 +171,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 name: uData.name || prev.name,
                 email: uData.email || prev.email,
                 phone: uData.phone || prev.phone,
-                role: updatedRole
+                role: updatedRole,
+                termsAccepted: !!uData.termsAccepted
               };
             });
           }
@@ -198,6 +207,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setFirebaseUser(null);
         setUser(null);
         localStorage.removeItem('ash_vish_user_session');
+        localStorage.removeItem('ashvish_active_shift');
       }
       setIsLoading(false);
     });
@@ -347,6 +357,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(null);
     setFirebaseUser(null);
     localStorage.removeItem('ash_vish_user_session');
+    localStorage.removeItem('ashvish_active_shift');
   };
 
   const acceptTerms = async () => {

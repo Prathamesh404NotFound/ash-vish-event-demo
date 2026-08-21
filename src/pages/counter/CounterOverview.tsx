@@ -8,7 +8,7 @@ export const CounterOverview: React.FC = () => {
   const { events, allTickets } = useBooking();
 
   const totalTickets = allTickets.length;
-  const scannedTickets = allTickets.filter((t) => t.status === 'used').length;
+  const scannedTickets = allTickets.filter((t) => t.status === 'redeemed' || t.status === 'used').length;
   const walkInTickets = allTickets.filter((t) => t.isWalkIn).length;
   const validUnscanned = allTickets.filter((t) => t.status === 'valid').length;
 
@@ -111,7 +111,7 @@ export const CounterOverview: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {events.map((evt) => {
             const eventTickets = allTickets.filter((t) => t.eventId === evt.id);
-            const eventScanned = eventTickets.filter((t) => t.status === 'used').length;
+            const eventScanned = eventTickets.filter((t) => t.status === 'redeemed' || t.status === 'used').length;
 
             return (
               <div

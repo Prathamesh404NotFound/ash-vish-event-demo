@@ -18,6 +18,9 @@ export interface QueuedWalkInSale {
     discountOverride?: any;
     shiftId?: string;
     scannedByStaffId?: string;
+    counterId?: string;
+    subUserId?: string;
+    subUserName?: string;
   };
   eventTitle?: string;
   tierName?: string;

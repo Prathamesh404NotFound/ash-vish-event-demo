@@ -6,5 +6,20 @@ coverage/
 *.log
 
 .env
+.env.local
+.env.*.local
+*.json
+!package.json
+!package-lock.json
+!tsconfig.json
+!firebase.json
+!database.rules.json
+!manifest.json
+!vercel.json
+!pnpm-lock.yaml
+!*.schema.json
+!*.config.json
 _debug_eval.cjs
 _t2.cjs
+.vercel/
+.firebase/

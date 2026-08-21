@@ -134,34 +134,45 @@ export const EventDetail: React.FC<EventDetailProps> = ({
       </div>
 
       {/* Hero Cover Image Header */}
-      <div className="relative aspect-[16/9] sm:aspect-[2.5/1] w-full rounded-3xl overflow-hidden border border-white/10 bg-[#1C1C1C] shadow-2xl">
+      <div className="relative aspect-[4/5] sm:aspect-[2.5/1] w-full rounded-3xl overflow-hidden border border-white/10 bg-[#1C1C1C] shadow-2xl">
         {event.coverUrl || event.posterUrl ? (
         <img
           src={event.coverUrl || event.posterUrl}
           alt={event.title}
-          className="aspect-ratio-fix w-full h-full object-cover filter brightness-[0.95]"
+          className="aspect-ratio-fix w-full h-full object-cover object-top sm:object-center filter brightness-[0.85] contrast-[1.05]"
         />
         ) : (
           <div className="w-full h-full flex items-center justify-center bg-[#262626]">
             <Ticket className="w-16 h-16 text-white/25" />
           </div>
         )}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/15 via-black/5 to-transparent" />
+        {/* Stronger mobile gradient for text readability */}
+        <div className="absolute inset-0 bg-gradient-to-t from-[#070707] via-[#070707]/60 to-transparent sm:from-black/60 sm:via-transparent" />
 
-        <div className="absolute bottom-6 left-6 right-6 flex flex-wrap items-end justify-between gap-4">
-          <div className="space-y-2 max-w-2xl">
-            <span className="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black shadow-md">
-              {event.category}
-            </span>
-            <h1 className="font-heading font-extrabold text-2xl sm:text-4xl text-white drop-shadow-md">
+        <div className="absolute bottom-0 left-0 right-0 p-6 sm:p-8 flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+          <div className="space-y-3 max-w-2xl">
+            <div className="flex items-center gap-2">
+              <span className="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black shadow-lg">
+                {event.category}
+              </span>
+              {event.isAdvertiseOnly && (
+                <span className="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest bg-black/80 text-amber-300 border border-amber-500/40 backdrop-blur-md">
+                  Counter Only
+                </span>
+              )}
+            </div>
+            <h1 className="font-heading font-extrabold text-3xl sm:text-5xl text-white drop-shadow-[0_4px_12px_rgba(0,0,0,0.8)] leading-tight">
               {event.title}
             </h1>
-            <p className="text-gray-300 text-xs sm:text-sm line-clamp-1">{event.subtitle}</p>
+            <p className="text-gray-100 text-sm sm:text-base font-medium drop-shadow-md line-clamp-2 max-w-xl">
+              {event.subtitle}
+            </p>
           </div>
 
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-black/60 backdrop-blur-md border border-white/10 text-white text-xs font-semibold">
+          <div className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-black/70 backdrop-blur-xl border border-white/20 text-white text-xs sm:text-sm font-bold shadow-xl w-fit">
             <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
-            <span>{event.rating} ({event.reviewsCount} reviews)</span>
+            <span>{event.rating}</span>
+            <span className="text-gray-400 font-medium">({event.reviewsCount} reviews)</span>
           </div>
         </div>
       </div>
