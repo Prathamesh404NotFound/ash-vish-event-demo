@@ -357,3 +357,55 @@ export async function sendTicketWhatsApp(
     error: lastError || { message: 'Failed after maximum attempts' }
   };
 }
+
+/**
+ * Sends ticket via enotify.app REST API WITH an image (event poster).
+ * 
+ * Protocol:
+ * GET https://enotify.app/api/sendImage?token=...&phone=...&image=...&caption=...
+ */
+export async function sendTicketWhatsAppWithImage(
+  ticket: any,
+  recipientPhone: string
+): Promise<{ success: boolean; waMessageId?: string; error?: any }> {
+  const rawEnabled = process.env.ENOTIFY_ENABLED;
+  const isExplicitlyDisabled = rawEnabled !== undefined && ['false', '0', 'off', 'no', 'disabled'].includes(String(rawEnabled).trim().toLowerCase());
+  
+  if (isExplicitlyDisabled) return { success: false, error: 'ENOTIFY_DISABLED' };
+
+  const token = (
+    process.env.ENOTIFY_TOKEN ||
+    process.env.ENOTIFY_API_KEY ||
+    process.env.ENOTIFY_INSTANCE_TOKEN ||
+    DEFAULT_INSTANCE_TOKEN
+  ).trim();
+
+  const baseUrl = (
+    process.env.ENOTIFY_API_URL ||
+    DEFAULT_API_URL
+  ).trim().replace(/\/+$/, '');
+
+  const normalizedPhone = normalizePhoneNumber(recipientPhone);
+  if (!normalizedPhone) return { success: false, error: 'INVALID_PHONE_NUMBER' };
+
+  const messageText = formatWhatsAppTicketMessage(ticket);
+  
+  // Use the public URL for the poster
+  const appUrl = (process.env.VITE_APP_URL || process.env.APP_URL || 'https://ashvishevents.com').replace(/\/+$/, '');
+  const posterUrl = `${appUrl}/sufiyana-shaam-poster.jpg`;
+
+  const targetUrl = `${baseUrl}/sendImage?token=${encodeURIComponent(token)}&phone=${encodeURIComponent(normalizedPhone)}&image=${encodeURIComponent(posterUrl)}&caption=${encodeURIComponent(messageText)}`;
+
+  try {
+    const response = await fetch(targetUrl);
+    const responseData: any = await response.json();
+    
+    if (response.ok && (responseData.status === 'success' || responseData.status === true || responseData.status === 200)) {
+      return { success: true, waMessageId: responseData.data?.id || responseData.messageId || `enotify_img_${Date.now()}` };
+    }
+    return { success: false, error: responseData };
+  } catch (err) {
+    console.error("[ENOTIFY] Image send failed, falling back to text:", err);
+    return sendTicketWhatsApp(ticket, recipientPhone);
+  }
+}

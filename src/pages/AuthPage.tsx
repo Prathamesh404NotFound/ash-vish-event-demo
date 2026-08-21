@@ -178,6 +178,22 @@ export const AuthPage: React.FC = () => {
 
         {/* Right Side: Auth Form */}
         <div className="lg:col-span-6 p-8 sm:p-12 flex flex-col justify-center bg-[#141414]">
+          {/* Mobile Event Poster Header */}
+          <div className="lg:hidden mb-8 rounded-2xl overflow-hidden border border-white/10 relative group">
+            <img 
+              src="/sufiyana-shaam-poster.jpg" 
+              alt="Sufiyana Shaam Event Poster" 
+              className="w-full h-48 object-cover object-top"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-[#141414] via-transparent to-transparent" />
+            <div className="absolute bottom-4 left-4 right-4">
+              <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-[#D4AF37] text-black inline-flex items-center gap-1 mb-1">
+                <Sparkles className="w-2.5 h-2.5" /> Featured Event
+              </span>
+              <h3 className="text-white font-heading font-bold text-sm">Sufiyana Shaam at Sayaji</h3>
+            </div>
+          </div>
+
           <div className="max-w-md w-full mx-auto space-y-6">
             
             <div>

@@ -255,7 +255,7 @@ export function TicketPassPage() {
           {/* Poster Header */}
           <div className="relative h-44 overflow-hidden bg-gray-900">
             <img 
-              src={ticket?.eventPoster || "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&q=80&w=800"} 
+              src={ticket?.eventPoster || "/sufiyana-shaam-poster.jpg"} 
               alt={ticket?.eventTitle}
               className="w-full h-full object-cover"
               onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}

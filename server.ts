@@ -8,7 +8,7 @@ dotenv.config();
 import { verifyFirebaseIdToken, TokenVerificationError } from "./src/lib/verify-token.js";
 import { rtdbGet, rtdbSet, rtdbUpdate, rtdbDelete, rtdbTransaction, rtdbPush } from "./src/lib/rtdb.js";
 import { getFirebaseAdminIdToken } from "./src/lib/identity-admin.js";
-import { sendTicketWhatsApp, normalizePhoneNumber } from "./src/lib/enotify.js";
+import { sendTicketWhatsApp, sendTicketWhatsAppWithImage, normalizePhoneNumber } from "./src/lib/enotify.js";
 import {
   isRazorpayConfigured,
   isTestMode,
@@ -1182,7 +1182,7 @@ async function finalizeBookingServerSide(
     if (newTicket && targetPhone) {
       (async () => {
         try {
-          const res = await sendTicketWhatsApp(newTicket, targetPhone);
+          const res = await sendTicketWhatsAppWithImage(newTicket, targetPhone);
           const adminToken = await getAdminAuthToken();
           
           const notificationEntry: any = {
@@ -6371,7 +6371,7 @@ app.post("/api/counter/tickets/:ticketId/resend-whatsapp", requireRole(["counter
       return res.status(400).json({ success: false, error: "Ticket does not have an associated attendee phone number." });
     }
 
-    const waRes = await sendTicketWhatsApp(ticket, ticket.attendeePhone);
+    const waRes = await sendTicketWhatsAppWithImage(ticket, ticket.attendeePhone);
     const notificationEntry: any = {
       channel: 'enotify_whatsapp',
       createdAt: new Date().toISOString()
