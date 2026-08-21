@@ -199,6 +199,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, pass);
       const profile = await fetchAndSyncUserProfile(userCredential.user);
+      
+      // If user is staff, mint custom claims and force token refresh
+      if (profile.role !== 'customer') {
+        try {
+          const idToken = await userCredential.user.getIdToken();
+          const claimsRes = await fetch('/api/auth/claims', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${idToken}`,
+              'Content-Type': 'application/json'
+            }
+          });
+          if (claimsRes.ok) {
+            await userCredential.user.getIdToken(true); // Force refresh to get new claims
+          }
+        } catch (e) {
+          console.warn('[AuthContext] Claims minting failed:', e);
+        }
+      }
+
       setUser(profile);
       setIsLoading(false);
       return true;
@@ -250,6 +270,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Web Popup Authentication
       const result = await signInWithPopup(auth, googleProvider);
       const profile = await fetchAndSyncUserProfile(result.user);
+      
+      // If user is staff, mint custom claims and force token refresh
+      if (profile.role !== 'customer') {
+        try {
+          const idToken = await result.user.getIdToken();
+          const claimsRes = await fetch('/api/auth/claims', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${idToken}`,
+              'Content-Type': 'application/json'
+            }
+          });
+          if (claimsRes.ok) {
+            await result.user.getIdToken(true); // Force refresh to get new claims
+          }
+        } catch (e) {
+          console.warn('[AuthContext] Claims minting failed:', e);
+        }
+      }
+
       setUser(profile);
       setIsLoading(false);
       return true;
