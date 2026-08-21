@@ -5509,7 +5509,12 @@ async function fetchCounterShifts(authToken: string | undefined, staffUid?: stri
     const s = (shift || {}) as any;
     // If deviceId is provided, we filter shifts for this staff member to only those on this device.
     // This allows same staff account to have multiple concurrent shifts on different devices.
-    if (allForAdmin || (s.staffId === staffUid && (!deviceId || s.deviceId === deviceId))) {
+    // If deviceId is provided, we filter shifts for this staff member to only those on this device.
+    // This allows same staff account to have multiple concurrent shifts on different devices.
+    // FIX: Even for admins, we respect deviceId if provided to prevent cross-device session bleed.
+    const isOwner = s.staffId === staffUid;
+    const isDeviceMatch = !deviceId || s.deviceId === deviceId;
+    if ((allForAdmin && isDeviceMatch) || (isOwner && isDeviceMatch)) {
       shifts[shiftId] = s;
     }
   }

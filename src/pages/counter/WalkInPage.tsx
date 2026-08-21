@@ -369,7 +369,8 @@ export const WalkInPage: React.FC = () => {
     let cancelled = false;
     const loadShifts = async () => {
       try {
-        const res = await safeFetch<any>('/api/counter/shifts', { headers: await authenticatedApiHeaders() });
+        const deviceId = getDeviceId();
+        const res = await safeFetch<any>(`/api/counter/shifts?deviceId=${deviceId}`, { headers: await authenticatedApiHeaders() });
         if (cancelled || !res.ok) return;
         const openShift = (res.data?.shifts || []).find((s: any) => s.status === 'open' && (!s.staffId || s.staffId === user?.uid));
         setActiveShiftId(openShift ? openShift.shiftId : null);

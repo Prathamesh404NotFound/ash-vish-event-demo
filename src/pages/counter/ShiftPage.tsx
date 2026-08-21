@@ -123,7 +123,13 @@ export const ShiftPage: React.FC = () => {
         setShifts(list);
 
         // Find open shift for current user
-        const open = list.find((s) => s.status === 'open' && (!s.staffId || s.staffId === user?.uid || (user as any)?.rbacRole === 'super_admin'));
+        // Find open shift for current user on THIS device
+        const deviceId = getDeviceId();
+        const open = list.find((s) => 
+          s.status === 'open' && 
+          s.deviceId === deviceId &&
+          (!s.staffId || s.staffId === user?.uid || (user as any)?.rbacRole === 'super_admin')
+        );
         setActiveShift(open || null);
         
         // Sync with global session context
