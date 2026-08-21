@@ -22,11 +22,13 @@ interface Ticket {
   status: 'valid' | 'redeemed' | 'cancelled';
   purchasedAt: string;
   cancelledReason?: string;
+  issuedBySubUserName?: string;
 }
 
 interface Summary {
   count: number;
   amount: number;
+  bySubUser?: Record<string, number>;
 }
 
 export const MySalesPage: React.FC = () => {
@@ -254,7 +256,7 @@ export const MySalesPage: React.FC = () => {
     }
 
     // Standard CSV compiling
-    const headers = ["Ticket Number", "Event", "Tier", "Seats", "Attendee", "Phone", "Email", "Total Paid", "Status", "Date"];
+    const headers = ["Ticket Number", "Event", "Tier", "Seats", "Attendee", "Phone", "Email", "Total Paid", "Issued By", "Status", "Date"];
     const rows = tickets.map(t => [
       t.ticketNumber,
       t.eventTitle,
@@ -264,6 +266,7 @@ export const MySalesPage: React.FC = () => {
       t.attendeePhone || '',
       t.attendeeEmail || '',
       `₹${t.totalPaid}`,
+      t.issuedBySubUserName || 'Main Staff',
       t.status,
       new Date(t.purchasedAt).toLocaleString()
     ]);
@@ -352,6 +355,21 @@ export const MySalesPage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Sub-User Breakdown */}
+      {summary.bySubUser && Object.keys(summary.bySubUser).length > 0 && (
+        <div className="p-4 rounded-2xl bg-[#121212] border border-white/10 overflow-x-auto">
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Breakdown by Counter Operator Session</p>
+          <div className="flex items-center gap-4">
+            {Object.entries(summary.bySubUser).map(([name, amount]) => (
+              <div key={name} className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 shrink-0">
+                <span className="text-xs font-bold text-white">{name}:</span>
+                <span className="text-xs font-mono text-[#D4AF37]">₹{amount.toLocaleString()}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Success Banner */}
       {successMsg && (
@@ -461,6 +479,7 @@ export const MySalesPage: React.FC = () => {
                   <th className="p-4 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Attendee Info</th>
                   <th className="p-4 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Amount</th>
                   <th className="p-4 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Status</th>
+                  <th className="p-4 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Issued By</th>
                   <th className="p-4 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-right">Actions</th>
                 </tr>
               </thead>
@@ -505,6 +524,9 @@ export const MySalesPage: React.FC = () => {
                           Voided
                         </span>
                       )}
+                    </td>
+                    <td className="p-4">
+                      <p className="text-xs font-bold text-white">{t.issuedBySubUserName || 'Main Staff'}</p>
                     </td>
                     <td className="p-4 text-right">
                       <div className="flex items-center justify-end gap-1.5">

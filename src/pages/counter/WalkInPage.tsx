@@ -169,6 +169,7 @@ export const WalkInPage: React.FC = () => {
 
   // Active staff shift attribution.
   const [activeShiftId, setActiveShiftId] = useState<string | null>(null);
+  const [activeSubUser, setActiveSubUser] = useState<{ id: string; name: string } | null>(null);
 
   const seatSearchInputRef = useRef<HTMLInputElement>(null);
   const confirmButtonRef = useRef<HTMLButtonElement>(null);
@@ -372,6 +373,11 @@ export const WalkInPage: React.FC = () => {
         if (cancelled || !res.ok) return;
         const openShift = (res.data?.shifts || []).find((s: any) => s.status === 'open' && (!s.staffId || s.staffId === user?.uid));
         setActiveShiftId(openShift ? openShift.shiftId : null);
+        if (openShift && openShift.subUserId) {
+          setActiveSubUser({ id: openShift.subUserId, name: openShift.subUserName || '' });
+        } else {
+          setActiveSubUser(null);
+        }
       } catch {
         /* shift loading is best-effort */
       }
@@ -644,6 +650,9 @@ export const WalkInPage: React.FC = () => {
           }
         : undefined,
       shiftId: activeShiftId || undefined,
+      counterId: selectedCounterId || undefined,
+      subUserId: activeSubUser?.id || undefined,
+      subUserName: activeSubUser?.name || undefined,
       idempotencyKey,
     };
 
@@ -671,6 +680,8 @@ export const WalkInPage: React.FC = () => {
             shiftId: activeShiftId || undefined,
             idempotencyKey,
             counterId: selectedCounterId || undefined,
+            subUserId: activeSubUser?.id || undefined,
+            subUserName: activeSubUser?.name || undefined,
           }
         );
         setIssuedTicket(ticket);

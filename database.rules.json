@@ -226,7 +226,7 @@
     },
     "counter_shifts": {
       ".read": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).exists())",
-      ".write": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).child('role').val() === 'super_admin' || root.child('staff').child(auth.uid).child('role').val() === 'admin')"
+      ".write": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).child('role').val() === 'super_admin' || root.child('staff').child(auth.uid).child('role').val() === 'admin' || root.child('staff').child(auth.uid).child('role').val() === 'counter_staff' || root.child('staff').child(auth.uid).child('role').val() === 'ticket_counter')"
     },
     "sales": {
       ".read": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).exists())",

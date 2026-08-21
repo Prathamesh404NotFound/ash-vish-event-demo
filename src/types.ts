@@ -140,6 +140,14 @@ export interface EventItem {
   assignedCounterIds?: string[];
 }
 
+export interface CounterSubUser {
+  id: string;
+  name: string;
+  phone: string;
+  pinHash: string;
+  status: 'active' | 'inactive';
+}
+
 export interface PublicCounter {
   id: string;
   name: string;
@@ -155,13 +163,14 @@ export interface PublicCounter {
 export interface Counter extends PublicCounter {
   merchantUpi?: { vpa?: string; name?: string };
   assignedStaffIds?: string[];
+  subUsers?: CounterSubUser[];
   createdAt?: string;
   updatedAt?: string;
   createdBy?: string;
   updatedBy?: string;
 }
 
-export type UserRole = 'customer' | 'admin' | 'ticket_counter' | 'organizer';
+export type UserRole = 'customer' | 'admin' | 'ticket_counter' | 'organizer' | 'super_admin' | 'event_manager' | 'counter_staff' | 'auditor';
 export type OrganizerStatus = 'pending' | 'approved' | 'rejected';
 
 export interface OrganizerAccount {
@@ -210,6 +219,8 @@ export interface Ticket {
   paymentStatus?: 'paid' | 'pending';
   /** Amount still owed in INR. 0 once paid. */
   amountDue?: number;
+  issuedBySubUserId?: string;
+  issuedBySubUserName?: string;
   passSlug?: {
     id: string;
     sig: string;
@@ -225,6 +236,7 @@ export interface UserProfile {
   authProvider: 'google' | 'email';
   joinedDate: string;
   role: UserRole;
+  rbacRole?: UserRole;
   organizerStatus?: OrganizerStatus;
   organizationName?: string;
   organizerPhone?: string;
@@ -256,6 +268,8 @@ export interface BookingRecord {
   isWalkIn?: boolean;
   paymentStatus?: 'paid' | 'pending';
   amountDue?: number;
+  issuedBySubUserId?: string;
+  issuedBySubUserName?: string;
 }
 
 export interface Coupon {

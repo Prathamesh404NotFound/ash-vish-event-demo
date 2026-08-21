@@ -1046,6 +1046,8 @@ async function finalizeBookingServerSide(
       shiftId: pendingOrder?.shiftId || null,
       counterId: pendingOrder?.counterId || null,
       counterName: pendingOrder?.counterName || null,
+      issuedBySubUserId: pendingOrder?.issuedBySubUserId || null,
+      issuedBySubUserName: pendingOrder?.issuedBySubUserName || null,
       payments: pendingOrder?.payments || null,
       paymentMethod: pendingOrder?.paymentMethod || paymentMethod,
       ...(pendingOrder?.reservationId ? { reservationId: pendingOrder.reservationId } : {}),
@@ -1068,6 +1070,8 @@ async function finalizeBookingServerSide(
       attendeeEmail: customerDetails.email,
       ticketId,
       isWalkIn: paymentMethod.includes('walkin'),
+      issuedBySubUserId: pendingOrder?.issuedBySubUserId || null,
+      issuedBySubUserName: pendingOrder?.issuedBySubUserName || null,
       ...(pendingOrder?.reservationId ? { reservationId: pendingOrder.reservationId } : {}),
     };
 
@@ -3416,7 +3420,7 @@ export async function createApp() {
 
   app.post("/api/walk-in-bookings", verifyRole(['admin', 'ticket_counter']), async (req: any, res) => {
     try {
-      const { eventId, tierId, attendeeName, attendeePhone, attendeeEmail, selectedSeats = [], paymentMethod = 'cash', couponCode: rawCouponCode, payments: rawPayments, discountOverride: rawOverride, shiftId, idempotencyKey, counterId: rawCounterId, scannedByStaffId } = req.body || {};
+      const { eventId, tierId, attendeeName, attendeePhone, attendeeEmail, selectedSeats = [], paymentMethod = 'cash', couponCode: rawCouponCode, payments: rawPayments, discountOverride: rawOverride, shiftId, idempotencyKey, counterId: rawCounterId, scannedByStaffId, subUserId, subUserName } = req.body || {};
 
       // Idempotency: same key returns the same completed result
       const idKey = idempotencyKey ? String(idempotencyKey).trim() : null;
@@ -3606,6 +3610,8 @@ export async function createApp() {
         ...(discountOverrideRecord ? { discountOverride: discountOverrideRecord } : {}),
         ...(shiftCode ? { shiftId: shiftCode, staffShiftId: shiftCode } : {}),
         ...(rawCid ? { counterId: rawCid, counterName } : {}),
+        ...(subUserId ? { issuedBySubUserId: String(subUserId).slice(0, 64) } : {}),
+        ...(subUserName ? { issuedBySubUserName: String(subUserName).slice(0, 64) } : {}),
         ...(counterUpi.vpa ? { counterMerchantUpi: counterUpi } : {}),
       }, adminToken);
 
@@ -4207,6 +4213,95 @@ export async function createApp() {
     }
   });
 
+  // --- Admin Counter Sub-Users Management ---
+  app.post("/api/admin/counters/:counterId/sub-users", requireRole(["super_admin", "event_manager"]), async (req: any, res) => {
+    try {
+      const { counterId } = req.params;
+      const { name, phone } = req.body || {};
+      if (!name || !phone) {
+        return res.status(400).json({ success: false, error: "Name and phone are required." });
+      }
+      const adminToken = await getAdminAuthToken();
+      const counterSnap = await rtdbGet(`counters/${counterId}`, adminToken);
+      const counter = counterSnap.data as any;
+      if (!counter) return res.status(404).json({ success: false, error: "Counter not found." });
+
+      const subUserId = `sub_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const pin = Math.floor(1000 + Math.random() * 9000).toString();
+      const pinHash = crypto.createHash('sha256').update(pin + SERVER_HMAC_SECRET).digest('hex');
+
+      const subUser = {
+        id: subUserId,
+        name: String(name).trim(),
+        phone: normalizePhoneNumber(phone),
+        pinHash,
+        status: 'active'
+      };
+
+      await rtdbSet(`counters/${counterId}/subUsers/${subUserId}`, subUser, adminToken);
+      await writeAuditEntry({
+        actorId: req.user.uid,
+        actorRole: req.user.rbacRole,
+        action: "counter.subuser.added",
+        entityType: "counter",
+        entityId: counterId,
+        afterState: { subUserId, name: subUser.name, phone: subUser.phone }
+      });
+
+      return res.status(201).json({ success: true, subUser: { ...subUser, pin } });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  app.delete("/api/admin/counters/:counterId/sub-users/:subUserId", requireRole(["super_admin", "event_manager"]), async (req: any, res) => {
+    try {
+      const { counterId, subUserId } = req.params;
+      const adminToken = await getAdminAuthToken();
+      await rtdbDelete(`counters/${counterId}/subUsers/${subUserId}`, adminToken);
+      await writeAuditEntry({
+        actorId: req.user.uid,
+        actorRole: req.user.rbacRole,
+        action: "counter.subuser.removed",
+        entityType: "counter",
+        entityId: counterId,
+        afterState: { subUserId }
+      });
+      return res.json({ success: true });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  app.post("/api/admin/counters/:counterId/sub-users/:subUserId/send-pin", requireRole(["super_admin", "event_manager"]), async (req: any, res) => {
+    try {
+      const { counterId, subUserId } = req.params;
+      const adminToken = await getAdminAuthToken();
+      const subUserSnap = await rtdbGet(`counters/${counterId}/subUsers/${subUserId}`, adminToken);
+      const subUser = subUserSnap.data as any;
+      if (!subUser) return res.status(404).json({ success: false, error: "Sub-user not found." });
+
+      const counterSnap = await rtdbGet(`counters/${counterId}`, adminToken);
+      const counterName = (counterSnap.data as any)?.name || "Counter";
+
+      // Since we don't store plain PIN, we regenerate a new one and update the hash
+      const pin = Math.floor(1000 + Math.random() * 9000).toString();
+      const pinHash = crypto.createHash('sha256').update(pin + SERVER_HMAC_SECRET).digest('hex');
+      await rtdbUpdate(`counters/${counterId}/subUsers/${subUserId}`, { pinHash }, adminToken);
+
+      const message = `*Ash-vish Events Counter Access:*\nHello ${subUser.name}, your 4-digit access PIN for ${counterName} is: *${pin}*.\nKeep it secure.`;
+      const ok = await sendWhatsAppText(subUser.phone, message);
+
+      if (ok) {
+        return res.json({ success: true });
+      } else {
+        return res.status(500).json({ success: false, error: "Failed to send WhatsApp message via enotify." });
+      }
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   // -- Item 4: create manual order (admin-assigned booking with seat locking) -
   app.post("/api/admin/orders", requireRole(["super_admin", "event_manager", "counter_staff"]), async (req: any, res) => {
     try {
@@ -4667,6 +4762,14 @@ export async function createApp() {
       const totalOrders = confirmed.length;
       const totalTickets = confirmed.reduce((sum: number, o: any) => sum + (Number(o.quantity) || 1), 0);
 
+      const bySubUser = confirmed.reduce((acc: Record<string, number>, o: any) => {
+        if (o.channel === 'counter' || String(o.paymentMethod || '').startsWith('walkin')) {
+          const sub = o.issuedBySubUserName || 'Main Staff';
+          acc[sub] = (acc[sub] || 0) + (Number(o.amount) || 0);
+        }
+        return acc;
+      }, {});
+
       return res.json({
         success: true,
         summary: { totalRevenue, pendingCollection, totalRefunded, totalOrders, totalTickets },
@@ -4674,6 +4777,7 @@ export async function createApp() {
         revenueByDate,
         attendanceVsCapacity,
         channels,
+        bySubUser,
       });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err.message });
@@ -5473,51 +5577,74 @@ async function computeShiftCashTotals(
 
 // --- Counter endpoints ---
 
-// Start a shift: requires staff (counter_staff and up).
-app.post("/api/counter/shifts/start", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
-  try {
-    const { startingCash } = req.body || {};
-    const staffUid = req.user.uid;
-    const rbacRole = (req.user.rbacRole as string) || "counter_staff";
-    // Validate starting cash: non-negative number.
-    const startCash = Number(startingCash);
-    if (!Number.isFinite(startCash) || startCash < 0) {
-      return res.status(400).json({ success: false, error: "Starting cash must be a non-negative number." });
+  // Start a shift: requires staff (counter_staff and up).
+  app.post("/api/counter/shifts/start", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
+    try {
+      const { startingCash, counterId, subUserId, pin } = req.body || {};
+      const staffUid = req.user.uid;
+      const rbacRole = (req.user.rbacRole as string) || "counter_staff";
+      
+      // Validate starting cash: non-negative number.
+      const startCash = Number(startingCash);
+      if (!Number.isFinite(startCash) || startCash < 0) {
+        return res.status(400).json({ success: false, error: "Starting cash must be a non-negative number." });
+      }
+
+      if (!counterId || !subUserId || !pin) {
+        return res.status(400).json({ success: false, error: "Counter selection, sub-user selection, and PIN are required." });
+      }
+
+      const adminToken = await getAdminAuthToken();
+      
+      // Verify sub-user and PIN
+      const counterSnap = await rtdbGet(`counters/${counterId}`, adminToken);
+      const counter = counterSnap.data as any;
+      if (!counter) return res.status(404).json({ success: false, error: "Counter not found." });
+      
+      const subUser = counter.subUsers ? Object.values(counter.subUsers).find((u: any) => u.id === subUserId) as any : null;
+      if (!subUser) return res.status(404).json({ success: false, error: "Sub-user not found on this counter." });
+      
+      const providedPinHash = crypto.createHash('sha256').update(String(pin) + SERVER_HMAC_SECRET).digest('hex');
+      if (providedPinHash !== subUser.pinHash) {
+        return res.status(401).json({ success: false, error: "Invalid PIN." });
+      }
+
+      // Prevent two concurrent open shifts for the same staff member.
+      const existing = await fetchCounterShifts(adminToken, staffUid);
+      const openShift = Object.values(existing).find((s: any) => s.status === "open");
+      if (openShift) {
+        return res.status(409).json({ success: false, error: "You already have an open shift. End it before starting a new one." });
+      }
+
+      const shiftId = `shf_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const shiftRecord = {
+        shiftId,
+        staffId: staffUid,
+        staffName: subUser.name, // Track the sub-user name as the primary name for this shift
+        staffRole: rbacRole,
+        counterId,
+        counterName: counter.name,
+        subUserId,
+        subUserName: subUser.name,
+        startTime: new Date().toISOString(),
+        startingCash: startCash,
+        status: "open",
+      };
+
+      await rtdbSet(`counter_shifts/${shiftId}`, shiftRecord, adminToken);
+      await writeAuditEntry({
+        actorId: staffUid,
+        actorRole: rbacRole,
+        action: "shift.started",
+        entityType: "shift",
+        entityId: shiftId,
+        afterState: { staffName: subUser.name, subUserId, counterName: counter.name, startingCash: startCash, startTime: shiftRecord.startTime },
+      });
+      return res.status(201).json({ success: true, shift: shiftRecord });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || "Could not start shift." });
     }
-    const error = validateNonNegativePrice(startCash);
-    if (error) return res.status(400).json({ success: false, error });
-    // Prevent two concurrent open shifts for the same staff member.
-    const existing = await fetchCounterShifts(await getAdminAuthToken(), staffUid);
-    const openShift = Object.values(existing).find((s: any) => s.status === "open");
-    if (openShift) {
-      return res.status(409).json({ success: false, error: "You already have an open shift. End it before starting a new one." });
-    }
-    const staffSnap = await rtdbGet(`staff/${staffUid}`, req.user.idToken);
-    const staffName = (staffSnap?.data as any)?.name || req.user.email || staffUid;
-    const shiftId = `shf_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    const shiftRecord = {
-      shiftId,
-      staffId: staffUid,
-      staffName,
-      staffRole: rbacRole,
-      startTime: new Date().toISOString(),
-      startingCash: startCash,
-      status: "open",
-    };
-    await rtdbSet(`counter_shifts/${shiftId}`, shiftRecord, await getAdminAuthToken());
-    await writeAuditEntry({
-      actorId: staffUid,
-      actorRole: rbacRole,
-      action: "shift.started",
-      entityType: "shift",
-      entityId: shiftId,
-      afterState: { staffName, startingCash: startCash, startTime: shiftRecord.startTime },
-    });
-    return res.status(201).json({ success: true, shift: shiftRecord });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message || "Could not start shift." });
-  }
-});
+  });
 
 // End a shift: owner or admin; counted cash entered; server computes expected cash.
 app.post("/api/counter/shifts/:shiftId/end", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
@@ -5983,7 +6110,12 @@ app.get("/api/counter/my-sales", requireRole(["counter_staff", "event_manager", 
       pageSize,
       summary: {
         count: totalSalesCount,
-        amount: totalAmountSum
+        amount: totalAmountSum,
+        bySubUser: filtered.reduce((acc: any, t: any) => {
+          const sub = t.issuedBySubUserName || 'Main Staff';
+          acc[sub] = (acc[sub] || 0) + (Number(t.price) * Number(t.quantity || 1));
+          return acc;
+        }, {} as Record<string, number>)
       }
     });
   } catch (err: any) {
@@ -6374,6 +6506,26 @@ app.get("/api/counters", async (req, res) => {
   }
 });
 
+// Staff-only counter list for shift selection
+app.get("/api/counter/list", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
+  try {
+    const snap = await rtdbGet("counters", await getAdminAuthToken());
+    const nodes = (snap.data || {}) as Record<string, any>;
+    const counters = Object.entries(nodes)
+      .map(([id, c]) => ({
+        id,
+        name: c.name || "Box Office Counter",
+        venue: c.venue || "",
+        status: c.status || "active",
+        subUsers: c.subUsers || {}
+      }))
+      .filter((c) => c.status === "active");
+    return res.status(200).json({ success: true, counters });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || "Could not fetch counter list." });
+  }
+});
+
 app.get("/api/admin/counters", requireRole(["event_manager", "super_admin"]), async (req: any, res) => {
   try {
     const snap = await rtdbGet("counters", await getAdminAuthToken());
@@ -6385,6 +6537,7 @@ app.get("/api/admin/counters", requireRole(["event_manager", "super_admin"]), as
       status: c?.status === "inactive" ? "inactive" : "active",
       merchantUpi: { vpa: String(c?.merchantUpi?.vpa || ""), name: String(c?.merchantUpi?.name || "") },
       assignedStaffIds: Array.isArray(c?.assignedStaffIds) ? c.assignedStaffIds : [],
+      subUsers: c?.subUsers || {},
       createdAt: String(c?.createdAt || ""),
       updatedAt: String(c?.updatedAt || ""),
     }));

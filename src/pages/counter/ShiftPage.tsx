@@ -28,11 +28,28 @@ interface ShiftLiveTotals {
   byMethod: Record<string, number>;
 }
 
+interface CounterSubUser {
+  id: string;
+  name: string;
+  phone: string;
+  status: 'active' | 'inactive';
+}
+
+interface Counter {
+  id: string;
+  name: string;
+  subUsers?: Record<string, CounterSubUser>;
+}
+
 interface CounterShift {
   shiftId: string;
   staffId: string;
   staffName: string;
   staffRole?: string;
+  counterId?: string;
+  counterName?: string;
+  subUserId?: string;
+  subUserName?: string;
   startTime: string;
   endTime?: string;
   startingCash: number;
@@ -61,6 +78,10 @@ export const ShiftPage: React.FC = () => {
 
   // Start shift form
   const [startingCash, setStartingCash] = useState<number | ''>(1000);
+  const [counters, setCounters] = useState<Counter[]>([]);
+  const [selectedCounterId, setSelectedCounterId] = useState<string>('');
+  const [selectedSubUserId, setSelectedSubUserId] = useState<string>('');
+  const [pin, setPin] = useState<string>('');
 
   // End shift form
   const [countedCash, setCountedCash] = useState<number | ''>('');
@@ -71,13 +92,17 @@ export const ShiftPage: React.FC = () => {
       setIsLoading(true);
       setErrorBanner('');
       const headers = await authenticatedApiHeaders();
-      const res = await safeFetch<{ success: boolean; shifts: CounterShift[]; error?: string }>(
-        '/api/counter/shifts',
-        { headers }
-      );
+      const [shiftRes, counterRes] = await Promise.all([
+        safeFetch<{ success: boolean; shifts: CounterShift[]; error?: string }>('/api/counter/shifts', { headers }),
+        safeFetch<{ success: boolean; counters: Counter[]; error?: string }>('/api/counter/list', { headers })
+      ]);
 
-      if (res.ok && res.data?.success) {
-        const list = res.data.shifts || [];
+      if (counterRes.ok && counterRes.data?.success) {
+        setCounters(counterRes.data.counters || []);
+      }
+
+      if (shiftRes.ok && shiftRes.data?.success) {
+        const list = shiftRes.data.shifts || [];
         // Sort newest first
         list.sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
         setShifts(list);
@@ -86,7 +111,7 @@ export const ShiftPage: React.FC = () => {
         const open = list.find((s) => s.status === 'open' && (!s.staffId || s.staffId === user?.uid || (user as any)?.rbacRole === 'super_admin'));
         setActiveShift(open || null);
       } else {
-        setErrorBanner(res.data?.error || res.error || 'Failed to load shifts.');
+        setErrorBanner(shiftRes.data?.error || shiftRes.error || 'Failed to load shifts.');
       }
     } catch (err: any) {
       setErrorBanner(err?.message || 'Error loading counter shifts.');
@@ -119,13 +144,21 @@ export const ShiftPage: React.FC = () => {
         {
           method: 'POST',
           headers,
-          body: JSON.stringify({ startingCash: startVal }),
+          body: JSON.stringify({ 
+            startingCash: startVal,
+            counterId: selectedCounterId,
+            subUserId: selectedSubUserId,
+            pin: pin
+          }),
         }
       );
 
       if (res.ok && res.data?.success && res.data.shift) {
         setSuccessBanner('Shift started successfully! Cash drawer is now open.');
         setStartingCash(1000);
+        setSelectedCounterId('');
+        setSelectedSubUserId('');
+        setPin('');
         await loadShifts();
       } else {
         setErrorBanner(res.data?.error || res.error || 'Could not start shift.');
@@ -397,24 +430,93 @@ export const ShiftPage: React.FC = () => {
           )}
 
           <form onSubmit={handleStartShift} className="space-y-5 max-w-xl">
-            <div className="space-y-2">
-              <label className="block text-xs font-semibold text-gray-300">
-                Starting Cash Float Amount (₹) <span className="text-red-400">*</span>
-              </label>
-              <div className="relative">
-                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500 text-sm font-bold">₹</span>
-                <input
-                  type="number"
-                  min="0"
-                  step="1"
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="block text-xs font-semibold text-gray-300">
+                  Select Counter <span className="text-red-400">*</span>
+                </label>
+                <select
                   required
-                  placeholder="1000"
-                  value={startingCash}
-                  onChange={(e) => setStartingCash(e.target.value === '' ? '' : Math.max(0, Number(e.target.value)))}
-                  className="w-full pl-8 pr-4 py-3 rounded-xl bg-[#1A1A1A] border border-white/10 text-white font-mono text-base focus:outline-none focus:border-[#D4AF37] transition-all"
-                />
+                  value={selectedCounterId}
+                  onChange={(e) => {
+                    setSelectedCounterId(e.target.value);
+                    setSelectedSubUserId('');
+                  }}
+                  className="w-full px-4 py-3 rounded-xl bg-[#1A1A1A] border border-white/10 text-white text-sm focus:outline-none focus:border-[#D4AF37] transition-all"
+                >
+                  <option value="">Choose a counter...</option>
+                  {counters.map(c => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
               </div>
 
+              <div className="space-y-2">
+                <label className="block text-xs font-semibold text-gray-300">
+                  Select Sub-User <span className="text-red-400">*</span>
+                </label>
+                <select
+                  required
+                  disabled={!selectedCounterId}
+                  value={selectedSubUserId}
+                  onChange={(e) => setSelectedSubUserId(e.target.value)}
+                  className="w-full px-4 py-3 rounded-xl bg-[#1A1A1A] border border-white/10 text-white text-sm focus:outline-none focus:border-[#D4AF37] transition-all disabled:opacity-50"
+                >
+                  <option value="">Choose your name...</option>
+                  {selectedCounterId && counters.find(c => c.id === selectedCounterId)?.subUsers && 
+                    Object.values(counters.find(c => c.id === selectedCounterId)!.subUsers!).map(u => {
+                      const sub = u as any;
+                      return <option key={sub.id} value={sub.id}>{sub.name}</option>;
+                    })
+                  }
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="block text-xs font-semibold text-gray-300">
+                  Access PIN (4-digits) <span className="text-red-400">*</span>
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500">
+                    <Lock className="w-4 h-4" />
+                  </span>
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    maxLength={4}
+                    required
+                    placeholder="****"
+                    value={pin}
+                    onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
+                    className="w-full pl-10 pr-4 py-3 rounded-xl bg-[#1A1A1A] border border-white/10 text-white font-mono text-base tracking-widest focus:outline-none focus:border-[#D4AF37] transition-all"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-xs font-semibold text-gray-300">
+                  Starting Cash Float Amount (₹) <span className="text-red-400">*</span>
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500 text-sm font-bold">₹</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    required
+                    placeholder="1000"
+                    value={startingCash}
+                    onChange={(e) => setStartingCash(e.target.value === '' ? '' : Math.max(0, Number(e.target.value)))}
+                    className="w-full pl-8 pr-4 py-3 rounded-xl bg-[#1A1A1A] border border-white/10 text-white font-mono text-base focus:outline-none focus:border-[#D4AF37] transition-all"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2">
               {/* Quick Float Chips */}
               <div className="flex items-center gap-2 pt-1 flex-wrap">
                 <span className="text-[11px] text-gray-500">Quick presets:</span>

@@ -1,10 +1,18 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Armchair, Plus, Edit3, Power, Eraser, Users, X, AlertTriangle, MapPin, KeyRound,
+  Armchair, Plus, Edit3, Power, Eraser, Users, X, AlertTriangle, MapPin, KeyRound, Send, Trash2, UserPlus,
 } from 'lucide-react';
 import { safeFetch } from '../../lib/api';
 import { authenticatedApiHeaders } from '../../lib/authHeaders';
 import { useBooking } from '../../contexts/BookingContext';
+
+interface CounterSubUser {
+  id: string;
+  name: string;
+  phone: string;
+  pinHash: string;
+  status: 'active' | 'inactive';
+}
 
 interface Counter {
   id: string;
@@ -13,6 +21,7 @@ interface Counter {
   status: 'active' | 'inactive';
   merchantUpi: { vpa: string; name: string };
   assignedStaffIds: string[];
+  subUsers?: CounterSubUser[];
   createdAt: string;
   updatedAt: string;
 }
@@ -52,6 +61,11 @@ export const AdminCounters: React.FC = () => {
   const [editUpiClear, setEditUpiClear] = useState(false);
   const [editStaff, setEditStaff] = useState<string[]>([]);
 
+  // Sub-user modal
+  const [managingSubUsers, setManagingSubUsers] = useState<Counter | null>(null);
+  const [subUserName, setSubUserName] = useState('');
+  const [subUserPhone, setSubUserPhone] = useState('');
+
   // Batch dialog
   const [batchMode, setBatchMode] = useState<'upi' | 'staff' | 'status' | 'clear-upi' | null>(null);
   const [batchUpi, setBatchUpi] = useState('');
@@ -82,11 +96,18 @@ export const AdminCounters: React.FC = () => {
         safeFetch<any>('/api/admin/counters', { headers }),
         safeFetch<any>('/api/staff', { headers }),
       ]);
-      if (cRes.ok && cRes.data?.success) setCounters(cRes.data.counters || []);
-      else setError(cRes.data?.error || 'Failed to load counters.');
+      let freshCounters: Counter[] = [];
+      if (cRes.ok && cRes.data?.success) {
+        freshCounters = cRes.data.counters || [];
+        setCounters(freshCounters);
+      } else {
+        setError(cRes.data?.error || 'Failed to load counters.');
+      }
       if (sRes.ok && sRes.data?.success) setStaffList(sRes.data.staff || []);
+      return freshCounters;
     } catch (err: any) {
-      setError(err?.message || 'Network error while loading counters.');
+      setError(err.message || 'Error connecting to server.');
+      return null;
     } finally {
       setLoading(false);
     }
@@ -144,6 +165,73 @@ export const AdminCounters: React.FC = () => {
     setEditUpiName(c.merchantUpi?.name || '');
     setEditUpiClear(false);
     setEditStaff([...c.assignedStaffIds]);
+  };
+
+  const addSubUser = async () => {
+    if (!managingSubUsers) return;
+    if (subUserName.trim().length < 2) {
+      showToast('Name must be at least 2 characters.', 'error');
+      return;
+    }
+    if (subUserPhone.trim().length < 10) {
+      showToast('Enter a valid phone number.', 'error');
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await api(`/api/admin/counters/${managingSubUsers.id}/sub-users`, jsonBody({
+        name: subUserName.trim(),
+        phone: subUserPhone.trim()
+      }));
+      if (res.ok && res.data?.success) {
+        showToast(`Sub-user "${subUserName.trim()}" added.`, 'success');
+        setSubUserName('');
+        setSubUserPhone('');
+        const fresh = await loadAll();
+        if (fresh) {
+          const updated = fresh.find(c => c.id === managingSubUsers.id);
+          if (updated) setManagingSubUsers(updated);
+        }
+      } else {
+        showToast(res.data?.error || 'Could not add sub-user.', 'error');
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const removeSubUser = async (counterId: string, subUserId: string) => {
+    if (!window.confirm('Remove this sub-user? They will no longer be able to access the counter.')) return;
+    setSaving(true);
+    try {
+      const res = await api(`/api/admin/counters/${counterId}/sub-users/${subUserId}`, { method: 'DELETE' });
+      if (res.ok && res.data?.success) {
+        showToast('Sub-user removed.', 'success');
+        const fresh = await loadAll();
+        if (fresh) {
+          const updated = fresh.find(c => c.id === counterId);
+          if (updated) setManagingSubUsers(updated);
+        }
+      } else {
+        showToast(res.data?.error || 'Could not remove sub-user.', 'error');
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const sendPinToSubUser = async (counterId: string, subUserId: string) => {
+    setSaving(true);
+    try {
+      const res = await api(`/api/admin/counters/${counterId}/sub-users/${subUserId}/send-pin`, { method: 'POST' });
+      if (res.ok && res.data?.success) {
+        showToast('PIN sent via WhatsApp.', 'success');
+      } else {
+        showToast(res.data?.error || 'Could not send PIN.', 'error');
+      }
+    } finally {
+      setSaving(false);
+    }
   };
 
   const submitEdit = async () => {
@@ -497,8 +585,15 @@ export const AdminCounters: React.FC = () => {
                         <Power className="w-3.5 h-3.5" />
                       </button>
                       <button
+                        onClick={() => setManagingSubUsers(c)}
+                        title="Manage sub-users"
+                        className="px-3 py-1.5 rounded-xl bg-[#D4AF37]/10 text-[#D4AF37] hover:bg-[#D4AF37]/20 text-xs font-bold transition-all cursor-pointer inline-flex items-center gap-1"
+                      >
+                        <Users className="w-3.5 h-3.5" />
+                      </button>
+                      <button
                         onClick={() => openEdit(c)}
-                        title="Edit"
+                        title="Edit counter"
                         className="px-3 py-1.5 rounded-xl bg-white/5 text-gray-300 hover:bg-white/10 text-xs font-bold transition-all cursor-pointer inline-flex items-center gap-1"
                       >
                         <Edit3 className="w-3.5 h-3.5" />
@@ -733,6 +828,72 @@ export const AdminCounters: React.FC = () => {
           >
             Confirm — {batchStatus === 'inactive' ? 'Deactivate' : 'Activate'} {selectedIds.size}
           </button>
+        </Modal>
+      )}
+
+      {/* Sub-user management modal */}
+      {managingSubUsers && (
+        <Modal title={`Manage Sub-Users: ${managingSubUsers.name}`} onClose={() => setManagingSubUsers(null)} saving={saving}>
+          <div className="space-y-4">
+            <div className="p-3 rounded-2xl bg-white/5 border border-white/10 space-y-3">
+              <p className="text-[10px] uppercase tracking-widest text-[#D4AF37] font-bold">Add New Sub-User</p>
+              <div className="flex flex-col gap-2">
+                <input
+                  value={subUserName}
+                  onChange={(e) => setSubUserName(e.target.value)}
+                  placeholder="Full Name"
+                  className="w-full px-3 py-2 rounded-xl bg-[#1C1C1C] border border-white/10 text-white text-sm focus:border-[#D4AF37]/60 focus:outline-none"
+                />
+                <input
+                  value={subUserPhone}
+                  onChange={(e) => setSubUserPhone(e.target.value)}
+                  placeholder="WhatsApp Phone (with country code)"
+                  className="w-full px-3 py-2 rounded-xl bg-[#1C1C1C] border border-white/10 text-white text-sm focus:border-[#D4AF37]/60 focus:outline-none"
+                />
+                <button
+                  onClick={addSubUser}
+                  disabled={saving || !subUserName || !subUserPhone}
+                  className="w-full py-2 rounded-xl bg-[#D4AF37] text-black font-bold text-xs flex items-center justify-center gap-1.5 hover:opacity-90 disabled:opacity-50 transition-all cursor-pointer"
+                >
+                  <UserPlus className="w-3.5 h-3.5" /> Add Sub-User
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-[10px] uppercase tracking-widest text-gray-500 font-bold px-1">Active Sub-Users</p>
+              <div className="max-h-60 overflow-y-auto space-y-2 pr-1">
+                {!managingSubUsers.subUsers || Object.keys(managingSubUsers.subUsers).length === 0 ? (
+                  <p className="text-xs text-gray-500 text-center py-4">No sub-users assigned yet.</p>
+                ) : (
+                  Object.values(managingSubUsers.subUsers).map((sub: CounterSubUser) => (
+                    <div key={sub.id} className="flex items-center justify-between p-3 rounded-2xl bg-[#1C1C1C] border border-white/5 group">
+                      <div className="min-w-0">
+                        <p className="text-sm font-bold text-white truncate">{sub.name}</p>
+                        <p className="text-[10px] text-gray-500 truncate">{sub.phone}</p>
+                      </div>
+                      <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button
+                          onClick={() => sendPinToSubUser(managingSubUsers.id, sub.id)}
+                          title="Send PIN via WhatsApp"
+                          className="p-2 rounded-lg bg-white/5 text-gray-400 hover:text-[#D4AF37] hover:bg-[#D4AF37]/10 transition-all cursor-pointer"
+                        >
+                          <Send className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => removeSubUser(managingSubUsers.id, sub.id)}
+                          title="Remove Sub-User"
+                          className="p-2 rounded-lg bg-white/5 text-gray-400 hover:text-red-400 hover:bg-red-400/10 transition-all cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
         </Modal>
       )}
     </div>

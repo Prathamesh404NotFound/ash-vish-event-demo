@@ -9,6 +9,7 @@ interface ReportData {
   revenueByDate: { date: string; revenue: number; orders: number }[];
   attendanceVsCapacity: { eventId: string; title: string; capacity: number; sold: number; checkedIn: number }[];
   channels: Record<string, number>;
+  bySubUser?: Record<string, number>;
 }
 
 export const AdminDashboard: React.FC = () => {
@@ -212,6 +213,24 @@ export const AdminDashboard: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Sub-User Breakdown */}
+      {report?.bySubUser && Object.keys(report.bySubUser).length > 0 && (
+        <div className="p-6 rounded-3xl bg-[#141414] border border-white/10 space-y-4">
+          <div className="flex items-center gap-2">
+            <Users className="w-5 h-5 text-[#D4AF37]" />
+            <h2 className="font-heading font-extrabold text-lg text-white">Counter Operator Performance</h2>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {Object.entries(report.bySubUser).map(([name, amount]) => (
+              <div key={name} className="p-4 rounded-2xl bg-[#1C1C1C] border border-white/5 space-y-1">
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{name}</p>
+                <p className="text-xl font-black text-[#D4AF37]">₹{amount.toLocaleString()}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Quick Event Summary Table */}
       <div className="p-6 rounded-3xl bg-[#141414] border border-white/10 space-y-4">
