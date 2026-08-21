@@ -6,7 +6,7 @@ import { useBooking } from '../contexts/BookingContext';
 
 export const CounterLayout: React.FC = () => {
   const { user, logout } = useAuth();
-  const { activeShift } = useBooking();
+  const { activeShift, isTerminalLocked } = useBooking();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -50,9 +50,9 @@ export const CounterLayout: React.FC = () => {
   ];
 
   // Mandatory Sub-User Session Guard
-  // Only the /counter/shift page is allowed if no shift is active
+  // Only the /counter/shift page is allowed if no shift is active OR terminal is locked
   const isShiftPage = location.pathname === '/counter/shift';
-  if (!activeShift && !isShiftPage) {
+  if ((!activeShift || isTerminalLocked) && !isShiftPage) {
     return (
       <div className="min-h-screen bg-[#0A0A0A] flex items-center justify-center p-4">
         <div className="max-w-md w-full p-8 rounded-3xl bg-[#141414] border border-amber-500/20 text-center space-y-6 shadow-2xl">

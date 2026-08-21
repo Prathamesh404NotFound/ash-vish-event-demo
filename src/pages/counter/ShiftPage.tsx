@@ -576,15 +576,15 @@ export const ShiftPage: React.FC = () => {
 
             <button
               type="submit"
-              disabled={isSubmitting || startingCash === ''}
-              className="py-3 px-6 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] hover:brightness-110 text-black font-extrabold text-xs flex items-center justify-center gap-2 shadow-lg shadow-[#D4AF37]/25 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+              disabled={isSubmitting || (startingCash === '' && !(activeShift && isTerminalLocked))}
+              className={`py-3 px-6 rounded-xl bg-gradient-to-r ${activeShift && isTerminalLocked ? 'from-amber-400 to-amber-600 shadow-amber-500/20' : 'from-[#F3E5AB] to-[#D4AF37] shadow-[#D4AF37]/20'} hover:brightness-110 text-black font-extrabold text-xs flex items-center justify-center gap-2 shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer`}
             >
               {isSubmitting ? (
                 <RefreshCw className="w-4 h-4 animate-spin" />
               ) : (
                 <>
                   <Unlock className="w-4 h-4 stroke-[2.5]" />
-                  <span>Open Shift & Start Terminal</span>
+                  <span>{activeShift && isTerminalLocked ? 'Unlock Terminal' : 'Open Shift & Start Terminal'}</span>
                 </>
               )}
             </button>

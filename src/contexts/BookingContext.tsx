@@ -140,7 +140,9 @@ interface BookingContextType {
   reviews: EventReview[];
   organizers: OrganizerAccount[];
   activeShift: { counterId: string; subUserId: string; subUserName: string; shiftId: string } | null;
+  isTerminalLocked: boolean;
   setActiveShift: (shift: { counterId: string; subUserId: string; subUserName: string; shiftId: string } | null) => void;
+  unlockTerminal: () => void;
   toast: { message: string; type: 'success' | 'error' | 'info' } | null;
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
   clearToast: () => void;
@@ -214,14 +216,23 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   });
 
+  // Terminal Lock: Require PIN re-entry on refresh even if shift is active.
+  // We track this only in memory; refresh = lock.
+  const [isTerminalLocked, setIsTerminalLocked] = useState(true);
+
   const setActiveShift = (shift: { counterId: string; subUserId: string; subUserName: string; shiftId: string } | null) => {
     setActiveShiftState(shift);
     if (shift) {
       localStorage.setItem('ash_vish_active_shift', JSON.stringify(shift));
+      // Starting a shift automatically unlocks the terminal for this session
+      setIsTerminalLocked(false);
     } else {
       localStorage.removeItem('ash_vish_active_shift');
+      setIsTerminalLocked(true);
     }
   };
+
+  const unlockTerminal = () => setIsTerminalLocked(false);
 
   const [currentCheckout, setCurrentCheckout] = useState<CheckoutSession | null>(() => {
     const saved = localStorage.getItem('ash_vish_current_checkout');
@@ -1617,9 +1628,11 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         coupons,
         reviews,
         organizers,
-        activeShift,
-        setActiveShift,
-        toast,
+    activeShift,
+    isTerminalLocked,
+    setActiveShift,
+    unlockTerminal,
+    toast,
         showToast,
         clearToast,
         toggleFavorite,
