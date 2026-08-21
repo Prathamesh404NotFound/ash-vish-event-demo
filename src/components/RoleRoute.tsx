@@ -116,7 +116,30 @@ export const RoleRoute: React.FC<RoleRouteProps> = ({ allow, children }) => {
 
   // 3. Access denied state (logged in, but role not allowed or verification failed)
   const resolvedRole = serverRole || user.role;
-  if (!allow.includes(resolvedRole)) {
+  const rbacRole = (user as any)?.rbacRole;
+
+  // Role aliasing for legacy checks
+  const roleAliases: Record<string, string[]> = {
+    admin: ['admin', 'super_admin'],
+    super_admin: ['admin', 'super_admin'],
+    organizer: ['organizer', 'event_manager'],
+    event_manager: ['organizer', 'event_manager'],
+    ticket_counter: ['ticket_counter', 'counter_staff'],
+    counter_staff: ['ticket_counter', 'counter_staff'],
+  };
+
+  const isAllowed = allow.some((a) => {
+    if (resolvedRole === a) return true;
+    if (rbacRole === a) return true;
+    const aliases = roleAliases[a] || [a];
+    if (aliases.includes(resolvedRole)) return true;
+    if (rbacRole && aliases.includes(rbacRole)) return true;
+    // Admins/Super-admins are allowed everywhere
+    if (resolvedRole === 'admin' || resolvedRole === 'super_admin' || rbacRole === 'super_admin') return true;
+    return false;
+  });
+
+  if (!isAllowed) {
     return (
       <div className="min-h-[75vh] flex items-center justify-center p-4">
         <div className="max-w-md w-full p-8 rounded-3xl bg-[#141414] border border-red-500/20 text-center space-y-6 shadow-2xl">

@@ -6,7 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 export const AdminLayoutPage: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const isSuperAdmin = user?.role === 'admin' || (user as any)?.rbacRole === 'super_admin';
+  const isSuperAdmin = user?.role === 'admin' || user?.role === 'super_admin' || (user as any)?.rbacRole === 'super_admin';
 
   const navItems = [
     {

@@ -54,6 +54,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Sync profile from Realtime Database users/$uid and staff/$uid
   const fetchAndSyncUserProfile = async (fbUser: FirebaseUser): Promise<UserProfile> => {
     let resolvedRole: UserRole = 'customer';
+    let rbacRole: string | undefined = undefined;
 
     try {
       // 1. Check if user uid exists in staff/$uid node (read-only node set by console)
@@ -64,6 +65,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const STAFF_ROLES: UserRole[] = ['admin', 'super_admin', 'event_manager', 'ticket_counter', 'counter_staff', 'auditor'];
         if (STAFF_ROLES.includes(staffData.role)) {
           resolvedRole = staffData.role;
+          
+          // Map to internal RBAC roles for frontend gating
+          if (resolvedRole === 'admin' || resolvedRole === 'super_admin') rbacRole = 'super_admin';
+          else if (resolvedRole === 'event_manager') rbacRole = 'event_manager';
+          else if (resolvedRole === 'ticket_counter' || resolvedRole === 'counter_staff') rbacRole = 'counter_staff';
+          else if (resolvedRole === 'auditor') rbacRole = 'auditor';
         }
       } else {
         // 2. Check users/$uid/role
@@ -100,6 +107,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       authProvider: fbUser.providerData?.[0]?.providerId === 'google.com' ? 'google' : 'email',
       joinedDate: 'August 2026',
       role: resolvedRole,
+      rbacRole: rbacRole as any,
     };
 
     return userProfile;
@@ -168,7 +176,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const staffData = snapshot.val();
             const STAFF_ROLES = ['admin', 'super_admin', 'event_manager', 'ticket_counter', 'counter_staff', 'auditor'];
             if (staffData && STAFF_ROLES.includes(staffData.role)) {
-              setUser(prev => prev ? { ...prev, role: staffData.role } : null);
+              let rbacRole: string | undefined = undefined;
+              if (staffData.role === 'admin' || staffData.role === 'super_admin') rbacRole = 'super_admin';
+              else if (staffData.role === 'event_manager') rbacRole = 'event_manager';
+              else if (staffData.role === 'ticket_counter' || staffData.role === 'counter_staff') rbacRole = 'counter_staff';
+              else if (staffData.role === 'auditor') rbacRole = 'auditor';
+
+              setUser(prev => prev ? { ...prev, role: staffData.role, rbacRole: rbacRole as any } : null);
             }
           } else {
             // Re-verify against users table if staff node is deleted
