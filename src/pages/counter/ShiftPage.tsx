@@ -19,7 +19,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { useBooking } from '../../contexts/BookingContext';
+import { useBooking, getDeviceId } from '../../contexts/BookingContext';
 import { safeFetch } from '../../lib/api';
 import { authenticatedApiHeaders } from '../../lib/authHeaders';
 
@@ -96,8 +96,9 @@ export const ShiftPage: React.FC = () => {
       setIsLoading(true);
       setErrorBanner('');
       const headers = await authenticatedApiHeaders();
+      const deviceId = getDeviceId();
       const [shiftRes, counterRes] = await Promise.all([
-        safeFetch<{ success: boolean; shifts: CounterShift[]; error?: string }>('/api/counter/shifts', { headers }),
+        safeFetch<{ success: boolean; shifts: CounterShift[]; error?: string }>(`/api/counter/shifts?deviceId=${deviceId}`, { headers }),
         safeFetch<{ success: boolean; counters: Counter[]; error?: string }>('/api/counter/list', { headers })
       ]);
 
@@ -174,7 +175,8 @@ export const ShiftPage: React.FC = () => {
             startingCash: startVal,
             counterId: assignedCounter?.id, // Send if we have it, backend will auto-resolve if missing
             subUserId: selectedSubUserId,
-            pin: pin
+            pin: pin,
+            deviceId: getDeviceId() // Scope shift to this device
           }),
         }
       );

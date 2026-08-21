@@ -37,7 +37,9 @@ export interface QuoteResult {
 }
 
 const SESSION_ID_STORAGE_KEY = 'ash_vish_session_id';
+const DEVICE_ID_STORAGE_KEY = 'ash_vish_device_id';
 let inMemorySessionId: string | null = null;
+let inMemoryDeviceId: string | null = null;
 
 /** Stable working placeholder for any image URL that cannot load on the public site. */
 const DEFAULT_IMAGE_URL =
@@ -87,6 +89,22 @@ export function getSessionId(): string {
     }
   }
   return sid;
+}
+
+export function getDeviceId(): string {
+  let did: string | null = null;
+  try {
+    did = localStorage.getItem(DEVICE_ID_STORAGE_KEY);
+  } catch {}
+  did ||= inMemoryDeviceId;
+  if (!did) {
+    did = `dev_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    inMemoryDeviceId = did;
+    try {
+      localStorage.setItem(DEVICE_ID_STORAGE_KEY, did);
+    } catch {}
+  }
+  return did;
 }
 
 interface BookingContextType {
