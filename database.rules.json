@@ -261,6 +261,12 @@
     "notifications": {
       ".read": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).exists())",
       ".write": "auth != null && (auth.uid === 'admin-server-bot' || root.child('staff').child(auth.uid).child('role').val() === 'super_admin' || root.child('staff').child(auth.uid).child('role').val() === 'admin')"
+    },
+    "otp_verifications": {
+      // OTP storage is server-only. No client (authenticated or not) can read
+      // or write directly.
+      ".read": "auth != null && auth.uid === 'admin-server-bot'",
+      ".write": "auth != null && auth.uid === 'admin-server-bot'"
     }
   }
 }

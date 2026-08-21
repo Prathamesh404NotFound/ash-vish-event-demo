@@ -8,7 +8,7 @@ dotenv.config();
 import { verifyFirebaseIdToken, TokenVerificationError } from "./src/lib/verify-token.js";
 import { rtdbGet, rtdbSet, rtdbUpdate, rtdbDelete, rtdbTransaction, rtdbPush } from "./src/lib/rtdb.js";
 import { getFirebaseAdminIdToken } from "./src/lib/identity-admin.js";
-import { sendTicketWhatsApp } from "./src/lib/enotify.js";
+import { sendTicketWhatsApp, normalizePhoneNumber } from "./src/lib/enotify.js";
 import {
   isRazorpayConfigured,
   isTestMode,
@@ -50,6 +50,36 @@ loadSmtpConfig();
 
 function isSmtpConfigured(): boolean {
   return Boolean(loadSmtpConfig());
+}
+
+/**
+ * Generic enotify.app text sender for OTPs and other notifications.
+ */
+async function sendWhatsAppText(phone: string, message: string): Promise<boolean> {
+  const token = (
+    process.env.ENOTIFY_TOKEN ||
+    process.env.ENOTIFY_API_KEY ||
+    process.env.ENOTIFY_INSTANCE_TOKEN ||
+    "6523f2a5758e0a2faf8f8d33"
+  ).trim();
+
+  const baseUrl = (
+    process.env.ENOTIFY_API_URL ||
+    "https://enotify.app/api"
+  ).trim().replace(/\/+$/, "");
+
+  const normalizedPhone = normalizePhoneNumber(phone);
+  if (!normalizedPhone) return false;
+
+  try {
+    const targetUrl = `${baseUrl}/sendText?token=${encodeURIComponent(token)}&phone=${encodeURIComponent(normalizedPhone)}&message=${encodeURIComponent(message)}`;
+    const response = await fetch(targetUrl);
+    const data: any = await response.json();
+    return data.status === "success" || data.status === true || data.status === 200 || (data.data && data.data.messageIDs);
+  } catch (err) {
+    console.error("[OTP] enotify send failed:", err);
+    return false;
+  }
 }
 
 async function sendMail(options: { to: string; subject: string; text: string; html?: string }): Promise<{ ok: boolean; mode: "smtp" | "no-mail"; error?: string }> {
@@ -1549,6 +1579,130 @@ export async function createApp() {
       return res.json({ success: true, uid, email, role });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * Send WhatsApp OTP for password reset.
+   * Logic:
+   * 1. Normalize phone.
+   * 2. Generate 6-digit code.
+   * 3. Store in RTDB otp_verifications/$phone with 10-min expiry.
+   * 4. Send via enotify.
+   */
+  app.post("/api/auth/otp/send", async (req, res) => {
+    const { phone } = req.body;
+    if (!phone) return res.status(400).json({ success: false, error: "Phone number is required" });
+
+    const normalizedPhone = normalizePhoneNumber(phone);
+    if (!normalizedPhone) return res.status(400).json({ success: false, error: "Invalid phone number format" });
+
+    const adminToken = await getAdminAuthToken();
+    if (!adminToken) return res.status(500).json({ success: false, error: "Server authentication failed" });
+
+    // Generate 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiry = Date.now() + 10 * 60 * 1000; // 10 minutes
+
+    try {
+      // Store in RTDB
+      await rtdbSet(`otp_verifications/${normalizedPhone}`, {
+        otp,
+        expiry,
+        createdAt: Date.now()
+      }, adminToken);
+
+      // Send via WhatsApp
+      const message = `*ASH-VISH EVENTS*\n\nYour one-time password (OTP) for account recovery is: *${otp}*\n\nThis code expires in 10 minutes. If you did not request this, please ignore this message.`;
+      const ok = await sendWhatsAppText(normalizedPhone, message);
+
+      if (ok) {
+        return res.json({ success: true, message: "OTP sent successfully" });
+      } else {
+        return res.status(500).json({ success: false, error: "Failed to send WhatsApp message" });
+      }
+    } catch (err: any) {
+      console.error("[OTP] Send error:", err);
+      return res.status(500).json({ success: false, error: "Internal server error" });
+    }
+  });
+
+  /**
+   * Verify OTP and reset password.
+   * Logic:
+   * 1. Verify OTP against RTDB.
+   * 2. Find user by phone in users node.
+   * 3. Update Firebase Auth password via Admin REST API.
+   * 4. Clear OTP.
+   */
+  app.post("/api/auth/otp/reset", async (req, res) => {
+    const { phone, otp, newPassword } = req.body;
+    if (!phone || !otp || !newPassword) {
+      return res.status(400).json({ success: false, error: "Phone, OTP, and new password are required" });
+    }
+
+    const normalizedPhone = normalizePhoneNumber(phone);
+    if (!normalizedPhone) return res.status(400).json({ success: false, error: "Invalid phone number format" });
+
+    const adminToken = await getAdminAuthToken();
+    if (!adminToken) return res.status(500).json({ success: false, error: "Server authentication failed" });
+
+    try {
+      // 1. Verify OTP
+      const otpResponse = await rtdbGet(`otp_verifications/${normalizedPhone}`, adminToken);
+      const otpData = otpResponse?.data;
+      if (!otpData || otpData.otp !== otp || Date.now() > (otpData?.expiry || 0)) {
+        return res.status(400).json({ success: false, error: "Invalid or expired OTP" });
+      }
+
+      // 2. Find user by phone
+      // We search the users node. This is a bit heavy but necessary.
+      const usersResponse = await rtdbGet("users", adminToken);
+      const users = usersResponse?.data;
+      let targetUid = null;
+      
+      if (users) {
+        for (const uid in users) {
+          const userPhone = normalizePhoneNumber(users[uid].phone);
+          if (userPhone === normalizedPhone) {
+            targetUid = uid;
+            break;
+          }
+        }
+      }
+
+      if (!targetUid) {
+        return res.status(404).json({ success: false, error: "No account found with this phone number" });
+      }
+
+      // 3. Update password via Firebase Identity Toolkit REST API
+      // Since we don't use Admin SDK directly, we call the REST endpoint.
+      const apiKey = process.env.VITE_FIREBASE_API_KEY;
+      const updateUrl = `https://identitytoolkit.googleapis.com/v1/accounts:update?key=${apiKey}`;
+      
+      const updateResponse = await fetch(updateUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${adminToken}` },
+        body: JSON.stringify({
+          localId: targetUid,
+          password: newPassword,
+          returnSecureToken: false
+        })
+      });
+
+      const updateData: any = await updateResponse.json();
+      if (!updateResponse.ok) {
+        console.error("[OTP] Password update failed:", updateData.error);
+        return res.status(500).json({ success: false, error: updateData.error?.message || "Failed to update password" });
+      }
+
+      // 4. Clear OTP
+      await rtdbDelete(`otp_verifications/${normalizedPhone}`, adminToken);
+
+      return res.json({ success: true, message: "Password reset successful" });
+    } catch (err: any) {
+      console.error("[OTP] Reset error:", err);
+      return res.status(500).json({ success: false, error: "Internal server error" });
     }
   });
 

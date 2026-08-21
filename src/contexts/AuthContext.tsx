@@ -32,6 +32,8 @@ interface AuthContextType {
   resetPassword: (email: string) => Promise<void>;
   logout: () => void;
   updateProfile: (data: Partial<UserProfile>) => Promise<void>;
+  sendOtp: (phone: string) => Promise<any>;
+  resetPasswordWithOtp: (phone: string, otp: string, newPassword: string) => Promise<any>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -279,6 +281,38 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.removeItem('ash_vish_user_session');
   };
 
+  const sendOtp = async (phone: string) => {
+    try {
+      const response = await fetch('/api/auth/otp/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone })
+      });
+      const data = await response.json();
+      if (!data.success) throw new Error(data.error);
+      return data;
+    } catch (err: any) {
+      console.error('Send OTP error:', err.message);
+      throw err;
+    }
+  };
+
+  const resetPasswordWithOtp = async (phone: string, otp: string, newPassword: string) => {
+    try {
+      const response = await fetch('/api/auth/otp/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone, otp, newPassword })
+      });
+      const data = await response.json();
+      if (!data.success) throw new Error(data.error);
+      return data;
+    } catch (err: any) {
+      console.error('Reset password error:', err.message);
+      throw err;
+    }
+  };
+
   // Update profile
   const updateProfile = async (data: Partial<UserProfile>) => {
     if (!user) return;
@@ -313,6 +347,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         resetPassword,
         logout,
         updateProfile,
+        sendOtp,
+        resetPasswordWithOtp
       }}
     >
       {children}
