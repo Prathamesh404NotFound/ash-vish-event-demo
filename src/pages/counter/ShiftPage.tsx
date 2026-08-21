@@ -16,6 +16,7 @@ import {
   AlertTriangle,
   Lock,
   Unlock,
+  Sparkles,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useBooking } from '../../contexts/BookingContext';
@@ -40,6 +41,7 @@ interface Counter {
   id: string;
   name: string;
   subUsers?: Record<string, CounterSubUser>;
+  assignedStaffIds?: string[];
 }
 
 interface CounterShift {
@@ -81,7 +83,7 @@ export const ShiftPage: React.FC = () => {
   // Start shift form
   const [startingCash, setStartingCash] = useState<number | ''>(1000);
   const [counters, setCounters] = useState<Counter[]>([]);
-  const [selectedCounterId, setSelectedCounterId] = useState<string>('');
+  const [assignedCounter, setAssignedCounter] = useState<Counter | null>(null);
   const [selectedSubUserId, setSelectedSubUserId] = useState<string>('');
   const [pin, setPin] = useState<string>('');
 
@@ -100,7 +102,17 @@ export const ShiftPage: React.FC = () => {
       ]);
 
       if (counterRes.ok && counterRes.data?.success) {
-        setCounters(counterRes.data.counters || []);
+        const all = counterRes.data.counters || [];
+        setCounters(all);
+        
+        // Auto-resolve assigned counter for current staff
+        const assigned = all.find(c => 
+          c.assignedStaffIds && 
+          c.assignedStaffIds.includes(user?.id || '')
+        );
+        if (assigned) {
+          setAssignedCounter(assigned);
+        }
       }
 
       if (shiftRes.ok && shiftRes.data?.success) {
@@ -160,7 +172,7 @@ export const ShiftPage: React.FC = () => {
           headers,
           body: JSON.stringify({ 
             startingCash: startVal,
-            counterId: selectedCounterId,
+            counterId: assignedCounter?.id, // Send if we have it, backend will auto-resolve if missing
             subUserId: selectedSubUserId,
             pin: pin
           }),
@@ -177,7 +189,6 @@ export const ShiftPage: React.FC = () => {
         });
         setSuccessBanner('Shift started successfully! Cash drawer is now open.');
         setStartingCash(1000);
-        setSelectedCounterId('');
         setSelectedSubUserId('');
         setPin('');
         await loadShifts();
@@ -455,38 +466,34 @@ export const ShiftPage: React.FC = () => {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <label className="block text-xs font-semibold text-gray-300">
-                  Select Counter <span className="text-red-400">*</span>
+                  Assigned Counter
                 </label>
-                <select
-                  required
-                  value={selectedCounterId}
-                  onChange={(e) => {
-                    setSelectedCounterId(e.target.value);
-                    setSelectedSubUserId('');
-                  }}
-                  className="w-full px-4 py-3 rounded-xl bg-[#1A1A1A] border border-white/10 text-white text-sm focus:outline-none focus:border-[#D4AF37] transition-all"
-                >
-                  <option value="">Choose a counter...</option>
-                  {counters.map(c => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
+                <div className="w-full px-4 py-3 rounded-xl bg-[#1A1A1A] border border-white/10 text-gray-400 text-sm flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-[#D4AF37]" />
+                  <span>{assignedCounter ? assignedCounter.name : (isLoading ? 'Detecting counter...' : 'No counter assigned')}</span>
+                </div>
+                {!assignedCounter && !isLoading && (
+                  <p className="text-[10px] text-red-400 mt-1 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3" />
+                    Ask admin to assign your account to a counter.
+                  </p>
+                )}
               </div>
 
               <div className="space-y-2">
                 <label className="block text-xs font-semibold text-gray-300">
-                  Select Sub-User <span className="text-red-400">*</span>
+                  Select Your Name <span className="text-red-400">*</span>
                 </label>
                 <select
                   required
-                  disabled={!selectedCounterId}
+                  disabled={!assignedCounter}
                   value={selectedSubUserId}
                   onChange={(e) => setSelectedSubUserId(e.target.value)}
-                  className="w-full px-4 py-3 rounded-xl bg-[#1A1A1A] border border-white/10 text-white text-sm focus:outline-none focus:border-[#D4AF37] transition-all disabled:opacity-50"
+                  className="w-full px-4 py-3 rounded-xl bg-[#1A1A1A] border border-[#D4AF37]/20 text-white text-sm focus:outline-none focus:border-[#D4AF37] transition-all disabled:opacity-50"
                 >
                   <option value="">Choose your name...</option>
-                  {selectedCounterId && counters.find(c => c.id === selectedCounterId)?.subUsers && 
-                    Object.values(counters.find(c => c.id === selectedCounterId)!.subUsers!).map(u => {
+                  {assignedCounter?.subUsers && 
+                    Object.values(assignedCounter.subUsers).map(u => {
                       const sub = u as any;
                       return <option key={sub.id} value={sub.id}>{sub.name}</option>;
                     })

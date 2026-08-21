@@ -5580,7 +5580,7 @@ async function computeShiftCashTotals(
   // Start a shift: requires staff (counter_staff and up).
   app.post("/api/counter/shifts/start", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
     try {
-      const { startingCash, counterId, subUserId, pin } = req.body || {};
+      let { startingCash, counterId, subUserId, pin } = req.body || {};
       const staffUid = req.user.uid;
       const rbacRole = (req.user.rbacRole as string) || "counter_staff";
       
@@ -5590,11 +5590,27 @@ async function computeShiftCashTotals(
         return res.status(400).json({ success: false, error: "Starting cash must be a non-negative number." });
       }
 
-      if (!counterId || !subUserId || !pin) {
-        return res.status(400).json({ success: false, error: "Counter selection, sub-user selection, and PIN are required." });
+      if (!subUserId || !pin) {
+        return res.status(400).json({ success: false, error: "Sub-user selection and PIN are required." });
       }
 
       const adminToken = await getAdminAuthToken();
+
+      // Auto-resolve counterId if not provided
+      if (!counterId) {
+        const countersSnap = await rtdbGet("counters", adminToken);
+        const allCounters = Object.values((countersSnap.data || {}) as Record<string, any>);
+        const assigned = allCounters.find((c: any) => 
+          c.status === 'active' && 
+          Array.isArray(c.assignedStaffIds) && 
+          c.assignedStaffIds.includes(staffUid)
+        );
+        
+        if (!assigned) {
+          return res.status(403).json({ success: false, error: "You are not assigned to any active counter. Contact admin." });
+        }
+        counterId = assigned.id;
+      }
       
       // Verify sub-user and PIN
       const counterSnap = await rtdbGet(`counters/${counterId}`, adminToken);
@@ -6517,7 +6533,8 @@ app.get("/api/counter/list", requireRole(["counter_staff", "event_manager", "sup
         name: c.name || "Box Office Counter",
         venue: c.venue || "",
         status: c.status || "active",
-        subUsers: c.subUsers || {}
+        subUsers: c.subUsers || {},
+        assignedStaffIds: Array.isArray(c.assignedStaffIds) ? c.assignedStaffIds : []
       }))
       .filter((c) => c.status === "active");
     return res.status(200).json({ success: true, counters });
