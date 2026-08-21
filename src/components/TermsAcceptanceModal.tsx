@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { Shield, Check, ExternalLink, ArrowRight } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 
 export const TermsAcceptanceModal: React.FC = () => {
   const { user, acceptTerms } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   const [isAccepting, setIsAccepting] = useState(false);
   const [hasAgreed, setHasAgreed] = useState(false);
 
@@ -18,6 +19,11 @@ export const TermsAcceptanceModal: React.FC = () => {
     setIsAccepting(true);
     try {
       await acceptTerms();
+      // If we are on the AuthPage, redirect after acceptance
+      if (location.pathname === '/auth') {
+        const redirectPath = (location.state as any)?.from?.pathname || '/';
+        navigate(redirectPath, { replace: true });
+      }
     } catch (err) {
       console.error(err);
     } finally {

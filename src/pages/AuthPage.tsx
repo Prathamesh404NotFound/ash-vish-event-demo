@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { Sparkles, ShieldCheck, Mail, Lock, User, ArrowRight, MessageCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { sanitizeString, validateEmail, validatePhone } from '../lib/sanitizer';
+import { TermsAcceptanceModal } from '../components/TermsAcceptanceModal';
 
 type AuthMode = 'login' | 'signup' | 'forgot-password';
 
@@ -26,15 +27,27 @@ export const AuthPage: React.FC = () => {
   const [newPassword, setNewPassword] = useState('');
   const [otpSent, setOtpSent] = useState(false);
   const [resendTimer, setResendTimer] = useState(0);
+  const [showTerms, setShowTerms] = useState(false);
 
-  const handleSuccess = () => {
+  const handleSuccess = (userProfile?: any) => {
+    // Check if user needs to accept terms
+    const targetUser = userProfile || useAuth().user;
+    if (targetUser && !targetUser.termsAccepted) {
+      setShowTerms(true);
+      return;
+    }
     navigate(redirectPath, { replace: true });
   };
 
+  const { user: authUser } = useAuth();
   const handleGoogleSignIn = async () => {
     setErrorMsg('');
     const ok = await loginWithGoogle();
-    if (ok) handleSuccess();
+    if (ok) {
+      // We need the user profile to check terms
+      // The user state in AuthContext might not be updated yet, so we'll wait a bit or use a flag
+      setShowTerms(true); 
+    }
     else setErrorMsg('Google sign-in did not complete. Please try again.');
   };
 
@@ -50,7 +63,7 @@ export const AuthPage: React.FC = () => {
 
     if (mode === 'login') {
       const ok = await loginWithEmail(sanitizedEmail, password);
-      if (ok) handleSuccess();
+      if (ok) setShowTerms(true);
       else setErrorMsg('Invalid email or password.');
     } else {
       const sanitizedName = sanitizeString(name, 100);
@@ -63,7 +76,7 @@ export const AuthPage: React.FC = () => {
         return;
       }
       const result = await signupWithEmail(sanitizedName, sanitizedEmail, password);
-      if (result.success) handleSuccess();
+      if (result.success) setShowTerms(true);
       else setErrorMsg(result.error || 'Signup failed. Please try again.');
     }
   };
@@ -124,6 +137,7 @@ export const AuthPage: React.FC = () => {
 
   return (
     <div className="min-h-[85vh] flex items-center justify-center p-4 pt-20 pb-20 max-w-6xl mx-auto animate-in fade-in">
+      {showTerms && <TermsAcceptanceModal />}
       <div className="w-full grid grid-cols-1 lg:grid-cols-12 rounded-3xl overflow-hidden bg-[#141414] border border-white/10 shadow-2xl">
         
         {/* Left Side: Cinematic Event Graphic */}

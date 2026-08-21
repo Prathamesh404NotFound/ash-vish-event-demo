@@ -87,9 +87,6 @@ function MainLayout() {
         <Outlet />
       </main>
       <Footer setActiveTab={(path) => navigate(path === 'home' ? '/' : `/${path}`)} />
-      
-      {/* Global Terms Acceptance for First-time Users */}
-      <TermsAcceptanceModal />
     </div>
   );
 }
