@@ -337,6 +337,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.removeItem('ash_vish_user_session');
   };
 
+  const acceptTerms = async () => {
+    if (!firebaseUser) return;
+    try {
+      const userRef = ref(rtdb, `users/${firebaseUser.uid}`);
+      await update(userRef, {
+        termsAccepted: true,
+        termsAcceptedAt: new Date().toISOString()
+      });
+      setUser(prev => prev ? { ...prev, termsAccepted: true } : null);
+    } catch (err) {
+      console.error('Failed to accept terms:', err);
+      throw err;
+    }
+  };
+
   const sendOtp = async (phone: string) => {
     try {
       const response = await fetch('/api/auth/otp/send', {
@@ -403,6 +418,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         resetPassword,
         logout,
         updateProfile,
+        acceptTerms,
         sendOtp,
         resetPasswordWithOtp
       }}

@@ -5,6 +5,7 @@ import { BookingProvider, useBooking } from './contexts/BookingContext';
 import { Navbar } from './components/Navbar';
 import { Footer } from './components/Footer';
 import { RoleRoute } from './components/RoleRoute';
+import { TermsAcceptanceModal } from './components/TermsAcceptanceModal';
 
 // Components & Shared Tools
 import { EventCard } from './components/EventCard';
@@ -26,6 +27,7 @@ import { TicketPassPage } from './pages/TicketPassPage';
 import { CityPage } from './pages/CityPage';
 import { BlogPage } from './pages/BlogPage';
 import { BlogPostPage } from './pages/BlogPostPage';
+import { TermsPage } from './pages/TermsPage';
 
 function HashPassRedirectHandler() {
   const navigate = useNavigate();
@@ -85,6 +87,9 @@ function MainLayout() {
         <Outlet />
       </main>
       <Footer setActiveTab={(path) => navigate(path === 'home' ? '/' : `/${path}`)} />
+      
+      {/* Global Terms Acceptance for First-time Users */}
+      <TermsAcceptanceModal />
     </div>
   );
 }
@@ -242,6 +247,7 @@ export default function App() {
               <Route path="mumbai" element={<CityPage city="mumbai" />} />
               <Route path="blog" element={<BlogPage />} />
               <Route path="blog/:slug" element={<BlogPostPage />} />
+              <Route path="terms" element={<TermsPage />} />
 
               {/* Guarded Account Routes */}
               <Route

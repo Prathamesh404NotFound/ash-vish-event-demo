@@ -237,6 +237,7 @@ export interface UserProfile {
   joinedDate: string;
   role: UserRole;
   rbacRole?: UserRole;
+  termsAccepted?: boolean;
   organizerStatus?: OrganizerStatus;
   organizationName?: string;
   organizerPhone?: string;

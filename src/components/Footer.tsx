@@ -144,6 +144,7 @@ export const Footer: React.FC<FooterProps> = ({ setActiveTab }) => {
         <div className="pt-8 flex flex-col sm:flex-row items-center justify-between text-xs text-gray-500 gap-4">
           <p>© 2026 AV Events. All rights reserved. T&C Apply.</p>
           <div className="flex items-center gap-6">
+            <button onClick={() => setActiveTab('terms')} className="hover:text-[#D4AF37] transition-colors">Terms & Conditions</button>
             <a href="mailto:hello@ashvishevents.com" className="hover:text-[#D4AF37] transition-colors">Support</a>
             <a href="mailto:hello@ashvishevents.com" className="hover:text-[#D4AF37] transition-colors">Booking Enquiries</a>
           </div>
