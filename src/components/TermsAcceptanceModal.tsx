@@ -1,15 +1,17 @@
 import React, { useState } from 'react';
 import { Shield, Check, ExternalLink, ArrowRight } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 
 export const TermsAcceptanceModal: React.FC = () => {
   const { user, acceptTerms } = useAuth();
+  const location = useLocation();
   const [isAccepting, setIsAccepting] = useState(false);
   const [hasAgreed, setHasAgreed] = useState(false);
 
   // Only show if user is logged in but hasn't accepted terms
-  if (!user || user.termsAccepted) return null;
+  // Also hide if the user is currently on the terms page to allow reading
+  if (!user || user.termsAccepted || location.pathname === '/terms') return null;
 
   const handleAccept = async () => {
     if (!hasAgreed) return;
