@@ -71,7 +71,7 @@ export async function getFirebaseAdminIdToken(): Promise<string> {
     .setProtectedHeader({ alg })
     .setIssuer(sa.clientEmail)
     .setSubject(sa.clientEmail)
-    .setAudience('https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit')
+    .setAudience(sa.projectId)
     .setIssuedAt(now)
     .setExpirationTime(now + 3600)
     .sign(privateKey);
