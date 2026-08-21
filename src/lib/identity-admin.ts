@@ -58,6 +58,7 @@ export async function getFirebaseAdminIdToken(): Promise<string> {
 
   const apiKey = process.env.VITE_FIREBASE_API_KEY || process.env.FIREBASE_API_KEY;
   if (!apiKey) {
+    console.error('[IDENTITY ADMIN] FIREBASE_API_KEY is missing. Keys available:', Object.keys(process.env).filter(k => k.includes('FIREBASE')));
     throw new Error('VITE_FIREBASE_API_KEY not configured in environment variables.');
   }
 
@@ -71,7 +72,7 @@ export async function getFirebaseAdminIdToken(): Promise<string> {
     .setProtectedHeader({ alg })
     .setIssuer(sa.clientEmail)
     .setSubject(sa.clientEmail)
-    .setAudience(sa.projectId)
+    .setAudience(`https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit`)
     .setIssuedAt(now)
     .setExpirationTime(now + 3600)
     .sign(privateKey);
