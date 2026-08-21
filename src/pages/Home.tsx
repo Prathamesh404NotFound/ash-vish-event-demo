@@ -74,40 +74,42 @@ export const Home: React.FC<HomeProps> = ({
     <div className="space-y-12 pb-12">
       
       {/* ----------------- CINEMATIC HERO SECTION ----------------- */}
-      <section className="relative min-h-[52vh] sm:min-h-[60vh] flex items-end justify-start overflow-hidden rounded-b-[36px] bg-[#070707]">
+      <section className="relative min-h-[70vh] sm:min-h-[60vh] flex items-end justify-start overflow-hidden rounded-b-[36px] bg-[#070707]">
         {/* Hero Background Poster Image */}
         <div className="absolute inset-0">
           {currentHeroEvent ? (
           <img
             src={currentHeroEvent.coverUrl || currentHeroEvent.posterUrl}
             alt={currentHeroEvent.title}
-            className="aspect-ratio-fix w-full h-full object-cover object-center filter brightness-[1.02] contrast-[1.02] transition-all duration-700 scale-105"
+            className="aspect-ratio-fix w-full h-full object-cover object-top sm:object-center filter brightness-[0.9] contrast-[1.05] transition-all duration-700 scale-105"
             fetchPriority="high"
             decoding="async"
           />
           ) : (
             <div className="w-full h-full bg-gradient-to-br from-[#0A0A0A] via-[#1C1C1C] to-[#0A0A0A]" />
           )}
-          {/* Overlay Gradients */}
-          <div className="absolute inset-0 bg-gradient-to-t from-[#070707]/40 via-[#070707]/15 to-transparent" />
-          <div className="absolute inset-0 bg-gradient-to-r from-[#070707]/30 via-[#070707]/5 to-transparent" />
+          {/* Overlay Gradients - Enhanced for mobile readability */}
+          <div className="absolute inset-0 bg-gradient-to-t from-[#070707] via-[#070707]/60 to-transparent lg:via-[#070707]/20" />
+          <div className="absolute inset-0 bg-gradient-to-r from-[#070707]/40 via-transparent to-transparent" />
+          {/* Top fade to prevent header clash */}
+          <div className="absolute top-0 inset-x-0 h-32 bg-gradient-to-b from-[#070707]/80 to-transparent lg:from-[#070707]/40" />
         </div>
 
                 {/* Hero Content Container */}
-        <div className="relative z-10 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pb-12 pt-20">
+        <div className="relative z-10 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pb-8 pt-32 sm:pb-12 sm:pt-20">
           {currentHeroEvent ? (
-          <div className="max-w-2xl space-y-6 min-h-[260px] sm:min-h-[300px] flex flex-col justify-end">
+          <div className="max-w-2xl space-y-4 sm:space-y-6 min-h-[320px] sm:min-h-[300px] flex flex-col justify-end">
             {/* Category Eyebrow */}
             <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#D4AF37]/15 text-[#F3E5AB] border border-[#D4AF37]/30 text-xs font-bold uppercase tracking-wider backdrop-blur-md">
               <Sparkles className="w-3.5 h-3.5" />
               <span>FEATURED HEADLINER SHOW</span>
             </div>
             {/* Title & Subtitle */}
-            <div className="space-y-3">
-              <h1 className="font-heading font-extrabold text-4xl sm:text-6xl text-white tracking-tight leading-[1.08] drop-shadow-2xl">
+            <div className="space-y-2 sm:space-y-3">
+              <h1 className="font-heading font-extrabold text-3xl sm:text-6xl text-white tracking-tight leading-[1.1] drop-shadow-[0_4px_12px_rgba(0,0,0,0.8)]">
                 {currentHeroEvent.title}
               </h1>
-              <p className="text-gray-300 text-sm sm:text-base line-clamp-2 leading-relaxed">
+              <p className="text-gray-200 text-sm sm:text-base line-clamp-3 leading-relaxed drop-shadow-md max-w-lg">
                 {currentHeroEvent.subtitle}
               </p>
             </div>

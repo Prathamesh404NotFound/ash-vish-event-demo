@@ -45,8 +45,8 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSearch }) => {
     <>
       {/* Floating Top Navbar */}
       <header className="fixed top-0 inset-x-0 z-50 transition-all duration-300">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-3 sm:pt-4">
-          <nav className="bg-[#0c0c0e]/85 backdrop-blur-xl rounded-2xl px-3.5 py-2.5 sm:px-6 sm:py-3 flex items-center justify-between shadow-[0_12px_35px_rgba(0,0,0,0.85)] border border-white/10 hover:border-[#D4AF37]/25 transition-colors duration-300">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-2 sm:pt-4">
+          <nav className="bg-[#0c0c0e]/70 backdrop-blur-xl rounded-2xl px-3 py-2 sm:px-6 sm:py-3 flex items-center justify-between shadow-[0_12px_35px_rgba(0,0,0,0.85)] border border-white/10 hover:border-[#D4AF37]/25 transition-colors duration-300">
 
             {/* Logo & Brand Container */}
             <Link to="/" className="flex items-center gap-2.5 sm:gap-3 cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D4AF37] rounded-xl p-0.5 shrink-0">

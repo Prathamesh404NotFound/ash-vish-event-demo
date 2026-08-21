@@ -35,7 +35,7 @@ export const EventCard: React.FC<EventCardProps> = ({ event, onSelectEvent, onBo
       className="card-depth rounded-[18px] overflow-hidden flex flex-col group cursor-pointer relative transition-all duration-300"
     >
       {/* Zone 1: Dedicated Poster Section */}
-      <div className="relative aspect-[3/4] w-full overflow-hidden bg-[#1C1C1C] border border-[#D4AF37]/25 shadow-md">
+      <div className="relative aspect-[4/5] sm:aspect-[3/4] w-full overflow-hidden bg-[#1C1C1C] border-b border-white/10 shadow-md">
         {event.posterUrl ? (
           <img
             src={event.posterUrl}
@@ -53,7 +53,7 @@ export const EventCard: React.FC<EventCardProps> = ({ event, onSelectEvent, onBo
       </div>
 
       {/* Zone 2: Slim Meta Strip */}
-      <div className="px-4 sm:px-5 pt-4 pb-1 bg-[#141414] flex items-center justify-between gap-2 flex-wrap">
+      <div className="px-4 sm:px-5 pt-4 pb-1 bg-[#141414] flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5 flex-wrap">
           {/* Category Chip */}
           <span
