@@ -18,6 +18,7 @@ import {
   Unlock,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { useBooking } from '../../contexts/BookingContext';
 import { safeFetch } from '../../lib/api';
 import { authenticatedApiHeaders } from '../../lib/authHeaders';
 
@@ -68,6 +69,7 @@ const QUICK_FLOAT_PRESETS = [0, 500, 1000, 2000, 5000];
 
 export const ShiftPage: React.FC = () => {
   const { user } = useAuth();
+  const { activeShift: globalShift, setActiveShift: setGlobalShift } = useBooking();
 
   const [shifts, setShifts] = useState<CounterShift[]>([]);
   const [activeShift, setActiveShift] = useState<CounterShift | null>(null);
@@ -110,6 +112,18 @@ export const ShiftPage: React.FC = () => {
         // Find open shift for current user
         const open = list.find((s) => s.status === 'open' && (!s.staffId || s.staffId === user?.uid || (user as any)?.rbacRole === 'super_admin'));
         setActiveShift(open || null);
+        
+        // Sync with global session context
+        if (open) {
+          setGlobalShift({
+            counterId: open.counterId || '',
+            subUserId: open.subUserId || '',
+            subUserName: open.subUserName || '',
+            shiftId: open.shiftId
+          });
+        } else {
+          setGlobalShift(null);
+        }
       } else {
         setErrorBanner(shiftRes.data?.error || shiftRes.error || 'Failed to load shifts.');
       }
@@ -154,6 +168,13 @@ export const ShiftPage: React.FC = () => {
       );
 
       if (res.ok && res.data?.success && res.data.shift) {
+        const s = res.data.shift;
+        setGlobalShift({
+          counterId: s.counterId || '',
+          subUserId: s.subUserId || '',
+          subUserName: s.subUserName || '',
+          shiftId: s.shiftId
+        });
         setSuccessBanner('Shift started successfully! Cash drawer is now open.');
         setStartingCash(1000);
         setSelectedCounterId('');
@@ -197,8 +218,9 @@ export const ShiftPage: React.FC = () => {
       );
 
       if (res.ok && res.data?.success && res.data.shift) {
+        setGlobalShift(null);
         setRecentEndedShift(res.data.shift);
-        setSuccessBanner('Shift closed and reconciled successfully.');
+        setSuccessBanner(`Shift #${activeShift.shiftId} closed. Total recorded discrepancy: ₹${res.data.shift.discrepancy || 0}`);
         setCountedCash('');
         await loadShifts();
       } else {

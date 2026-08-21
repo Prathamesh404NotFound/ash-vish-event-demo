@@ -121,6 +121,8 @@ interface BookingContextType {
   coupons: Coupon[];
   reviews: EventReview[];
   organizers: OrganizerAccount[];
+  activeShift: { counterId: string; subUserId: string; subUserName: string; shiftId: string } | null;
+  setActiveShift: (shift: { counterId: string; subUserId: string; subUserName: string; shiftId: string } | null) => void;
   toast: { message: string; type: 'success' | 'error' | 'info' } | null;
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
   clearToast: () => void;
@@ -185,6 +187,23 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   });
 
   const [favorites, setFavorites] = useState<string[]>([]);
+  const [activeShift, setActiveShiftState] = useState<{ counterId: string; subUserId: string; subUserName: string; shiftId: string } | null>(() => {
+    try {
+      const saved = localStorage.getItem('ash_vish_active_shift');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const setActiveShift = (shift: { counterId: string; subUserId: string; subUserName: string; shiftId: string } | null) => {
+    setActiveShiftState(shift);
+    if (shift) {
+      localStorage.setItem('ash_vish_active_shift', JSON.stringify(shift));
+    } else {
+      localStorage.removeItem('ash_vish_active_shift');
+    }
+  };
 
   const [currentCheckout, setCurrentCheckout] = useState<CheckoutSession | null>(() => {
     const saved = localStorage.getItem('ash_vish_current_checkout');
@@ -1580,6 +1599,8 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         coupons,
         reviews,
         organizers,
+        activeShift,
+        setActiveShift,
         toast,
         showToast,
         clearToast,
