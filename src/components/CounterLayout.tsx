@@ -1,14 +1,11 @@
 import React from 'react';
-import { Link, NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { Ticket, QrCode, UserPlus, LogOut, ArrowLeft, ShieldCheck, Sparkles, Clock, ShoppingBag, TrendingUp, Lock } from 'lucide-react';
+import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { Ticket, QrCode, UserPlus, LogOut, ArrowLeft, ShieldCheck, Sparkles, Clock, ShoppingBag, TrendingUp } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { useBooking } from '../contexts/BookingContext';
 
 export const CounterLayout: React.FC = () => {
   const { user, logout } = useAuth();
-  const { activeShift } = useBooking();
   const navigate = useNavigate();
-  const location = useLocation();
 
   const navItems = [
     {
@@ -49,43 +46,6 @@ export const CounterLayout: React.FC = () => {
     }
   ];
 
-  // Mandatory Sub-User Session Guard
-  // Only the /counter/shift page is allowed if no shift is active
-  const isShiftPage = location.pathname === '/counter/shift';
-  if (!activeShift && !isShiftPage) {
-    return (
-      <div className="min-h-screen bg-[#0A0A0A] flex items-center justify-center p-4">
-        <div className="max-w-md w-full p-8 rounded-3xl bg-[#141414] border border-amber-500/20 text-center space-y-6 shadow-2xl">
-          <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center mx-auto text-amber-500">
-            <Lock className="w-8 h-8" />
-          </div>
-          <div>
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 text-xs font-semibold uppercase tracking-wider mb-2">
-              Terminal Locked
-            </div>
-            <h2 className="font-heading font-extrabold text-2xl text-white">Sub-User Login Required</h2>
-            <p className="text-gray-400 text-sm mt-2 leading-relaxed">
-              You must activate your session with your <strong className="text-white">Staff PIN</strong> before you can access the ticket terminal or issue passes.
-            </p>
-          </div>
-          <button
-            onClick={() => navigate('/counter/shift')}
-            className="w-full py-3 px-6 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] hover:brightness-110 text-black font-extrabold text-sm flex items-center justify-center gap-2 transition-all shadow-lg shadow-[#D4AF37]/25 cursor-pointer"
-          >
-            <Clock className="w-4 h-4 stroke-[2.5]" />
-            <span>Go to Shift Activation</span>
-          </button>
-          <button
-            onClick={() => navigate('/')}
-            className="w-full py-2.5 text-gray-500 hover:text-white text-xs font-bold transition-colors cursor-pointer"
-          >
-            Return to Storefront
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-[#0A0A0A] text-white flex flex-col md:flex-row">
       {/* Sidebar */}
@@ -115,32 +75,15 @@ export const CounterLayout: React.FC = () => {
 
         {/* Counter Staff Info Card */}
         <div className="hidden sm:flex p-3.5 rounded-2xl bg-[#1A1A1A] border border-white/10 items-center gap-3">
-          <div className="relative">
-            <img
-              src={user?.photoUrl || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=300'}
-              alt={user?.name}
-              className="w-9 h-9 rounded-xl object-cover border border-[#D4AF37]/40"
-            />
-            {activeShift && (
-              <div className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-emerald-500 border-2 border-[#1A1A1A] flex items-center justify-center">
-                <ShieldCheck className="w-2 h-2 text-white" />
-              </div>
-            )}
-          </div>
+          <img
+            src={user?.photoUrl || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=300'}
+            alt={user?.name}
+            className="w-9 h-9 rounded-xl object-cover border border-[#D4AF37]/40"
+          />
           <div className="overflow-hidden">
-            <p className="text-xs font-bold text-white truncate">
-              {activeShift ? activeShift.subUserName : (user?.name || 'Counter Operator')}
-            </p>
+            <p className="text-xs font-bold text-white truncate">{user?.name || 'Counter Operator'}</p>
             <span className="inline-flex items-center gap-1 text-[10px] text-[#D4AF37] font-semibold uppercase tracking-wider">
-              {activeShift ? (
-                <>
-                  <Clock className="w-3 h-3" /> Session Active
-                </>
-              ) : (
-                <>
-                  <Lock className="w-3 h-3" /> Login Required
-                </>
-              )}
+              <ShieldCheck className="w-3 h-3" /> Ticket Counter Staff
             </span>
           </div>
         </div>
