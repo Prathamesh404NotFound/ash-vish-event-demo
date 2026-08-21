@@ -27,7 +27,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   loginWithEmail: (email: string, pass: string) => Promise<boolean>;
-  signupWithEmail: (name: string, email: string, pass: string) => Promise<boolean>;
+  signupWithEmail: (name: string, email: string, pass: string) => Promise<{ success: boolean; error?: string }>;
   loginWithGoogle: () => Promise<boolean>;
   resetPassword: (email: string) => Promise<void>;
   logout: () => void;
@@ -246,7 +246,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   // Signup with Email
-  const signupWithEmail = async (name: string, email: string, pass: string): Promise<boolean> => {
+  const signupWithEmail = async (name: string, email: string, pass: string): Promise<{ success: boolean; error?: string }> => {
     setIsLoading(true);
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, pass);
@@ -256,11 +256,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const profile = await fetchAndSyncUserProfile(userCredential.user);
       setUser(profile);
       setIsLoading(false);
-      return true;
+      return { success: true };
     } catch (error: any) {
       console.warn('Firebase Auth signup failed:', error.message);
       setIsLoading(false);
-      return false;
+      
+      let friendlyMsg = 'Signup failed. Please try again.';
+      if (error.code === 'auth/email-already-in-use') {
+        friendlyMsg = 'This email is already registered. Please log in instead.';
+      } else if (error.code === 'auth/operation-not-allowed') {
+        friendlyMsg = 'Email/Password signup is not enabled in Firebase Console. Please contact the administrator.';
+      } else if (error.code === 'auth/weak-password') {
+        friendlyMsg = 'The password is too weak.';
+      } else if (error.code === 'auth/invalid-email') {
+        friendlyMsg = 'The email address is invalid.';
+      }
+      
+      return { success: false, error: friendlyMsg };
     }
   };
 

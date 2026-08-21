@@ -62,9 +62,9 @@ export const AuthPage: React.FC = () => {
         setErrorMsg('Password must be at least 8 characters.');
         return;
       }
-      const ok = await signupWithEmail(sanitizedName, sanitizedEmail, password);
-      if (ok) handleSuccess();
-      else setErrorMsg('Signup failed. Email might already be in use.');
+      const result = await signupWithEmail(sanitizedName, sanitizedEmail, password);
+      if (result.success) handleSuccess();
+      else setErrorMsg(result.error || 'Signup failed. Please try again.');
     }
   };
 
