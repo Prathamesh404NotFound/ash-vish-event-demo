@@ -77,6 +77,8 @@ export async function getFirebaseAdminIdToken(): Promise<string> {
     .setExpirationTime(now + 3600)
     .sign(privateKey);
 
+  console.log('[IDENTITY ADMIN] Generated Custom Token (first 20 chars):', customToken.substring(0, 20));
+
   const response = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key=${apiKey}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
