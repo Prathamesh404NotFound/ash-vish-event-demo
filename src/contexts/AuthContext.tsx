@@ -61,7 +61,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const staffSnapshot = await get(staffRef);
       if (staffSnapshot.exists()) {
         const staffData = staffSnapshot.val();
-        if (staffData.role === 'admin' || staffData.role === 'ticket_counter') {
+        const STAFF_ROLES: UserRole[] = ['admin', 'super_admin', 'event_manager', 'ticket_counter', 'counter_staff', 'auditor'];
+        if (STAFF_ROLES.includes(staffData.role)) {
           resolvedRole = staffData.role;
         }
       } else {
@@ -165,7 +166,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         unsubStaff = onValue(staffRef, (snapshot) => {
           if (snapshot.exists()) {
             const staffData = snapshot.val();
-            if (staffData && (staffData.role === 'admin' || staffData.role === 'ticket_counter')) {
+            const STAFF_ROLES = ['admin', 'super_admin', 'event_manager', 'ticket_counter', 'counter_staff', 'auditor'];
+            if (staffData && STAFF_ROLES.includes(staffData.role)) {
               setUser(prev => prev ? { ...prev, role: staffData.role } : null);
             }
           } else {
