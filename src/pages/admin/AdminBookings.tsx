@@ -11,6 +11,7 @@ import {
   X,
   AlertCircle,
   CheckCircle2,
+  MoreVertical,
 } from 'lucide-react';
 import { useBooking } from '../../contexts/BookingContext';
 
@@ -43,6 +44,11 @@ interface AdminOrder {
   channelLabel?: string;
   paymentMethodLabel?: string;
   ticketNumber?: string;
+  counterName?: string;
+  issuedBySubUserName?: string;
+  issuedBy?: string;
+  discountAmount?: number;
+  discountLabel?: string;
   couponCode?: string;
   createdAt?: string;
   createdAtMs?: number;
@@ -104,6 +110,8 @@ export const AdminBookings: React.FC = () => {
 
   const [orders, setOrders] = useState<AdminOrder[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
 
   // Filters
   const [search, setSearch] = useState('');
@@ -126,6 +134,7 @@ export const AdminBookings: React.FC = () => {
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [editOrderTarget, setEditOrderTarget] = useState<AdminOrder | null>(null);
   const [refundOrderTarget, setRefundOrderTarget] = useState<AdminOrder | null>(null);
+  const [detailsOrder, setDetailsOrder] = useState<AdminOrder | null>(null);
 
   // Feedback
   const [banner, setBanner] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -135,8 +144,9 @@ export const AdminBookings: React.FC = () => {
     setTimeout(() => setBanner(null), 4500);
   };
 
-  const loadOrders = async () => {
-    setIsLoading(true);
+  const loadOrders = async (silent = false) => {
+    if (silent) setIsRefreshing(true);
+    else setIsLoading(true);
     try {
       const result = await fetchOrders({
         eventId: filterEventId || undefined,
@@ -156,10 +166,12 @@ export const AdminBookings: React.FC = () => {
         setOrders(result.data as AdminOrder[]);
         setTotalCount(result.data.length);
       }
+      setLastSyncedAt(new Date());
     } catch {
-      showBanner('error', 'Could not load orders.');
+      if (!silent) showBanner('error', 'Could not load orders.');
     } finally {
-      setIsLoading(false);
+      if (silent) setIsRefreshing(false);
+      else setIsLoading(false);
     }
   };
 
@@ -178,6 +190,19 @@ export const AdminBookings: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search]);
 
+  useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState === 'visible') void loadOrders(true);
+    };
+    const interval = window.setInterval(refresh, 15000);
+    document.addEventListener('visibilitychange', refresh);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', refresh);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterEventId, filterStatus, filterChannel, dateFrom, dateTo, search, page, pageSize]);
+
   // Fallback view when the orders API is unreachable: render tickets from RTDB
   const fallbackOrders = useMemo<AdminOrder[]>(
     () =>
@@ -195,8 +220,15 @@ export const AdminBookings: React.FC = () => {
         seatsCount: 1,
         status: t.status,
         channel: t.isWalkIn ? 'counter' : 'online',
-        createdAt: t.purchasedAt,
-      })),
+          createdAt: t.purchasedAt,
+          ticketNumber: t.ticketNumber,
+          counterName: t.counterName,
+          issuedBySubUserName: t.issuedBySubUserName,
+          issuedBy: t.createdByStaffId || t.scannedByStaffId,
+          discountAmount: Number(t.discount || 0),
+          discountLabel: Number(t.discount || 0) > 0 ? 'Discount applied' : 'No discount',
+          paymentMethodLabel: t.paymentMethod,
+        })),
     [allTickets]
   );
   const viewOrders = orders.length > 0 ? orders : fallbackOrders;
@@ -461,6 +493,16 @@ export const AdminBookings: React.FC = () => {
           <p className="text-gray-400 text-xs mt-0.5">
             Manage confirmed, refunded, and cancelled orders across all sales channels.
           </p>
+          <div className="flex items-center gap-2 mt-3 text-[10px] font-bold uppercase tracking-wider">
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
+            </span>
+            <span className="text-emerald-400">Live database view</span>
+            <span className="text-gray-500 normal-case tracking-normal font-normal">
+              {isRefreshing ? 'Refreshing…' : lastSyncedAt ? `Updated ${formatOrderDate(lastSyncedAt.toISOString())}` : 'Connecting…'}
+            </span>
+          </div>
         </div>
 
         <div className="flex items-center gap-3 w-full sm:w-auto flex-wrap">
@@ -675,6 +717,9 @@ export const AdminBookings: React.FC = () => {
                 const st = displayStatus(o);
                 const payable = Number(o.amountPaid ?? o.totalAmount ?? o.amount ?? 0);
                 const ref = Number(o.refundAmount ?? 0);
+                const discount = Number(o.discountAmount ?? o.discount ?? 0);
+                const issuer = o.issuedBySubUserName || o.issuedBy || (o.channel === 'online' ? 'Customer checkout' : 'Main counter staff');
+                const counter = o.counterName || (o.channel === 'online' ? 'Online booking' : 'Counter not recorded');
                 return (
                   <tr key={o.id} className="hover:bg-white/5 transition-colors">
                     <td className="p-4">
@@ -685,12 +730,18 @@ export const AdminBookings: React.FC = () => {
                         className="accent-[#D4AF37]"
                       />
                     </td>
-                    <td className="p-4">
+                    <td className="p-4 min-w-[170px]">
                       <span className="font-bold text-white block">
                         {o.channelLabel || CHANNEL_LABEL[o.channel || 'online'] || 'Sale'}
                       </span>
                       <span className="text-gray-400 text-[10px] block">
                         {o.ticketNumber ? `Ticket ${o.ticketNumber}` : 'Ticket reference unavailable'}
+                      </span>
+                      <span className="text-gray-500 text-[10px] block mt-1">
+                        Issued by: <span className="text-gray-300">{issuer}</span>
+                      </span>
+                      <span className="text-gray-500 text-[10px] block">
+                        Counter: <span className="text-gray-300">{counter}</span>
                       </span>
                     </td>
                     <td className="p-4">
@@ -722,6 +773,10 @@ export const AdminBookings: React.FC = () => {
                       ) : (
                         <span className="text-emerald-400 text-[10px]">Paid in full</span>
                       )}
+                      <span className={`text-[10px] block mt-1 ${discount > 0 ? 'text-sky-400' : 'text-gray-500'}`}>
+                        {discount > 0 ? `Discount: ₹${discount.toLocaleString('en-IN')} off` : 'No discount'}
+                      </span>
+                      {o.couponCode && <span className="text-gray-500 text-[10px] block">Coupon: {o.couponCode}</span>}
                     </td>
                     <td className="p-4">
                       <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-white/5 text-gray-300 border border-white/10">
@@ -748,6 +803,14 @@ export const AdminBookings: React.FC = () => {
                           title="Edit Order"
                         >
                           <Edit className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => setDetailsOrder(o)}
+                          className="p-2 rounded-xl bg-white/5 text-gray-300 hover:bg-white/10 transition-all cursor-pointer"
+                          title="More details"
+                          aria-label={`More details for ${o.ticketNumber || o.orderId || 'sale'}`}
+                        >
+                          <MoreVertical className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => openRefundModal(o)}
@@ -990,6 +1053,78 @@ export const AdminBookings: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Order Details Modal */}
+      {detailsOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
+          <div className="bg-[#181818] border border-white/10 rounded-3xl p-6 sm:p-8 max-w-lg w-full space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-white/10 pb-4">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-[#D4AF37]">Sale details</p>
+                <h3 className="font-heading font-bold text-lg text-white mt-1">
+                  {detailsOrder.customerName || detailsOrder.attendeeName || 'Customer'}
+                </h3>
+              </div>
+              <button
+                onClick={() => setDetailsOrder(null)}
+                className="text-gray-400 hover:text-white cursor-pointer"
+                aria-label="Close sale details"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <div className="p-3 rounded-xl bg-white/5 border border-white/10">
+                <p className="text-gray-500 mb-1">Ticket</p>
+                <p className="text-white font-bold">{detailsOrder.ticketNumber || 'Not linked'}</p>
+              </div>
+              <div className="p-3 rounded-xl bg-white/5 border border-white/10">
+                <p className="text-gray-500 mb-1">Event</p>
+                <p className="text-white font-bold">{detailsOrder.eventTitle || detailsOrder.eventName || 'Not available'}</p>
+              </div>
+              <div className="p-3 rounded-xl bg-white/5 border border-white/10">
+                <p className="text-gray-500 mb-1">Issued by</p>
+                <p className="text-white font-bold">{detailsOrder.issuedBySubUserName || detailsOrder.issuedBy || 'Main staff'}</p>
+              </div>
+              <div className="p-3 rounded-xl bg-white/5 border border-white/10">
+                <p className="text-gray-500 mb-1">Counter</p>
+                <p className="text-white font-bold">{detailsOrder.counterName || (detailsOrder.channel === 'online' ? 'Online booking' : 'Not recorded')}</p>
+              </div>
+              <div className="p-3 rounded-xl bg-white/5 border border-white/10">
+                <p className="text-gray-500 mb-1">Payment</p>
+                <p className="text-white font-bold">{detailsOrder.paymentMethodLabel || 'Payment recorded'}</p>
+                <p className="text-emerald-400 mt-1">{detailsOrder.paymentStatus || detailsOrder.status || 'Confirmed'}</p>
+              </div>
+              <div className="p-3 rounded-xl bg-white/5 border border-white/10">
+                <p className="text-gray-500 mb-1">Discount</p>
+                <p className={Number(detailsOrder.discountAmount ?? detailsOrder.discount ?? 0) > 0 ? 'text-sky-400 font-bold' : 'text-gray-300 font-bold'}>
+                  {Number(detailsOrder.discountAmount ?? detailsOrder.discount ?? 0) > 0
+                    ? `₹${Number(detailsOrder.discountAmount ?? detailsOrder.discount).toLocaleString('en-IN')} off`
+                    : 'No discount added'}
+                </p>
+                {detailsOrder.couponCode && <p className="text-gray-500 mt-1">Coupon: {detailsOrder.couponCode}</p>}
+              </div>
+            </div>
+
+            <div className="p-4 rounded-xl bg-[#D4AF37]/5 border border-[#D4AF37]/20 text-xs space-y-2">
+              <p className="text-gray-400"><span className="text-white font-bold">Quantity:</span> {detailsOrder.quantity || 1} ticket{(detailsOrder.quantity || 1) === 1 ? '' : 's'}</p>
+              <p className="text-gray-400"><span className="text-white font-bold">Access:</span> {detailsOrder.tierName || 'General entry'}{detailsOrder.seatLabels?.length ? ` · ${detailsOrder.seatLabels.join(', ')}` : ''}</p>
+              <p className="text-gray-400"><span className="text-white font-bold">Created:</span> {formatOrderDate(detailsOrder.createdAt)}</p>
+            </div>
+
+            <details className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-gray-400">
+              <summary className="cursor-pointer text-gray-300 font-bold">System references</summary>
+              <div className="mt-3 space-y-1 font-mono text-[10px] break-all">
+                <p>Order: {detailsOrder.orderId || detailsOrder.id || '—'}</p>
+                <p>Booking: {detailsOrder.bookingId || '—'}</p>
+                <p>Ticket record: {detailsOrder.ticketId || '—'}</p>
+                <p>Shift: {detailsOrder.shiftId || '—'}</p>
+              </div>
+            </details>
           </div>
         </div>
       )}

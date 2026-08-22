@@ -4483,11 +4483,17 @@ export async function createApp() {
           ...order,
           ticketNumber: order.ticketNumber || ticket?.ticketNumber || null,
           eventTitle: order.eventTitle || ticket?.eventTitle || event?.title || event?.name || null,
+          tierName: order.tierName || ticket?.tierName || null,
           customerName: customer.name || ticket?.attendeeName || null,
           customerEmail: customer.email || ticket?.attendeeEmail || null,
           customerPhone: customer.phone || ticket?.attendeePhone || null,
           quantity,
           seatLabels: order.seatLabels || ticket?.selectedSeats || (ticket?.seatNumber ? [ticket.seatNumber] : []),
+          counterName: order.counterName || ticket?.counterName || null,
+          issuedBySubUserName: order.issuedBySubUserName || ticket?.issuedBySubUserName || null,
+          issuedBy: order.createdBy || ticket?.createdByStaffId || ticket?.scannedByStaffId || null,
+          discountAmount: Number(order.discount ?? ticket?.discount ?? 0) || 0,
+          discountLabel: order.couponCode ? `Coupon ${order.couponCode}` : (Number(order.discount ?? ticket?.discount ?? 0) > 0 ? "Discount applied" : "No discount"),
           paymentMethodLabel: paymentMethod
             ? paymentMethod.replace(/^walkin[_-]?/i, "").replace(/^manual[_-]?/i, "").replace(/[_-]+/g, " ").replace(/\b\w/g, (char: string) => char.toUpperCase())
             : null,
