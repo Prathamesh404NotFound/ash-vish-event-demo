@@ -9,6 +9,7 @@
       "DOM",
       "DOM.Iterable"
     ],
+    "types": ["node", "express"],
     "skipLibCheck": true,
     "moduleResolution": "bundler",
     "resolveJsonModule": true,

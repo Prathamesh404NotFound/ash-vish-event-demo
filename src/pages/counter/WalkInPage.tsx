@@ -915,13 +915,16 @@ export const WalkInPage: React.FC = () => {
           </div>
 
           <div className="flex flex-wrap items-center justify-center gap-3">
-            <button
-              onClick={() => sendTicketToWhatsApp(issuedTicket)}
-              className="py-3 px-5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-extrabold text-xs flex items-center gap-2 transition-all shadow-lg shadow-emerald-500/25 cursor-pointer"
-            >
-              <MessageSquareCode className="w-4 h-4 stroke-[2.5]" />
-              <span>Send QR Pass to WhatsApp</span>
-            </button>
+            {/* Manual WhatsApp share button hidden in production to prefer automated enotify dispatch */}
+            {false && (
+              <button
+                onClick={() => sendTicketToWhatsApp(issuedTicket)}
+                className="py-3 px-5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-extrabold text-xs flex items-center gap-2 transition-all shadow-lg shadow-emerald-500/25 cursor-pointer"
+              >
+                <MessageSquareCode className="w-4 h-4 stroke-[2.5]" />
+                <span>Send QR Pass to WhatsApp</span>
+              </button>
+            )}
             {issuedTicket.passSlug && (
               <a
                 href={passUrl(issuedTicket.passSlug.id, issuedTicket.passSlug.sig)}
