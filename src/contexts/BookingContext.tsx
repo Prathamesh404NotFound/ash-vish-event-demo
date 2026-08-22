@@ -345,6 +345,7 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
             status: e.status || 'published',
             posterUrl: sanitizeImageUrl(e.posterUrl),
             coverUrl: isInternalUrl(e.coverUrl) || !e.coverUrl ? sanitizeImageUrl(e.posterUrl) : e.coverUrl,
+            cardImageUrl: e.cardImageUrl || null,
             title: e.title || 'Untitled Event',
             startingPrice: typeof e.startingPrice === 'number' ? e.startingPrice : 0,
             rating: typeof e.rating === 'number' ? e.rating : 0,

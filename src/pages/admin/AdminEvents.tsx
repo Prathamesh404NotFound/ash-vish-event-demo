@@ -70,6 +70,7 @@ export const AdminEvents: React.FC = () => {
   const [coverUrl, setCoverUrl] = useState(
     'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?auto=format&fit=crop&q=80&w=1200'
   );
+  const [cardImageUrl, setCardImageUrl] = useState('');
 
   // Ticket Tiers State
   const [tiers, setTiers] = useState<TierInput[]>([
@@ -235,6 +236,7 @@ export const AdminEvents: React.FC = () => {
     setOrganizer('Ash-vish Events Official');
     setPosterUrl('https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&q=80&w=800');
     setCoverUrl('https://images.unsplash.com/photo-1470225620780-dba8ba36b745?auto=format&fit=crop&q=80&w=1200');
+    setCardImageUrl('');
     setUsesSeatMap(true);
     setPerksText('Complimentary Welcome Kit, Live DJ After-Party, Free Parking');
     setArtistsText('Ash-vish Ensemble | Main Stage');
@@ -297,6 +299,7 @@ export const AdminEvents: React.FC = () => {
     setOrganizer(evt.organizer || 'Ash-vish Events');
     setPosterUrl(evt.posterUrl);
     setCoverUrl(evt.coverUrl || evt.posterUrl);
+    setCardImageUrl(evt.cardImageUrl || '');
 
     setScheduledPublishAt(evt.scheduledPublishAt || '');
     setScheduledUnpublishAt(evt.scheduledUnpublishAt || '');
@@ -354,7 +357,7 @@ export const AdminEvents: React.FC = () => {
   };
 
   // Client-side file type & size validation + Firebase Storage upload
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, targetField: 'poster' | 'cover') => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, targetField: 'poster' | 'cover' | 'card') => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -388,8 +391,10 @@ export const AdminEvents: React.FC = () => {
 
       if (targetField === 'poster') {
         setPosterUrl(downloadURL);
-      } else {
+      } else if (targetField === 'cover') {
         setCoverUrl(downloadURL);
+      } else if (targetField === 'card') {
+        setCardImageUrl(downloadURL);
       }
     } catch (err: any) {
       console.warn('Firebase Storage upload failed, using Data URL fallback:', err);
@@ -575,6 +580,7 @@ export const AdminEvents: React.FC = () => {
       totalCapacity,
       posterUrl,
       coverUrl: coverUrl || posterUrl,
+      cardImageUrl: cardImageUrl.trim() || null,
       organizer: organizer.trim() || 'Ash-vish Events',
       description: description.trim(),
       artists: finalArtists,
@@ -1606,6 +1612,51 @@ export const AdminEvents: React.FC = () => {
                           placeholder="Or paste image URL"
                           value={coverUrl}
                           onChange={(e) => setCoverUrl(e.target.value)}
+                          className="w-full bg-[#121212] border border-white/10 rounded-lg px-2.5 py-1.5 text-[10px] text-gray-300"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Card Image Upload */}
+                  <div className="p-3 sm:p-4 bg-[#1C1C1C] border border-white/10 rounded-2xl space-y-3 md:col-span-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-white block text-xs">Event Card Image (Square / 1:1)</span>
+                      <span className="text-[10px] text-gray-500 font-medium">Used for homepage & search cards</span>
+                    </div>
+                    <div className="flex flex-col min-[480px]:flex-row min-[480px]:items-center gap-3">
+                      <img
+                        src={cardImageUrl || posterUrl}
+                        alt="Card Preview"
+                        className="w-16 h-16 rounded-xl object-cover bg-black border border-white/10 shrink-0"
+                      />
+                      <div className="space-y-2 flex-1 min-w-0">
+                        <div className="flex gap-2">
+                          <label className="cursor-pointer py-2 px-3 bg-white/10 hover:bg-white/20 text-white rounded-xl font-bold text-[11px] flex items-center justify-center gap-2 transition-all flex-1">
+                            <Upload className="w-3.5 h-3.5" />
+                            <span>{isUploading ? 'Uploading...' : 'Choose File'}</span>
+                            <input
+                              type="file"
+                              accept="image/jpeg,image/png,image/webp,image/gif"
+                              onChange={(e) => handleFileUpload(e, 'card')}
+                              className="hidden"
+                            />
+                          </label>
+                          {cardImageUrl && (
+                            <button
+                              type="button"
+                              onClick={() => setCardImageUrl('')}
+                              className="px-3 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-xl text-[11px] font-bold border border-red-500/20 transition-all"
+                            >
+                              Reset
+                            </button>
+                          )}
+                        </div>
+                        <input
+                          type="url"
+                          placeholder="Or paste image URL (Optional - defaults to poster)"
+                          value={cardImageUrl}
+                          onChange={(e) => setCardImageUrl(e.target.value)}
                           className="w-full bg-[#121212] border border-white/10 rounded-lg px-2.5 py-1.5 text-[10px] text-gray-300"
                         />
                       </div>

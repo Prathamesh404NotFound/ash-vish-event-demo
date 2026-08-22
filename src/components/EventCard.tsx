@@ -36,9 +36,9 @@ export const EventCard: React.FC<EventCardProps> = ({ event, onSelectEvent, onBo
     >
       {/* Zone 1: Dedicated Poster Section */}
       <div className="relative aspect-[4/5] sm:aspect-[3/4] w-full overflow-hidden bg-[#1C1C1C] border-b border-white/10 shadow-md">
-        {event.posterUrl ? (
+        {(event.cardImageUrl || event.posterUrl) ? (
           <img
-            src={event.posterUrl}
+            src={event.cardImageUrl || event.posterUrl}
             alt={event.title}
             className="w-full h-full object-cover object-top transition-transform duration-500 group-hover:scale-[1.02]"
             loading="lazy"

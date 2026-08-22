@@ -80,6 +80,7 @@ export interface EventItem {
   startingPrice: number;
   posterUrl: string;
   coverUrl: string;
+  cardImageUrl?: string;
   organizer: string;
   description: string;
   artists: Artist[];
