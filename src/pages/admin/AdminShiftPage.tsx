@@ -74,6 +74,10 @@ export const AdminShiftPage: React.FC = () => {
           new Date(b.startTime).getTime() - new Date(a.startTime).getTime()
         );
         setShifts(sorted);
+        setSelectedShift((current) => {
+          if (!current) return null;
+          return sorted.find((shift) => shift.shiftId === current.shiftId) || null;
+        });
       } else {
         setError(res.data?.error || res.error || 'Failed to load shifts.');
       }
@@ -86,6 +90,23 @@ export const AdminShiftPage: React.FC = () => {
 
   useEffect(() => {
     loadShifts();
+  }, [loadShifts]);
+
+  // Keep active terminal totals current while the admin panel is open. The
+  // selected detail view is synchronized in loadShifts so force-close actions
+  // and sales made on another terminal are reflected without reopening it.
+  useEffect(() => {
+    const refreshIfVisible = () => {
+      if (document.visibilityState === 'visible' && navigator.onLine) {
+        void loadShifts();
+      }
+    };
+    const interval = window.setInterval(refreshIfVisible, 30000);
+    document.addEventListener('visibilitychange', refreshIfVisible);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', refreshIfVisible);
+    };
   }, [loadShifts]);
 
   const handleEndShift = async () => {
