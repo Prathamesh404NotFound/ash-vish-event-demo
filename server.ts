@@ -34,6 +34,42 @@ function requireHmacSecret(): string {
   return SERVER_HMAC_SECRET;
 }
 
+const SERVER_HMAC_SECRET_PREVIOUS = process.env.SERVER_HMAC_SECRET_PREVIOUS?.trim();
+
+function getHmacVerificationSecrets(): string[] {
+  return [...new Set([SERVER_HMAC_SECRET, SERVER_HMAC_SECRET_PREVIOUS].filter((secret): secret is string => Boolean(secret)))];
+}
+
+function hmacDigest(payload: string, secret: string = requireHmacSecret()): string {
+  return crypto.createHmac("sha256", secret).update(payload).digest("hex");
+}
+
+function signHmac(payload: string): string {
+  return hmacDigest(payload, requireHmacSecret());
+}
+
+function verifyHmacSignature(payload: string, providedSignature: unknown, length = 16): boolean {
+  if (typeof providedSignature !== "string" || providedSignature.length !== length) return false;
+  const provided = Buffer.from(providedSignature);
+  return getHmacVerificationSecrets().some((secret) => {
+    const expected = Buffer.from(hmacDigest(payload, secret).substring(0, length));
+    return expected.length === provided.length && crypto.timingSafeEqual(provided, expected);
+  });
+}
+
+function hashCounterPin(pin: string, secret: string = requireHmacSecret()): string {
+  return crypto.createHash("sha256").update(pin + secret).digest("hex");
+}
+
+function verifyCounterPin(pin: string, expectedHash: unknown): boolean {
+  if (typeof expectedHash !== "string") return false;
+  const provided = Buffer.from(expectedHash);
+  return getHmacVerificationSecrets().some((secret) => {
+    const expected = Buffer.from(hashCounterPin(pin, secret));
+    return expected.length === provided.length && crypto.timingSafeEqual(provided, expected);
+  });
+}
+
 // ============================================================
 // Admin Panel (Prompt B) — Item 6: minimal email service
 // ============================================================
@@ -1120,12 +1156,12 @@ async function finalizeBookingServerSide(
     // /api/tickets/generate-token, with the ASH_RES header for deferred passes).
     const issuedAt = new Date().toISOString();
     const tokenPayload = `${bookingId}|${eventId}|${seatLabel}|${ticketId}|${issuedAt}`;
-    const tokenSig = crypto.createHmac("sha256", requireHmacSecret()).update(tokenPayload).digest("hex").substring(0, 16);
+    const tokenSig = signHmac(tokenPayload).substring(0, 16);
     const signedQrToken = `${isDeferred ? 'ASH_RES' : 'ASH_PASS'}.${Buffer.from(tokenPayload).toString('base64url')}.${tokenSig}`;
 
     // Generate secure opaque pass slug
     const passId = crypto.randomBytes(24).toString('base64url');
-    const passSig = crypto.createHmac("sha256", requireHmacSecret()).update(`${passId}|${ticketId}`).digest("hex").substring(0, 16);
+    const passSig = signHmac(`${passId}|${ticketId}`).substring(0, 16);
     const passSlug = { id: passId, sig: passSig, createdAt: Date.now() };
 
     const newTicket = {
@@ -4435,7 +4471,7 @@ export async function createApp() {
 
       const subUserId = `sub_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       const pin = Math.floor(1000 + Math.random() * 9000).toString();
-      const pinHash = crypto.createHash('sha256').update(pin + requireHmacSecret()).digest('hex');
+      const pinHash = hashCounterPin(pin);
 
       const subUser = {
         id: subUserId,
@@ -4493,7 +4529,7 @@ export async function createApp() {
 
       // Since we don't store plain PIN, we regenerate a new one and update the hash
       const pin = Math.floor(1000 + Math.random() * 9000).toString();
-      const pinHash = crypto.createHash('sha256').update(pin + requireHmacSecret()).digest('hex');
+      const pinHash = hashCounterPin(pin);
       await rtdbUpdate(`counters/${counterId}/subUsers/${subUserId}`, { pinHash }, adminToken);
 
       const message = `*Ash-vish Events Counter Access:*\nHello ${subUser.name}, your 4-digit access PIN for ${counterName} is: *${pin}*.\nKeep it secure.`;
@@ -5055,10 +5091,7 @@ export async function createApp() {
       const issuedAt = new Date().toISOString();
       const payloadString = `${bookingId || 'bkg_demo'}|${eventId || 'evt_001'}|${seatId || 'S1'}|${ticketId || 'tkt_demo'}|${issuedAt}`;
       
-      const signature = crypto
-        .createHmac("sha256", requireHmacSecret())
-        .update(payloadString)
-        .digest("hex");
+      const signature = signHmac(payloadString);
 
       const signedToken = `ASH_PASS.${Buffer.from(payloadString).toString("base64url")}.${signature.substring(0, 16)}`;
 
@@ -5090,13 +5123,7 @@ export async function createApp() {
       const payloadStr = Buffer.from(parts[1], "base64url").toString("utf8");
       const providedSig = parts[2];
 
-      const expectedSig = crypto
-        .createHmac("sha256", requireHmacSecret())
-        .update(payloadStr)
-        .digest("hex")
-        .substring(0, 16);
-
-      if (providedSig !== expectedSig) {
+      if (!verifyHmacSignature(payloadStr, providedSig)) {
         return res.status(400).json({
           success: false,
           valid: false,
@@ -5412,14 +5439,7 @@ export async function createApp() {
         return res.status(404).json({ success: false, error: 'TICKET_NOT_FOUND' });
       }
 
-      const expectedSig = crypto
-        .createHmac('sha256', requireHmacSecret())
-        .update(`${slug}|${ticketId}`)
-        .digest('hex')
-        .substring(0, 16);
-
-      if (signature.length !== expectedSig.length ||
-          !crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSig))) {
+      if (!verifyHmacSignature(`${slug}|${ticketId}`, signature)) {
         return res.status(403).json({ success: false, error: 'INVALID_LINK' });
       }
 
@@ -5533,9 +5553,7 @@ export async function createApp() {
         if (!sig || String(sig).length !== 16) {
           return res.status(403).json({ success: false, error: "Invalid or missing pass signature." });
         }
-        const expectedSig = crypto.createHmac("sha256", requireHmacSecret()).update(`${passId}|${ticketId}`).digest("hex").substring(0, 16);
-        if (String(sig).length !== expectedSig.length ||
-            !crypto.timingSafeEqual(Buffer.from(String(sig)), Buffer.from(expectedSig))) {
+        if (!verifyHmacSignature(`${passId}|${ticketId}`, sig)) {
           return res.status(403).json({ success: false, error: "Invalid or forged digital pass signature." });
         }
       } else {
@@ -5559,9 +5577,7 @@ export async function createApp() {
           if (!sig || String(sig).length !== 16) {
             return res.status(403).json({ success: false, error: "Invalid or missing pass signature." });
           }
-          const expectedSig = crypto.createHmac("sha256", requireHmacSecret()).update(`${passId}|${ticketId}`).digest("hex").substring(0, 16);
-          if (String(sig).length !== expectedSig.length ||
-              !crypto.timingSafeEqual(Buffer.from(String(sig)), Buffer.from(expectedSig))) {
+          if (!verifyHmacSignature(`${passId}|${ticketId}`, sig)) {
             return res.status(403).json({ success: false, error: "Invalid or forged digital pass signature." });
           }
         } else {
@@ -5658,7 +5674,7 @@ export async function createApp() {
         await rtdbSet(`passes/${ticket.passSlug.id}`, null, adminToken).catch(() => {});
       }
       const passId = crypto.randomBytes(24).toString('base64url');
-      const passSig = crypto.createHmac("sha256", requireHmacSecret()).update(`${passId}|${ticketId}`).digest("hex").substring(0, 16);
+      const passSig = signHmac(`${passId}|${ticketId}`).substring(0, 16);
       const passSlug = { id: passId, sig: passSig, createdAt: Date.now() };
 
       const passPayload = {
@@ -5883,8 +5899,7 @@ async function computeShiftCashTotals(
       const subUser = counter.subUsers ? Object.values(counter.subUsers).find((u: any) => u.id === subUserId) as any : null;
       if (!subUser) return res.status(404).json({ success: false, error: "Sub-user not found on this counter." });
       
-      const providedPinHash = crypto.createHash('sha256').update(String(pin) + requireHmacSecret()).digest('hex');
-      if (providedPinHash !== subUser.pinHash) {
+      if (!verifyCounterPin(String(pin), subUser.pinHash)) {
         return res.status(401).json({ success: false, error: "Invalid PIN." });
       }
 

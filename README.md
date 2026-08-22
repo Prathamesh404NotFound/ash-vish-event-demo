@@ -115,7 +115,10 @@ VITE_FIREBASE_PROJECT_ID=your_project_id
 VITE_FIREBASE_DATABASE_URL=https://your_project.firebaseio.com
 
 # HMAC & Server Secrets
-SERVER_HMAC_SECRET=your_super_secret_hmac_key
+# Generate with: openssl rand -hex 32
+SERVER_HMAC_SECRET=your_new_64_hex_character_secret
+# Keep the old value here temporarily during a rotation.
+SERVER_HMAC_SECRET_PREVIOUS=your_previous_secret_during_migration
 
 # Razorpay Credentials (Test or Live)
 VITE_RAZORPAY_KEY_ID=rzp_test_xxxx
@@ -151,9 +154,13 @@ Every ticket issued by Ash-vish Events is secured using cryptographic HMAC signa
 ```
 
 When an attendee opens the link:
-1. `GET /api/passes/:slug/:signature` verifies the 32-hex slug format and 16-hex HMAC signature.
+1. `GET /api/passes/:slug/:signature` verifies the 32-hex slug format and 16-hex HMAC signature. During a planned rotation, verification accepts both `SERVER_HMAC_SECRET` and `SERVER_HMAC_SECRET_PREVIOUS`, while all newly generated signatures use only the active secret.
 2. The server queries the database index without exposing internal ticket or payment IDs.
 3. If valid, the ticket payload returns for rendering; if already scanned at the gate, an **"ALREADY USED — Entry Completed"** banner is overlaid.
+
+### HMAC Secret Rotation
+
+To rotate the secret safely, generate a new 32-byte random value, set it as `SERVER_HMAC_SECRET`, and move the current value to `SERVER_HMAC_SECRET_PREVIOUS`. Deploy and verify that old QR codes and pass links still work. After the old tickets and counter PINs are no longer needed, remove `SERVER_HMAC_SECRET_PREVIOUS` and deploy again. Never commit either secret to the repository or expose it through frontend environment variables.
 
 ---
 
