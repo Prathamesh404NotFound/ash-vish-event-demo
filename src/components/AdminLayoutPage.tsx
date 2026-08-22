@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Ticket, ShieldCheck, LayoutDashboard, Calendar, Users, QrCode, Settings, ArrowLeft, Tag, MessageSquare, Armchair, Building2, BarChart3, UserCheck } from 'lucide-react';
+import { Ticket, ShieldCheck, LayoutDashboard, Calendar, Users, QrCode, Settings, ArrowLeft, Tag, MessageSquare, Armchair, Building2, BarChart3, UserCheck, Clock } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 export const AdminLayoutPage: React.FC = () => {
