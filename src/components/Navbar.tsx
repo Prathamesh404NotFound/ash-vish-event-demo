@@ -49,29 +49,31 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSearch }) => {
           <nav className="bg-[#0c0c0e]/70 backdrop-blur-xl rounded-2xl px-3 py-2 sm:px-6 sm:py-3 flex items-center justify-between shadow-[0_12px_35px_rgba(0,0,0,0.85)] border border-white/10 hover:border-[#D4AF37]/25 transition-colors duration-300">
 
             {/* Logo & Brand Container */}
-            <Link to="/" className="flex items-center gap-2.5 sm:gap-3 cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D4AF37] rounded-xl p-0.5 shrink-0">
+            <Link to="/" className="flex items-center gap-3 cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D4AF37] rounded-xl p-0.5 shrink-0">
               <div className="relative">
-                <div className="absolute -inset-0.5 bg-gradient-to-r from-[#F3E5AB] via-[#D4AF37] to-[#C5A059] rounded-xl opacity-40 group-hover:opacity-100 blur-[3px] transition-opacity duration-300"></div>
-                <img
-                  src="/favicon-192.png"
-                  alt="Ash-vish Events Logo"
-                  onError={(e) => {
-                    const target = e.currentTarget;
-                    if (target.src.includes('favicon-192.png')) {
-                      target.src = '/logo-tiny.webp';
-                    } else if (target.src.includes('logo-tiny.webp')) {
-                      target.src = '/ash-vish-events-logo.png';
-                    }
-                  }}
-                  className="relative w-9 h-9 sm:w-10 sm:h-10 rounded-xl object-cover border border-[#D4AF37]/40 shadow-lg group-hover:scale-105 transition-transform duration-200"
-                />
+                <div className="absolute -inset-1 bg-gradient-to-r from-[#F3E5AB] via-[#D4AF37] to-[#C5A059] rounded-xl opacity-20 group-hover:opacity-60 blur-[4px] transition-opacity duration-300"></div>
+                <div className="relative w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-[#141417] border border-white/10 overflow-hidden shadow-2xl flex items-center justify-center group-hover:scale-105 transition-transform duration-300">
+                  <img
+                    src="/favicon-192.png"
+                    alt="Ash-vish Events Logo"
+                    onError={(e) => {
+                      const target = e.currentTarget;
+                      if (target.src.includes('favicon-192.png')) {
+                        target.src = '/logo-tiny.webp';
+                      } else if (target.src.includes('logo-tiny.webp')) {
+                        target.src = '/ash-vish-events-logo.png';
+                      }
+                    }}
+                    className="w-full h-full object-cover"
+                  />
+                </div>
               </div>
               <div className="flex flex-col">
-                <span className="font-heading font-extrabold text-base sm:text-xl tracking-tight text-white leading-none group-hover:text-[#F3E5AB] transition-colors">
-                  Ash-vish<span className="bg-gradient-to-r from-[#F3E5AB] via-[#D4AF37] to-[#C5A059] bg-clip-text text-transparent ml-1 font-black font-sans">events</span>
+                <span className="font-heading font-extrabold text-lg sm:text-2xl tracking-tighter text-white leading-none group-hover:text-[#F3E5AB] transition-colors">
+                  Ash-vish<span className="bg-gradient-to-r from-[#F3E5AB] via-[#D4AF37] to-[#C5A059] bg-clip-text text-transparent ml-0.5 font-black font-sans">events</span>
                 </span>
-                <span className="text-[9px] sm:text-[10px] uppercase tracking-widest text-gray-400 font-semibold mt-0.5">
-                  Live Tickets & Passes
+                <span className="text-[8px] sm:text-[9px] uppercase tracking-[0.2em] text-gray-400 font-bold mt-1">
+                  Premium Experience
                 </span>
               </div>
             </Link>

@@ -88,11 +88,13 @@ export const Home: React.FC<HomeProps> = ({
           ) : (
             <div className="w-full h-full bg-gradient-to-br from-[#0A0A0A] via-[#1C1C1C] to-[#0A0A0A]" />
           )}
-          {/* Overlay Gradients - Enhanced for mobile readability */}
-          <div className="absolute inset-0 bg-gradient-to-t from-[#070707] via-[#070707]/90 to-transparent lg:via-[#070707]/20" />
-          <div className="absolute inset-0 bg-gradient-to-r from-[#070707]/70 via-transparent to-transparent" />
+          {/* Overlay Gradients - Enhanced for mobile readability and text isolation */}
+          <div className="absolute inset-0 bg-gradient-to-t from-[#070707] via-[#070707]/95 to-transparent lg:via-[#070707]/40" />
+          <div className="absolute inset-0 bg-gradient-to-r from-[#070707]/90 via-[#070707]/40 to-transparent lg:from-[#070707]/80" />
           {/* Top fade to prevent header clash */}
           <div className="absolute top-0 inset-x-0 h-48 bg-gradient-to-b from-[#070707]/95 to-transparent lg:from-[#070707]/40" />
+          {/* Subtle blur on the background image to separate from foreground text */}
+          <div className="absolute inset-0 backdrop-blur-[2px] lg:backdrop-blur-0" />
         </div>
 
         {/* Hero Content Container */}
@@ -105,11 +107,12 @@ export const Home: React.FC<HomeProps> = ({
               <span>FEATURED HEADLINER SHOW</span>
             </div>
             {/* Title & Subtitle */}
-            <div className="space-y-3 sm:space-y-3">
-              <h1 className="font-heading font-extrabold text-4xl sm:text-6xl text-white tracking-tight leading-[1.1] drop-shadow-[0_4px_16px_rgba(0,0,0,1)]">
+            <div className="space-y-3 sm:space-y-3 relative">
+              {/* Decorative Background Title (Faded) - Removed to fix overlap issue */}
+              <h1 className="font-heading font-extrabold text-4xl sm:text-7xl text-white tracking-tight leading-[1.1] drop-shadow-[0_8px_32px_rgba(0,0,0,1)] relative z-10">
                 {currentHeroEvent.title}
               </h1>
-              <p className="text-gray-100 text-sm sm:text-base line-clamp-3 leading-relaxed drop-shadow-[0_2px_8px_rgba(0,0,0,0.8)] max-w-lg font-medium">
+              <p className="text-gray-100 text-sm sm:text-lg line-clamp-3 leading-relaxed drop-shadow-[0_2px_12px_rgba(0,0,0,0.9)] max-w-lg font-semibold relative z-10">
                 {currentHeroEvent.subtitle}
               </p>
             </div>
