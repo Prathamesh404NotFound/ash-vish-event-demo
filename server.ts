@@ -4463,7 +4463,38 @@ export async function createApp() {
       orders.sort((a: any, b: any) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
       const total = orders.length;
       const paged = orders.slice((page - 1) * pageSize, page * pageSize);
-      return res.json({ success: true, orders: paged, total, page, pageSize });
+
+      // The canonical orders collection intentionally keeps stable IDs and
+      // normalized payment data. Join the linked ticket/event records here so
+      // the admin UI does not have to expose internal IDs or blank fields.
+      const [ticketsSnap, eventsSnap] = await Promise.all([
+        rtdbGet("tickets", adminToken),
+        rtdbGet("events", adminToken),
+      ]);
+      const ticketsById = (ticketsSnap.data || {}) as Record<string, any>;
+      const eventsById = (eventsSnap.data || {}) as Record<string, any>;
+      const readableOrders = paged.map((order: any) => {
+        const ticket = order.ticketId ? ticketsById[order.ticketId] : null;
+        const event = order.eventId ? eventsById[order.eventId] : null;
+        const customer = order.customerDetails || {};
+        const quantity = Number(order.quantity ?? ticket?.quantity ?? 1) || 1;
+        const paymentMethod = String(order.paymentMethod || "");
+        return {
+          ...order,
+          ticketNumber: order.ticketNumber || ticket?.ticketNumber || null,
+          eventTitle: order.eventTitle || ticket?.eventTitle || event?.title || event?.name || null,
+          customerName: customer.name || ticket?.attendeeName || null,
+          customerEmail: customer.email || ticket?.attendeeEmail || null,
+          customerPhone: customer.phone || ticket?.attendeePhone || null,
+          quantity,
+          seatLabels: order.seatLabels || ticket?.selectedSeats || (ticket?.seatNumber ? [ticket.seatNumber] : []),
+          paymentMethodLabel: paymentMethod
+            ? paymentMethod.replace(/^walkin[_-]?/i, "").replace(/^manual[_-]?/i, "").replace(/[_-]+/g, " ").replace(/\b\w/g, (char: string) => char.toUpperCase())
+            : null,
+          channelLabel: order.channel === "counter" ? "Counter sale" : order.channel === "online" ? "Online booking" : "Manual sale",
+        };
+      });
+      return res.json({ success: true, orders: readableOrders, total, page, pageSize });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err.message });
     }
