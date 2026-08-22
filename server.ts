@@ -4447,60 +4447,117 @@ export async function createApp() {
       const page = Math.max(1, Number(q.page) || 1);
       const pageSize = Math.min(100, Math.max(10, Number(q.pageSize) || 20));
 
-      const snap = await rtdbGet("orders", adminToken);
-      let orders = Object.values((snap.data || {}) as Record<string, any>);
-      if (eventId) orders = orders.filter((o: any) => o.eventId === eventId);
-      if (status) orders = orders.filter((o: any) => o.status === status);
-      if (channel) orders = orders.filter((o: any) => o.channel === channel);
-      if (dateFrom) orders = orders.filter((o: any) => String(o.createdAt) >= String(dateFrom));
-      if (dateTo) orders = orders.filter((o: any) => String(o.createdAt) <= String(dateTo));
-      if (search) {
-        orders = orders.filter((o: any) =>
-          [o.customerDetails?.name, o.customerDetails?.email, o.customerDetails?.phone, o.orderId]
-            .map(String).join(" ").toLowerCase().includes(search)
-        );
-      }
-      orders.sort((a: any, b: any) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
-      const total = orders.length;
-      const paged = orders.slice((page - 1) * pageSize, page * pageSize);
-
-      // The canonical orders collection intentionally keeps stable IDs and
-      // normalized payment data. Join the linked ticket/event records here so
-      // the admin UI does not have to expose internal IDs or blank fields.
-      const [ticketsSnap, eventsSnap] = await Promise.all([
+      const [ordersSnap, ticketsSnap, eventsSnap] = await Promise.all([
+        rtdbGet("orders", adminToken),
         rtdbGet("tickets", adminToken),
         rtdbGet("events", adminToken),
       ]);
+      const rawOrders = Object.values((ordersSnap.data || {}) as Record<string, any>);
       const ticketsById = (ticketsSnap.data || {}) as Record<string, any>;
       const eventsById = (eventsSnap.data || {}) as Record<string, any>;
-      const readableOrders = paged.map((order: any) => {
-        const ticket = order.ticketId ? ticketsById[order.ticketId] : null;
+      const orderByTicketId = new Map(rawOrders.filter((o: any) => o.ticketId).map((o: any) => [o.ticketId, o]));
+      const orderByBookingId = new Map(rawOrders.filter((o: any) => o.bookingId).map((o: any) => [o.bookingId, o]));
+
+      // Tickets are the live source of truth. Orders are joined only to add
+      // payment, booking, and counter context; this prevents deleted/orphaned
+      // order rows from hiding current tickets in the dashboard.
+      const ticketRows = Object.entries(ticketsById)
+        .filter(([, ticket]: [string, any]) => String(ticket?.status || "").toLowerCase() !== "deleted")
+        .map(([ticketKey, ticket]: [string, any]) => {
+          const linkedOrder = orderByTicketId.get(ticket.id || ticketKey) || orderByBookingId.get(ticket.bookingId);
+          const paymentMethod = String(linkedOrder?.paymentMethod || ticket.paymentMethod || "");
+          const quantity = Number(linkedOrder?.quantity ?? ticket.quantity ?? 1) || 1;
+          return {
+            ...(linkedOrder || {}),
+            id: linkedOrder?.orderId || ticket.orderId || ticket.id || ticketKey,
+            orderId: linkedOrder?.orderId || ticket.orderId || ticket.id || ticketKey,
+            ticketId: ticket.id || ticketKey,
+            bookingId: linkedOrder?.bookingId || ticket.bookingId || null,
+            eventId: linkedOrder?.eventId || ticket.eventId || null,
+            eventTitle: linkedOrder?.eventTitle || ticket.eventTitle || null,
+            ticketNumber: ticket.ticketNumber || null,
+            tierName: linkedOrder?.tierName || ticket.tierName || null,
+            customerDetails: linkedOrder?.customerDetails || {
+              name: ticket.attendeeName || "",
+              email: ticket.attendeeEmail || "",
+              phone: ticket.attendeePhone || "",
+            },
+            amount: Number(linkedOrder?.amount ?? ticket.totalPaid ?? ((ticket.price || 0) * quantity)) || 0,
+            amountPaid: Number(linkedOrder?.amountPaid ?? ticket.totalPaid ?? 0) || 0,
+            discount: Number(linkedOrder?.discount ?? ticket.discount ?? 0) || 0,
+            couponCode: linkedOrder?.couponCode || ticket.couponCode || null,
+            quantity,
+            paymentMethod,
+            paymentStatus: linkedOrder?.paymentStatus || ticket.paymentStatus || (ticket.status === "valid" ? "paid" : null),
+            status: linkedOrder?.status || (ticket.status === "valid" ? "confirmed" : ticket.status),
+            channel: linkedOrder?.channel || (paymentMethod.toLowerCase().startsWith("walkin") ? "counter" : "online"),
+            createdAt: linkedOrder?.createdAt || ticket.purchasedAt || ticket.createdAt || null,
+            counterName: linkedOrder?.counterName || ticket.counterName || null,
+            issuedBySubUserName: linkedOrder?.issuedBySubUserName || ticket.issuedBySubUserName || null,
+            createdBy: linkedOrder?.createdBy || ticket.createdByStaffId || ticket.scannedByStaffId || null,
+            seatLabels: ticket.selectedSeats || (ticket.seatNumber ? [ticket.seatNumber] : []),
+          };
+        });
+
+      // Keep legacy order-only records visible only when no ticket records are
+      // available at all. This avoids showing stale deleted rows beside live tickets.
+      const sourceRows = ticketRows.length > 0 ? ticketRows : rawOrders.filter((o: any) => String(o.status || "").toLowerCase() !== "deleted");
+      let orders = sourceRows.map((order: any) => {
         const event = order.eventId ? eventsById[order.eventId] : null;
         const customer = order.customerDetails || {};
-        const quantity = Number(order.quantity ?? ticket?.quantity ?? 1) || 1;
+        const quantity = Number(order.quantity || 1) || 1;
         const paymentMethod = String(order.paymentMethod || "");
+        const discountAmount = Number(order.discount || 0) || 0;
+        const issuer = order.issuedBySubUserName || order.createdBy || null;
         return {
           ...order,
-          ticketNumber: order.ticketNumber || ticket?.ticketNumber || null,
-          eventTitle: order.eventTitle || ticket?.eventTitle || event?.title || event?.name || null,
-          tierName: order.tierName || ticket?.tierName || null,
-          customerName: customer.name || ticket?.attendeeName || null,
-          customerEmail: customer.email || ticket?.attendeeEmail || null,
-          customerPhone: customer.phone || ticket?.attendeePhone || null,
+          eventTitle: order.eventTitle || event?.title || event?.name || null,
+          tierName: order.tierName || null,
+          customerName: customer.name || null,
+          customerEmail: customer.email || null,
+          customerPhone: customer.phone || null,
           quantity,
-          seatLabels: order.seatLabels || ticket?.selectedSeats || (ticket?.seatNumber ? [ticket.seatNumber] : []),
-          counterName: order.counterName || ticket?.counterName || null,
-          issuedBySubUserName: order.issuedBySubUserName || ticket?.issuedBySubUserName || null,
-          issuedBy: order.createdBy || ticket?.createdByStaffId || ticket?.scannedByStaffId || null,
-          discountAmount: Number(order.discount ?? ticket?.discount ?? 0) || 0,
-          discountLabel: order.couponCode ? `Coupon ${order.couponCode}` : (Number(order.discount ?? ticket?.discount ?? 0) > 0 ? "Discount applied" : "No discount"),
+          discountAmount,
+          discountLabel: order.couponCode ? `Coupon ${order.couponCode}` : (discountAmount > 0 ? "Discount applied" : "No discount"),
+          issuedBy: issuer,
           paymentMethodLabel: paymentMethod
             ? paymentMethod.replace(/^walkin[_-]?/i, "").replace(/^manual[_-]?/i, "").replace(/[_-]+/g, " ").replace(/\b\w/g, (char: string) => char.toUpperCase())
             : null,
           channelLabel: order.channel === "counter" ? "Counter sale" : order.channel === "online" ? "Online booking" : "Manual sale",
         };
       });
-      return res.json({ success: true, orders: readableOrders, total, page, pageSize });
+
+      if (eventId) orders = orders.filter((o: any) => o.eventId === eventId);
+      if (status) orders = orders.filter((o: any) => o.status === status || o.paymentStatus === status);
+      if (channel) orders = orders.filter((o: any) => o.channel === channel);
+      if (q.counterName) {
+        const counterFilter = String(q.counterName).trim().toLowerCase();
+        orders = orders.filter((o: any) => String(o.counterName || "").toLowerCase().includes(counterFilter));
+      }
+      if (q.issuer) {
+        const issuerFilter = String(q.issuer).trim().toLowerCase();
+        orders = orders.filter((o: any) => String(o.issuedBy || o.issuedBySubUserName || "").toLowerCase().includes(issuerFilter));
+      }
+      if (q.discountStatus === "applied") orders = orders.filter((o: any) => Number(o.discountAmount || 0) > 0);
+      if (q.discountStatus === "none") orders = orders.filter((o: any) => Number(o.discountAmount || 0) <= 0);
+      if (dateFrom) orders = orders.filter((o: any) => String(o.createdAt || "") >= String(dateFrom));
+      if (dateTo) orders = orders.filter((o: any) => String(o.createdAt || "") <= String(dateTo));
+      if (search) {
+        orders = orders.filter((o: any) =>
+          [o.customerName, o.customerEmail, o.customerPhone, o.orderId, o.ticketNumber, o.eventTitle, o.counterName, o.issuedBy]
+            .map(String).join(" ").toLowerCase().includes(search)
+        );
+      }
+      orders.sort((a: any, b: any) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+      const total = orders.length;
+      const summary = {
+        totalRevenue: orders.reduce((sum: number, o: any) => sum + Number(o.amountPaid ?? o.amount ?? 0), 0),
+        totalDiscount: orders.reduce((sum: number, o: any) => sum + Number(o.discountAmount ?? o.discount ?? 0), 0),
+        totalTickets: orders.reduce((sum: number, o: any) => sum + (Number(o.quantity) || 1), 0),
+        totalOrders: new Set(orders.map((o: any) => o.orderId || o.id)).size,
+      };
+      const paged = orders.slice((page - 1) * pageSize, page * pageSize);
+      return res.json({ success: true, orders: paged, total, summary, page, pageSize });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err.message });
     }

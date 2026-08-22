@@ -105,6 +105,7 @@ export const AdminBookings: React.FC = () => {
     editOrder,
     refundOrder,
     bulkOrdersAction,
+    resendTicketWhatsApp,
     allTickets,
   } = useBooking();
 
@@ -112,12 +113,16 @@ export const AdminBookings: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
+  const [summary, setSummary] = useState({ totalRevenue: 0, totalDiscount: 0, totalTickets: 0, totalOrders: 0 });
 
   // Filters
   const [search, setSearch] = useState('');
   const [filterEventId, setFilterEventId] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [filterChannel, setFilterChannel] = useState('');
+  const [filterCounter, setFilterCounter] = useState('');
+  const [filterIssuer, setFilterIssuer] = useState('');
+  const [discountStatus, setDiscountStatus] = useState<'all' | 'applied' | 'none'>('all');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
 
@@ -135,6 +140,7 @@ export const AdminBookings: React.FC = () => {
   const [editOrderTarget, setEditOrderTarget] = useState<AdminOrder | null>(null);
   const [refundOrderTarget, setRefundOrderTarget] = useState<AdminOrder | null>(null);
   const [detailsOrder, setDetailsOrder] = useState<AdminOrder | null>(null);
+  const [resendingTicketId, setResendingTicketId] = useState<string | null>(null);
 
   // Feedback
   const [banner, setBanner] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -152,6 +158,9 @@ export const AdminBookings: React.FC = () => {
         eventId: filterEventId || undefined,
         status: filterStatus || undefined,
         channel: filterChannel || undefined,
+        counterName: filterCounter || undefined,
+        issuer: filterIssuer || undefined,
+        discountStatus: discountStatus === 'all' ? undefined : discountStatus,
         dateFrom: dateFrom || undefined,
         dateTo: dateTo || undefined,
         search: search || undefined,
@@ -161,6 +170,7 @@ export const AdminBookings: React.FC = () => {
       if (result.orders) {
         setOrders(result.orders as AdminOrder[]);
       }
+      if (result.summary) setSummary(result.summary);
       if (typeof result.total === 'number') setTotalCount(result.total);
       else if (Array.isArray(result.data)) {
         setOrders(result.data as AdminOrder[]);
@@ -201,7 +211,7 @@ export const AdminBookings: React.FC = () => {
       document.removeEventListener('visibilitychange', refresh);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterEventId, filterStatus, filterChannel, dateFrom, dateTo, search, page, pageSize]);
+  }, [filterEventId, filterStatus, filterChannel, filterCounter, filterIssuer, discountStatus, dateFrom, dateTo, search, page, pageSize]);
 
   // Fallback view when the orders API is unreachable: render tickets from RTDB
   const fallbackOrders = useMemo<AdminOrder[]>(
@@ -326,6 +336,36 @@ export const AdminBookings: React.FC = () => {
     if (o.refundAmount && Number(o.refundAmount) > 0) return 'refunded';
     if (o.paymentStatus) return o.paymentStatus;
     return o.status || 'confirmed';
+  };
+
+  const handleResendWhatsApp = async (order: AdminOrder) => {
+    const ticketId = order.ticketId;
+    const phone = order.customerPhone || order.attendeePhone;
+    if (!ticketId) {
+      showBanner('error', 'This sale has no linked ticket record.');
+      return;
+    }
+    if (!phone) {
+      showBanner('error', 'This ticket has no customer phone number.');
+      return;
+    }
+    if (!window.confirm(`Resend the WhatsApp ticket message to ${order.customerName || 'this customer'}?`)) return;
+
+    setResendingTicketId(ticketId);
+    try {
+      const response = await resendTicketWhatsApp(ticketId);
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error || 'WhatsApp resend failed.');
+      }
+      showBanner('success', 'WhatsApp ticket message sent successfully.');
+      setDetailsOrder(null);
+      await loadOrders(true);
+    } catch (error: any) {
+      showBanner('error', error?.message || 'WhatsApp resend failed.');
+    } finally {
+      setResendingTicketId(null);
+    }
   };
 
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
@@ -542,6 +582,25 @@ export const AdminBookings: React.FC = () => {
         </div>
       )}
 
+      {/* Live Summary Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="p-5 rounded-3xl bg-[#141414] border border-white/10">
+          <p className="text-gray-500 text-[10px] font-black uppercase tracking-widest">Total revenue</p>
+          <p className="text-2xl font-heading font-extrabold text-white mt-2">₹{Number(summary.totalRevenue || 0).toLocaleString('en-IN')}</p>
+          <p className="text-emerald-400 text-[10px] mt-1">From current filtered tickets</p>
+        </div>
+        <div className="p-5 rounded-3xl bg-[#141414] border border-white/10">
+          <p className="text-gray-500 text-[10px] font-black uppercase tracking-widest">Total discount</p>
+          <p className="text-2xl font-heading font-extrabold text-white mt-2">₹{Number(summary.totalDiscount || 0).toLocaleString('en-IN')}</p>
+          <p className="text-sky-400 text-[10px] mt-1">Savings given to customers</p>
+        </div>
+        <div className="p-5 rounded-3xl bg-[#141414] border border-white/10">
+          <p className="text-gray-500 text-[10px] font-black uppercase tracking-widest">Current tickets</p>
+          <p className="text-2xl font-heading font-extrabold text-white mt-2">{Number(summary.totalTickets || 0).toLocaleString('en-IN')}</p>
+          <p className="text-gray-400 text-[10px] mt-1">{Number(summary.totalOrders || 0).toLocaleString('en-IN')} sales records</p>
+        </div>
+      </div>
+
       {/* Filters Bar */}
       <div className="p-5 rounded-3xl bg-[#141414] border border-white/10 space-y-4">
         <div className="flex items-center gap-2 text-gray-400 text-[10px] font-black uppercase tracking-widest">
@@ -549,14 +608,14 @@ export const AdminBookings: React.FC = () => {
           <span>Filters &amp; Search</span>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 gap-3">
           <div className="relative">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Name, email, phone, order ID..."
+              placeholder="Ticket, customer, counter, issuer..."
               className="w-full bg-[#1C1C1C] border border-white/10 rounded-xl pl-10 pr-3 py-2.5 text-xs text-white focus:outline-none focus:border-[#D4AF37]"
             />
           </div>
@@ -606,7 +665,45 @@ export const AdminBookings: React.FC = () => {
             <option value="manual">Manual (Admin)</option>
           </select>
 
-          <div className="flex gap-2">
+          <input
+            type="text"
+            value={filterCounter}
+            onChange={(e) => {
+              setFilterCounter(e.target.value);
+              setPage(1);
+            }}
+            placeholder="Counter name"
+            aria-label="Filter by counter"
+            className="bg-[#1C1C1C] border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-[#D4AF37]"
+          />
+
+          <input
+            type="text"
+            value={filterIssuer}
+            onChange={(e) => {
+              setFilterIssuer(e.target.value);
+              setPage(1);
+            }}
+            placeholder="Issued by"
+            aria-label="Filter by issuer"
+            className="bg-[#1C1C1C] border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-[#D4AF37]"
+          />
+
+          <select
+            value={discountStatus}
+            onChange={(e) => {
+              setDiscountStatus(e.target.value as 'all' | 'applied' | 'none');
+              setPage(1);
+            }}
+            aria-label="Filter by discount status"
+            className="bg-[#1C1C1C] border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-[#D4AF37]"
+          >
+            <option value="all">All discounts</option>
+            <option value="applied">Discount applied</option>
+            <option value="none">No discount</option>
+          </select>
+
+          <div className="flex gap-2 xl:col-span-2">
             <input
               type="date"
               value={dateFrom}
@@ -1115,6 +1212,15 @@ export const AdminBookings: React.FC = () => {
               <p className="text-gray-400"><span className="text-white font-bold">Access:</span> {detailsOrder.tierName || 'General entry'}{detailsOrder.seatLabels?.length ? ` · ${detailsOrder.seatLabels.join(', ')}` : ''}</p>
               <p className="text-gray-400"><span className="text-white font-bold">Created:</span> {formatOrderDate(detailsOrder.createdAt)}</p>
             </div>
+
+            <button
+              type="button"
+              onClick={() => void handleResendWhatsApp(detailsOrder)}
+              disabled={resendingTicketId === detailsOrder.ticketId}
+              className="w-full px-4 py-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-bold text-xs hover:bg-emerald-500/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+            >
+              {resendingTicketId === detailsOrder.ticketId ? 'Sending WhatsApp message…' : 'Resend WhatsApp message'}
+            </button>
 
             <details className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-gray-400">
               <summary className="cursor-pointer text-gray-300 font-bold">System references</summary>

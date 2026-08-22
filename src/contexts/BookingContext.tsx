@@ -1261,6 +1261,7 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const fetchOrders = async (params: {
     eventId?: string; status?: string; channel?: string;
+    counterName?: string; issuer?: string; discountStatus?: 'applied' | 'none';
     dateFrom?: string; dateTo?: string; search?: string; page?: number; pageSize?: number;
   } = {}) => {
     try {
@@ -1268,11 +1269,23 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const res = await adminApi(`/api/admin/orders${qs ? `?${qs}` : ""}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
-      return { orders: json.orders || [], total: json.total || 0, page: json.page || 1, pageSize: json.pageSize || 20 };
+      return {
+        orders: json.orders || [],
+        total: json.total || 0,
+        summary: json.summary || { totalRevenue: 0, totalDiscount: 0, totalTickets: 0, totalOrders: 0 },
+        page: json.page || 1,
+        pageSize: json.pageSize || 20,
+      };
     } catch (err) {
       console.warn('fetchOrders failed:', err);
-      return { orders: [], total: 0, page: 1, pageSize: 20 };
+      return { orders: [], total: 0, summary: { totalRevenue: 0, totalDiscount: 0, totalTickets: 0, totalOrders: 0 }, page: 1, pageSize: 20 };
     }
+  };
+
+  const resendTicketWhatsApp = async (ticketId: string) => {
+    return adminApi(`/api/counter/tickets/${encodeURIComponent(ticketId)}/resend-whatsapp`, {
+      method: 'POST',
+    });
   };
 
   const createManualOrder = async (data: {
@@ -1616,6 +1629,7 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         updateOrganizerStatus,
         fetchAdminEvents,
         fetchOrders,
+        resendTicketWhatsApp,
         createManualOrder,
         editOrder,
         refundOrder,
