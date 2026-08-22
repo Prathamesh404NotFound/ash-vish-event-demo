@@ -1208,8 +1208,9 @@ async function finalizeBookingServerSide(
 
     // Fire-and-forget: sendTicketWhatsApp(ticket, ticket.attendeePhone).
     // Wrap in try/catch; NEVER let a WhatsApp failure affect booking success.
+    // Only send if a valid attendee phone number was provided.
     const targetPhone = newTicket?.attendeePhone || customerDetails?.phone || pendingOrder?.customerDetails?.phone;
-    if (newTicket && targetPhone) {
+    if (newTicket && targetPhone && targetPhone.replace(/\D/g, '').length >= 10) {
       (async () => {
         try {
           const res = await sendTicketWhatsAppWithImage(newTicket, targetPhone);
@@ -3530,8 +3531,15 @@ export async function createApp() {
         splitPayments = rawPayments
           .map((p: any) => ({ method: String(p?.method || "").slice(0, 32) || "other", amount: Number(p?.amount) }))
           .filter((p: any) => Number.isFinite(p.amount) && p.amount > 0);
+        
         if (splitPayments.length !== rawPayments.length) {
           return res.status(400).json({ success: false, error: "Every split payment must carry a positive amount." });
+        }
+        
+        // Re-calculate the primary payment method as the one with the highest amount
+        const sortedPayments = [...splitPayments].sort((a, b) => b.amount - a.amount);
+        if (sortedPayments.length > 0) {
+          req.body.paymentMethod = sortedPayments[0].method;
         }
       }
             // Seat array validation (basic shape/size) runs early; final GA handling
