@@ -107,12 +107,11 @@ export const Home: React.FC<HomeProps> = ({
               <span>FEATURED HEADLINER SHOW</span>
             </div>
             {/* Title & Subtitle */}
-            <div className="space-y-3 sm:space-y-3 relative">
-              {/* Decorative Background Title (Faded) - Removed to fix overlap issue */}
-              <h1 className="font-heading font-extrabold text-4xl sm:text-7xl text-white tracking-tight leading-[1.1] drop-shadow-[0_8px_32px_rgba(0,0,0,1)] relative z-10">
+            <div className="space-y-3 sm:space-y-3 relative z-20">
+              <h1 className="font-heading font-extrabold text-4xl sm:text-7xl text-white tracking-tight leading-[1.1] drop-shadow-[0_8px_32px_rgba(0,0,0,1)]">
                 {currentHeroEvent.title}
               </h1>
-              <p className="text-gray-100 text-sm sm:text-lg line-clamp-3 leading-relaxed drop-shadow-[0_2px_12px_rgba(0,0,0,0.9)] max-w-lg font-semibold relative z-10">
+              <p className="text-gray-100 text-sm sm:text-lg line-clamp-3 leading-relaxed drop-shadow-[0_2px_12px_rgba(0,0,0,0.9)] max-w-lg font-semibold">
                 {currentHeroEvent.subtitle}
               </p>
             </div>
