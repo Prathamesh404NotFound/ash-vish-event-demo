@@ -11,7 +11,7 @@ import {
   Clock
 } from 'lucide-react';
 import { Event } from '../types';
-import EventCard from '../components/EventCard';
+import { EventCard } from '../components/EventCard';
 import { CategoryChip } from '../components/CategoryChip';
 
 interface HomeProps {
