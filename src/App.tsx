@@ -62,6 +62,7 @@ import { AdminReports } from './pages/admin/AdminReports';
 import { AdminReviews } from './pages/admin/AdminReviews';
 import { AdminOrganizers } from './pages/admin/AdminOrganizers';
 import { AdminCounters } from './pages/admin/AdminCounters';
+import { AdminShiftPage } from './pages/admin/AdminShiftPage';
 import { OrganizerDashboard } from './pages/OrganizerDashboard';
 
 import { AdminUsers } from './pages/admin/AdminUsers';
@@ -281,6 +282,7 @@ export default function App() {
               <Route path="reports" element={<AdminReports />} />
               <Route path="reviews" element={<AdminReviews />} />
               <Route path="counters" element={<AdminCounters />} />
+              <Route path="shifts" element={<AdminShiftPage />} />
               <Route path="scan" element={<QRScanner />} />
               <Route path="settings" element={<AdminSettings />} />
               <Route path="*" element={<Navigate to="/admin" replace />} />

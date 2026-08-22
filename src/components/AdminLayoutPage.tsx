@@ -47,6 +47,12 @@ export const AdminLayoutPage: React.FC = () => {
       description: "View all booked tickets"
     },
     {
+      title: "Shift Management",
+      path: "/admin/shifts",
+      icon: Clock,
+      description: "Monitor terminals & cash audit"
+    },
+    {
       title: "Coupons & Discounts",
       path: "/admin/coupons",
       icon: Tag,
