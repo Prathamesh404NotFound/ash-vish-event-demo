@@ -1497,7 +1497,7 @@ export async function createApp() {
    */
   const requireRole = (required: RbacRole | RbacRole[]) => {
     const requiredRoles = Array.isArray(required) ? required : [required];
-    return async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    return async (req: any, res: any, next: any) => {
       try {
         const authHeader = req.headers.authorization;
         if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -1535,7 +1535,7 @@ export async function createApp() {
   };
 
   const verifyRole = (allowedRoles: string[]) => {
-    return async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    return async (req: any, res: any, next: any) => {
       try {
         const authHeader = req.headers.authorization;
         const roleHeader = req.headers['x-user-role'] as string;
@@ -2093,7 +2093,7 @@ export async function createApp() {
 
   /** Identify the owner for reservation endpoints: logged-in uid or a guest session id. */
   async function resolveReservationOwner(
-    req: express.Request
+    req: any
   ): Promise<{ ownerId: string; authenticated: boolean; uid?: string; role?: string; guestOwnerId?: string }> {
     const headerSession = (req.headers["x-session-id"] as string)?.slice(0, 64) || "";
     const sessionIdGuest = headerSession
