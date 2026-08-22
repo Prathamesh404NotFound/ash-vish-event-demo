@@ -6292,6 +6292,7 @@ app.get("/api/counter/my-sales", requireRole(["counter_staff", "event_manager", 
     const staffId = req.user.uid;
     const staffName = req.user.name || "";
     const staffEmail = req.user.email || "";
+    const rbacRole = req.user.rbacRole || toRbacRole(req.user.role) || "counter_staff";
 
     const q = req.query || {};
     const eventId = typeof q.eventId === "string" ? q.eventId : undefined;
