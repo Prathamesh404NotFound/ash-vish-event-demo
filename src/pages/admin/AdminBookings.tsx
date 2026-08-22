@@ -40,6 +40,9 @@ interface AdminOrder {
   paymentMethod?: string;
   paymentGateway?: string;
   channel?: string;
+  channelLabel?: string;
+  paymentMethodLabel?: string;
+  ticketNumber?: string;
   couponCode?: string;
   createdAt?: string;
   createdAtMs?: number;
@@ -54,11 +57,24 @@ const STATUS_STYLES: Record<string, string> = {
 };
 
 const CHANNEL_LABEL: Record<string, string> = {
-  online: 'Online',
-  counter: 'Counter',
-  manual: 'Manual',
-  walkin_guest: 'Walk-In',
+  online: 'Online booking',
+  counter: 'Counter sale',
+  manual: 'Manual sale',
+  walkin_guest: 'Walk-In sale',
 };
+
+function formatOrderDate(value?: string): string {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
+}
 
 /** Minimal client-side tier normalizer (server-side version is authoritative). */
 function normalizeTiers(ticketTiers: any): { id?: string | null; name?: string; price?: number }[] {
@@ -631,11 +647,11 @@ export const AdminBookings: React.FC = () => {
                   className="accent-[#D4AF37]"
                 />
               </th>
-              <th className="p-4">Order ID</th>
+              <th className="p-4">Sale</th>
               <th className="p-4">Customer</th>
               <th className="p-4">Event</th>
               <th className="p-4">Amount</th>
-              <th className="p-4">Channel</th>
+              <th className="p-4">Payment</th>
               <th className="p-4">Status</th>
               <th className="p-4">Created</th>
               <th className="p-4 text-right">Actions</th>
@@ -669,34 +685,47 @@ export const AdminBookings: React.FC = () => {
                         className="accent-[#D4AF37]"
                       />
                     </td>
-                    <td className="p-4 font-mono text-[#D4AF37] font-bold">
-                      {o.orderId || o.id}
+                    <td className="p-4">
+                      <span className="font-bold text-white block">
+                        {o.channelLabel || CHANNEL_LABEL[o.channel || 'online'] || 'Sale'}
+                      </span>
+                      <span className="text-gray-400 text-[10px] block">
+                        {o.ticketNumber ? `Ticket ${o.ticketNumber}` : 'Ticket reference unavailable'}
+                      </span>
                     </td>
                     <td className="p-4">
                       <span className="font-bold text-white block">
-                        {o.customerName || o.attendeeName || '—'}
+                        {o.customerName || o.attendeeName || 'Customer name unavailable'}
                       </span>
-                      <span className="text-gray-400 text-[10px]">
-                        {[o.customerEmail || o.attendeeEmail, o.customerPhone || o.attendeePhone]
+                      <span className="text-gray-400 text-[10px] block">
+                        {[o.customerPhone || o.attendeePhone, o.customerEmail || o.attendeeEmail]
                           .filter(Boolean)
-                          .join(' · ')}
+                          .join(' · ') || 'Contact details unavailable'}
                       </span>
                     </td>
-                    <td className="p-4 font-semibold text-white">
-                      {o.eventTitle || o.eventName || '—'}
+                    <td className="p-4">
+                      <span className="font-semibold text-white block">
+                        {o.eventTitle || o.eventName || 'Event name unavailable'}
+                      </span>
+                      <span className="text-gray-400 text-[10px] block">
+                        {o.quantity || 1} ticket{(o.quantity || 1) === 1 ? '' : 's'}
+                        {o.tierName ? ` · ${o.tierName}` : ''}
+                      </span>
                     </td>
                     <td className="p-4">
                       <span className="block text-white font-bold">
-                        {ref > 0 ? <s className="text-gray-500 text-[11px]">₹{payable}</s> : `₹${payable}`}
-                        {ref > 0 && ` (-₹${ref})`}
+                        {ref > 0 ? <s className="text-gray-500 text-[11px]">₹{payable.toLocaleString('en-IN')}</s> : `₹${payable.toLocaleString('en-IN')}`}
+                        {ref > 0 && ` (-₹${ref.toLocaleString('en-IN')})`}
                       </span>
-                      {o.quantity !== undefined && o.quantity > 1 && (
-                        <span className="text-gray-500 text-[10px]">{o.quantity} seat(s)</span>
+                      {o.amountDue && Number(o.amountDue) > 0 ? (
+                        <span className="text-amber-400 text-[10px]">₹{Number(o.amountDue).toLocaleString('en-IN')} due</span>
+                      ) : (
+                        <span className="text-emerald-400 text-[10px]">Paid in full</span>
                       )}
                     </td>
                     <td className="p-4">
                       <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-white/5 text-gray-300 border border-white/10">
-                        {CHANNEL_LABEL[o.channel || 'online'] || o.channel || 'Online'}
+                        {o.paymentMethodLabel || 'Payment recorded'}
                       </span>
                     </td>
                     <td className="p-4">
@@ -708,8 +737,8 @@ export const AdminBookings: React.FC = () => {
                         {st}
                       </span>
                     </td>
-                    <td className="p-4 font-mono text-[11px] text-gray-400">
-                      {o.createdAt ? o.createdAt.slice(0, 16).replace('T', ' ') : '—'}
+                    <td className="p-4 text-[11px] text-gray-400 whitespace-nowrap">
+                      {formatOrderDate(o.createdAt)}
                     </td>
                     <td className="p-4">
                       <div className="flex justify-end gap-2">
