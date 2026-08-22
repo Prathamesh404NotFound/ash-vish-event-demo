@@ -52,9 +52,17 @@ export const CounterLayout: React.FC = () => {
       <aside className="w-full lg:w-64 bg-[#121212] border-b lg:border-b-0 lg:border-r border-white/10 flex-shrink-0 p-3 sm:p-5 space-y-3 sm:space-y-6">
         <div className="flex items-center justify-between">
           <Link to="/" className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[#FFF6D6] to-[#D4AF37] flex items-center justify-center text-black font-bold">
-              <Ticket className="w-4 h-4 stroke-[2.5]" />
-            </div>
+            <img
+              src="/ashvish-logo.png"
+              alt="Ash-vish Events Logo"
+              onError={(e) => {
+                const target = e.currentTarget;
+                if (target.src.includes('ashvish-logo.png')) {
+                  target.src = '/favicon-192.png';
+                }
+              }}
+              className="w-8 h-8 rounded-lg object-cover shadow-lg shadow-[#D4AF37]/25"
+            />
             <div>
               <span className="font-heading font-extrabold text-base tracking-tight text-white block leading-none">
                 Ash-vish<span className="text-[#D4AF37]"> counter</span>

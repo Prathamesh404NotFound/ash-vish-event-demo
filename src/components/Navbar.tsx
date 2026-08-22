@@ -54,14 +54,12 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSearch }) => {
                 <div className="absolute -inset-1 bg-gradient-to-r from-[#F3E5AB] via-[#D4AF37] to-[#C5A059] rounded-xl opacity-20 group-hover:opacity-60 blur-[4px] transition-opacity duration-300"></div>
                 <div className="relative w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-[#141417] border border-white/10 overflow-hidden shadow-2xl flex items-center justify-center group-hover:scale-105 transition-transform duration-300">
                   <img
-                    src="/favicon-192.png"
+                    src="/ashvish-logo.png"
                     alt="Ash-vish Events Logo"
                     onError={(e) => {
                       const target = e.currentTarget;
-                      if (target.src.includes('favicon-192.png')) {
-                        target.src = '/logo-tiny.webp';
-                      } else if (target.src.includes('logo-tiny.webp')) {
-                        target.src = '/ash-vish-events-logo.png';
+                      if (target.src.includes('ashvish-logo.png')) {
+                        target.src = '/favicon-192.png';
                       }
                     }}
                     className="w-full h-full object-cover"

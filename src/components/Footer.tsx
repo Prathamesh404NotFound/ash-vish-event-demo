@@ -20,16 +20,12 @@ export const Footer: React.FC<FooterProps> = ({ setActiveTab }) => {
               className="flex items-center gap-2.5 cursor-pointer"
             >
               <img
-                src="/logo-tiny.webp"
-                srcSet="/logo-tiny.webp 1x, /logo-small.webp 2x"
+                src="/ashvish-logo.png"
                 alt="Ash-vish Events Logo"
                 onError={(e) => {
                   const target = e.currentTarget;
-                  if (target.src.includes('.webp')) {
-                    target.srcset = '';
-                    target.src = '/ash-vish-events-logo.png';
-                  } else if (target.src.includes('ash-vish-events-logo.png')) {
-                    target.src = '/av-logo.png';
+                  if (target.src.includes('ashvish-logo.png')) {
+                    target.src = '/favicon-192.png';
                   }
                 }}
                 className="w-9 h-9 rounded-xl object-cover shadow-lg shadow-[#D4AF37]/25"
