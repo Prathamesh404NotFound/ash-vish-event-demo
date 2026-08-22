@@ -3785,6 +3785,10 @@ export async function createApp() {
       }
 
       const shiftCode = String(shiftId || "").slice(0, 64);
+      // Standardize attribution: scannedByStaffId should always be the staff UID for filtering,
+      // while issuedBySubUserName/issuedBySubUserId track the specific sub-user.
+      const staffUid = req.user.uid;
+
       await rtdbSet(`pending_orders/${orderId}`, {
         orderId,
         eventId,
@@ -3798,7 +3802,8 @@ export async function createApp() {
         couponCode: couponCodeUpper,
         createdAt: new Date().toISOString(),
         paymentMethod: `walkin_${String(paymentMethod).slice(0, 32)}`,
-        scannedByStaffId: scannedByStaffId || req.user.uid || req.user.name || 'Counter Operator',
+        scannedByStaffId: staffUid,
+        createdByStaffId: staffUid,
         ...(splitPayments.length > 0 ? { payments: splitPayments, totalPaid: netTotal } : {}),
         ...(discountOverrideRecord ? { discountOverride: discountOverrideRecord } : {}),
         ...(shiftCode ? { shiftId: shiftCode, staffShiftId: shiftCode } : {}),
@@ -5800,13 +5805,12 @@ async function computeShiftCashTotals(
     for (const order of Object.values(ordersSnap.data as Record<string, any>)) {
       const o = (order || {}) as any;
       if (
-        o.createdBy === shift.staffId &&
+        (o.shiftId === shift.shiftId || o.staffShiftId === shift.shiftId || o.createdBy === shift.staffId || o.scannedByStaffId === shift.staffId) &&
         (o.channel === "counter" || String(o.paymentMethod || "").startsWith("walkin")) &&
         o.createdAt &&
         new Date(o.createdAt).getTime() >= startMs &&
         new Date(o.createdAt).getTime() <= endMs &&
-        o.status === "confirmed" &&
-        (o.shiftId === shift.shiftId || o.staffShiftId === shift.shiftId)
+        o.status === "confirmed"
       ) {
         addSale(o);
       }
@@ -6324,9 +6328,11 @@ app.get("/api/counter/my-sales", requireRole(["counter_staff", "event_manager", 
       }
 
       // Check if this ticket belongs to the requesting staff member (or their sub-users)
+      // Admins and Event Managers can see everything in this view for now, or we can scope it.
+      if (rbacRole === "super_admin" || rbacRole === "event_manager") return true;
+
       const isStaffMatch = 
         scannedBy === staffId.toLowerCase() ||
-        scannedBy === staffName.toLowerCase() ||
         scannedBy === staffEmail.toLowerCase() ||
         createdBy === staffId.toLowerCase() ||
         orderScannedBy === staffId.toLowerCase() ||
