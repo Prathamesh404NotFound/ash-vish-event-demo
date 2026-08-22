@@ -22,6 +22,11 @@ jobs:
         with:
           node-version: 22
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
       - name: Install dependencies (validate-rules needs jsonc-parser)
         run: pnpm install --frozen-lockfile
 
