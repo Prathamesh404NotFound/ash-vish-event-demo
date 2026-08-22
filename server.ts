@@ -445,6 +445,73 @@ async function releaseSeat(
  * Uses the shared transactional path; the payment is the only state that may
  * follow this write (see payment-ticket integrity rules).
  */
+/**
+ * Restore inventory for a specific tier in an event. This is the complementary
+ * routine to the deduction logic in finalizeBookingServerSide, used when a
+ * ticket is voided, refunded, or deleted.
+ */
+/**
+ * Atomically restores inventory to a specific ticket tier.
+ * Clamps remainingInventory to totalInventory to prevent drift above capacity.
+ */
+async function restoreInventoryTier(
+  authToken: string | undefined,
+  eventId: string,
+  tierId: string,
+  quantity: number
+): Promise<{ success: boolean; error?: string; tierFound: boolean }> {
+  if (quantity <= 0) return { success: true, tierFound: true };
+  try {
+    const res = await rtdbTransaction(`events/${eventId}`, (currEvent: any) => {
+      if (!currEvent || !currEvent.ticketTiers) return undefined;
+
+      const isArray = Array.isArray(currEvent.ticketTiers);
+      let tierFound = false;
+      const updatedTiers = isArray ? [] : {};
+
+      if (isArray) {
+        for (let i = 0; i < currEvent.ticketTiers.length; i++) {
+          let t = currEvent.ticketTiers[i];
+          if (t && (t.id === tierId || (!t.id && String(i) === tierId))) {
+            tierFound = true;
+            const total = Number(t.totalInventory || t.capacity || 0);
+            const currentRem = typeof t.remainingInventory === 'number' ? t.remainingInventory : total;
+            const newRem = Math.min(total, currentRem + quantity);
+            (updatedTiers as any[]).push({ ...t, remainingInventory: newRem });
+          } else {
+            (updatedTiers as any[]).push(t);
+          }
+        }
+      } else {
+        for (const [key, t] of Object.entries(currEvent.ticketTiers as any)) {
+          const tier = t as any;
+          if (tier && (tier.id === tierId || key === tierId)) {
+            tierFound = true;
+            const total = Number(tier.totalInventory || tier.capacity || 0);
+            const currentRem = typeof tier.remainingInventory === 'number' ? tier.remainingInventory : total;
+            const newRem = Math.min(total, currentRem + quantity);
+            (updatedTiers as any)[key] = { ...tier, remainingInventory: newRem };
+          } else {
+            (updatedTiers as any)[key] = tier;
+          }
+        }
+      }
+
+      if (!tierFound) return undefined;
+      currEvent.ticketTiers = updatedTiers;
+      return currEvent;
+    }, authToken);
+
+    if (!res.committed) {
+      return { success: false, error: "Transaction aborted or tier not found.", tierFound: false };
+    }
+    return { success: true, tierFound: true };
+  } catch (err: any) {
+    console.error(`[INVENTORY RESTORE ERROR] ${eventId}/${tierId}:`, err.message);
+    return { success: false, error: err.message, tierFound: false };
+  }
+}
+
 async function bookSeat(
   authToken: string | undefined,
   eventId: string,
@@ -1064,6 +1131,7 @@ async function finalizeBookingServerSide(
       attendeePhone: customerDetails.phone,
       qrCodeValue: signedQrToken,
       passSlug,
+      tierId: tierId || "",
       eventGoogleMapsQuery: eventData.mapsUrl || (eventData as any).eventGoogleMapsQuery || `${venue}, ${city}`,
       passType: isDeferred ? 'reservation' : (pendingOrder.isPartial ? 'reservation' : 'entry'),
       paymentStatus: isDeferred ? 'pending' : (pendingOrder.isPartial ? 'partial' : 'paid'),
@@ -1280,6 +1348,11 @@ async function finalizeBookingServerSide(
 
     return { success: true, ticket: newTicket, booking: newBookingRecord };
   } catch (err: any) {
+    // If we failed after inventory was deducted but before final success,
+    // attempt to restore it so the count doesn't stay permanently stuck.
+    if (inventoryDeducted) {
+      await restoreInventoryTier(authToken, eventId, tierId, quantity).catch(() => {});
+    }
     await rtdbDelete(`processed_orders/${orderId}`, authToken).catch(() => {});
     console.error("Error finalizing booking server side:", err);
     return { success: false, error: err.message || "Failed to finalize booking server side" };
@@ -4541,6 +4614,51 @@ export async function createApp() {
         if (priceError) return res.status(400).json({ success: false, error: `Tier '${tier.name}': ${priceError}` });
         updates.amount = Number(tier.price) * (updates.quantity ?? order.quantity);
       }
+
+      // Reconcile inventory if tier or quantity changed
+      const oldQty = Number(order.quantity) || 0;
+      const newQty = updates.quantity !== undefined ? Number(updates.quantity) : oldQty;
+      const oldTierId = order.tierId;
+      const newTierId = updates.tierId || oldTierId;
+
+      if (oldTierId !== newTierId || oldQty !== newQty) {
+        // Restore old tier
+        if (oldTierId && oldQty > 0) {
+          await restoreInventoryTier(adminToken, order.eventId, oldTierId, oldQty).catch(() => {});
+        }
+        // Deduct new tier (using a simplified version of the logic in finalizeBookingServerSide)
+        if (newTierId && newQty > 0) {
+          await rtdbTransaction(`events/${order.eventId}`, (currEvent: any) => {
+            if (!currEvent || !currEvent.ticketTiers) return undefined;
+            const isArray = Array.isArray(currEvent.ticketTiers);
+            const updatedTiers = isArray ? [] : {};
+            let tierFound = false;
+            if (isArray) {
+              for (let i = 0; i < currEvent.ticketTiers.length; i++) {
+                let t = currEvent.ticketTiers[i];
+                if (t && (t.id === newTierId || (!t.id && String(i) === newTierId))) {
+                  tierFound = true;
+                  const currentRem = typeof t.remainingInventory === 'number' ? t.remainingInventory : (t.totalInventory || 0);
+                  (updatedTiers as any[]).push({ ...t, remainingInventory: Math.max(0, currentRem - newQty) });
+                } else { (updatedTiers as any[]).push(t); }
+              }
+            } else {
+              for (const [key, t] of Object.entries(currEvent.ticketTiers as any)) {
+                const tier = t as any;
+                if (tier && (tier.id === newTierId || key === newTierId)) {
+                  tierFound = true;
+                  const currentRem = typeof tier.remainingInventory === 'number' ? tier.remainingInventory : (tier.totalInventory || 0);
+                  (updatedTiers as any)[key] = { ...tier, remainingInventory: Math.max(0, currentRem - newQty) };
+                } else { (updatedTiers as any)[key] = tier; }
+              }
+            }
+            if (!tierFound) return undefined;
+            currEvent.ticketTiers = updatedTiers;
+            return currEvent;
+          }, adminToken).catch(() => {});
+        }
+      }
+
       updates.updatedAt = new Date().toISOString();
       await rtdbUpdate(`orders/${orderId}`, updates, adminToken);
       await writeAuditEntry({
@@ -4597,6 +4715,12 @@ export async function createApp() {
       }
       if (!lastResult.committed) {
         return res.status(409).json({ success: false, error: "Could not release one or more seats; refund aborted." });
+      }
+
+      // Restore event tier inventory (Prompt B Item 5 complement)
+      if (order.eventId && order.tierId) {
+        const restoreQty = refundType === "partial" ? (partialSeats.length || 1) : (Number(order.quantity) || 1);
+        await restoreInventoryTier(adminToken, order.eventId, order.tierId, restoreQty).catch(() => {});
       }
 
       const afterState = {
@@ -4663,6 +4787,12 @@ export async function createApp() {
           if (!order || order.status !== "confirmed") continue;
           const before = JSON.parse(JSON.stringify(order));
           for (const seatId of order.seatIds || []) await releaseSeat(adminToken, order.eventId, seatId, {});
+          
+          // Restore event tier inventory (Prompt B Item 5 complement)
+          if (order.eventId && order.tierId) {
+            await restoreInventoryTier(adminToken, order.eventId, order.tierId, Number(order.quantity) || 1).catch(() => {});
+          }
+
           await rtdbUpdate(`orders/${id}`, { status: "cancelled", cancelledAt: new Date().toISOString(), cancelledBy: req.user.uid }, adminToken);
           if (order.ticketId) await rtdbUpdate(`tickets/${order.ticketId}`, { status: "cancelled", cancelledReason: "admin_cancelled" }, adminToken);
           await writeAuditEntry({ actorId: req.user.uid, actorRole: req.user.rbacRole, action: "order.cancelled", entityType: "order", entityId: id, beforeState: before, afterState: { status: "cancelled" } });
@@ -6416,6 +6546,17 @@ app.post("/api/counter/tickets/:ticketId/void", requireRole(["counter_staff", "e
     const seatsToRelease = ticket.selectedSeats || ticket.seatIds || [];
     for (const seatId of seatsToRelease) {
       await releaseSeat(adminToken, ticket.eventId, seatId, {}).catch(() => {});
+    }
+
+    // Restore event tier inventory (Prompt B Item 5 complement)
+    // Legacy fix: tickets might lack tierId; fallback to order record or tier name mapping.
+    let resolvedTierId = ticket.tierId;
+    if (!resolvedTierId && ticket.orderId) {
+      const orderSnap = await rtdbGet(`orders/${ticket.orderId}`, adminToken);
+      resolvedTierId = (orderSnap.data as any)?.tierId;
+    }
+    if (ticket.eventId && resolvedTierId) {
+      await restoreInventoryTier(adminToken, ticket.eventId, resolvedTierId, Number(ticket.quantity) || 1).catch(() => {});
     }
 
     const updatedTicket = {
