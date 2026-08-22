@@ -843,8 +843,8 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         ...(options?.shiftId ? { shiftId: options.shiftId } : {}),
         ...(options?.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {}),
         ...(options?.counterId ? { counterId: options.counterId } : {}),
-        ...(options?.subUserId ? { issuedBySubUserId: options.subUserId } : {}),
-        ...(options?.subUserName ? { issuedBySubUserName: options.subUserName } : {}),
+        ...(options?.subUserId ? { subUserId: options.subUserId } : {}),
+        ...(options?.subUserName ? { subUserName: options.subUserName } : {}),
       }),
     });
     const data = response.data || {};

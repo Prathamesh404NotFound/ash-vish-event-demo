@@ -733,6 +733,12 @@ async function recordOrder(params: {
   ticketId?: string | null;
   bookingId?: string | null;
   createdBy?: string;
+  shiftId?: string | null;
+  counterId?: string | null;
+  counterName?: string | null;
+  issuedBySubUserId?: string | null;
+  issuedBySubUserName?: string | null;
+  scannedByStaffId?: string | null;
 }): Promise<void> {
   try {
     const adminToken = await getAdminAuthToken();
@@ -762,6 +768,12 @@ async function recordOrder(params: {
       bookingId: params.bookingId || null,
       createdAt: new Date().toISOString(),
       createdBy: params.createdBy || "system",
+      shiftId: params.shiftId || null,
+      counterId: params.counterId || null,
+      counterName: params.counterName || null,
+      issuedBySubUserId: params.issuedBySubUserId || null,
+      issuedBySubUserName: params.issuedBySubUserName || null,
+      scannedByStaffId: params.scannedByStaffId || null,
     };
     await rtdbSet(`orders/${params.orderId}`, order, adminToken);
   } catch (err: any) {
@@ -1241,24 +1253,30 @@ async function finalizeBookingServerSide(
     // fulfilled booking regardless of channel, so the orders dashboard has a
     // single filterable source that mirrors the tickets/booking records.
     const isWalkInChannel = String(paymentMethod).startsWith("walkin");
-    await recordOrder({
-      orderId,
-      eventId,
-      tierId: tierId || "",
-      seatIds: seatIds || [],
-      quantity,
-      customerDetails: customerDetails || {},
-      amount,
-      discount: pendingOrder?.discount || 0,
-      couponCode: couponCodeUpper,
-      paymentMethod,
-      paymentStatus: isDeferred ? "pending" : "paid",
-      amountDue: isDeferred ? amount : 0,
-      channel: isWalkInChannel ? "counter" : "online",
-      ticketId,
-      bookingId,
-      createdBy: pendingOrder?.issuedBySubUserName || "system",
-    }).catch(() => {});
+      await recordOrder({
+        orderId,
+        eventId,
+        tierId: tierId || "",
+        seatIds: seatIds || [],
+        quantity,
+        customerDetails: customerDetails || {},
+        amount,
+        discount: pendingOrder?.discount || 0,
+        couponCode: couponCodeUpper,
+        paymentMethod,
+        paymentStatus: isDeferred ? "pending" : "paid",
+        amountDue: isDeferred ? amount : 0,
+        channel: isWalkInChannel ? "counter" : "online",
+        ticketId,
+        bookingId,
+        createdBy: pendingOrder?.issuedBySubUserName || "system",
+        shiftId: pendingOrder?.shiftId || null,
+        counterId: pendingOrder?.counterId || null,
+        counterName: pendingOrder?.counterName || null,
+        issuedBySubUserId: pendingOrder?.issuedBySubUserId || null,
+        issuedBySubUserName: pendingOrder?.issuedBySubUserName || null,
+        scannedByStaffId: pendingOrder?.scannedByStaffId || null,
+      }).catch(() => {});
 
     // Confirmation email (Prompt B Item 6): send on order confirmation. When
     // SMTP is not configured, the mail helper records the send in the
@@ -6294,42 +6312,28 @@ app.get("/api/counter/my-sales", requireRole(["counter_staff", "event_manager", 
       const createdBy = String(t.createdByStaffId || "").toLowerCase();
       const issuedBySubId = String(t.issuedBySubUserId || "").toLowerCase();
       
-      // If a specific sub-user filter is provided (from the frontend session), prioritize it.
+      const order = t.orderId ? orders[t.orderId] : null;
+      const orderScannedBy = order ? String(order.scannedByStaffId || "").toLowerCase() : "";
+      const orderCreatedBy = order ? String(order.createdBy || "").toLowerCase() : "";
+      const orderSubUserId = order ? String(order.issuedBySubUserId || "").toLowerCase() : "";
+
+      // If a specific sub-user filter is provided (from the frontend session), it MUST match.
       if (subUserId) {
-        if (issuedBySubId !== subUserId.toLowerCase()) return false;
+        const subIdLower = subUserId.toLowerCase();
+        if (issuedBySubId !== subIdLower && orderSubUserId !== subIdLower) return false;
       }
 
-      let isMatchDirect = (
+      // Check if this ticket belongs to the requesting staff member (or their sub-users)
+      const isStaffMatch = 
         scannedBy === staffId.toLowerCase() ||
         scannedBy === staffName.toLowerCase() ||
         scannedBy === staffEmail.toLowerCase() ||
         createdBy === staffId.toLowerCase() ||
-        (issuedBySubId && !subUserId) // If no specific subUserId requested, show all for this staff login
-      );
+        orderScannedBy === staffId.toLowerCase() ||
+        orderCreatedBy === staffId.toLowerCase() ||
+        (order?.shiftId && String(order.shiftId).toLowerCase().includes(staffId.toLowerCase()));
 
-      let hasMatch = isMatchDirect;
-
-      if (!hasMatch && t.orderId && orders[t.orderId]) {
-        const order = orders[t.orderId];
-        const orderScannedBy = String(order.scannedByStaffId || "").toLowerCase();
-        const orderCreatedBy = String(order.createdBy || "").toLowerCase();
-        const orderSubUserId = String(order.issuedBySubUserId || "").toLowerCase();
-
-        if (subUserId && orderSubUserId !== subUserId.toLowerCase()) {
-          hasMatch = false;
-        } else if (
-          orderScannedBy === staffId.toLowerCase() ||
-          orderScannedBy === staffName.toLowerCase() ||
-          orderScannedBy === staffEmail.toLowerCase() ||
-          orderCreatedBy === staffId.toLowerCase() ||
-          orderCreatedBy === staffEmail.toLowerCase() ||
-          (order.shiftId && String(order.shiftId).toLowerCase().includes(staffId.toLowerCase()))
-        ) {
-          hasMatch = true;
-        }
-      }
-
-      if (!hasMatch) return false;
+      if (!isStaffMatch) return false;
 
       if (eventId && t.eventId !== eventId) return false;
       if (status && t.status !== status) return false;
