@@ -43,29 +43,30 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSearch }) => {
 
   return (
     <>
-      {/* Slimmer Floating Top Navbar */}
-      <header className="fixed top-0 inset-x-0 z-50 transition-all duration-300">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-2 sm:pt-3">
-          <nav className="bg-[#0a0a0a]/80 backdrop-blur-xl rounded-xl px-4 py-2 flex items-center justify-between shadow-2xl border border-white/5 hover:border-[#D4AF37]/10 transition-colors duration-300">
+      {/* Premium Slim Header */}
+      <header className="fixed top-0 inset-x-0 z-50 transition-all duration-500">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4">
+          <nav className="bg-[#070707]/90 backdrop-blur-2xl rounded-2xl px-6 py-2.5 flex items-center justify-between shadow-2xl border border-white/5 group/nav">
 
-            {/* Logo & Brand Container - Cleaner */}
-            <Link to="/" className="flex items-center gap-2.5 cursor-pointer group focus-visible:outline-none rounded-lg shrink-0">
-              <div className="relative w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-[#141417] border border-white/10 overflow-hidden flex items-center justify-center transition-transform duration-300 group-hover:scale-105">
+            {/* Brand Logo - Minimalist */}
+            <Link to="/" className="flex items-center gap-3 shrink-0 group focus:outline-none">
+              <div className="relative w-9 h-9 rounded-xl bg-[#111] border border-white/10 overflow-hidden flex items-center justify-center transition-all duration-500 group-hover:border-[#D4AF37]/40 group-hover:scale-105 shadow-lg">
                 <img
                   src="/favicon-192.png"
-                  alt="Ash-vish Events Logo"
-                  className="w-full h-full object-cover"
+                  alt="Ash-vish Events"
+                  className="w-full h-full object-cover p-1"
                 />
               </div>
               <div className="flex flex-col">
-                <span className="font-heading font-bold text-base sm:text-xl tracking-tight text-white leading-none group-hover:text-[#D4AF37] transition-colors">
-                  Ash-vish<span className="text-[#D4AF37] ml-0.5 font-black">events</span>
+                <span className="font-heading font-black text-lg tracking-tight text-white leading-none">
+                  ASH-VISH<span className="text-[#D4AF37] ml-1">EVENTS</span>
                 </span>
+                <span className="text-[9px] text-gray-500 font-bold uppercase tracking-[0.2em] mt-0.5">Premium Experience</span>
               </div>
             </Link>
 
-            {/* Desktop Navigation Links - More Horizontal Spacing, Smaller Icons */}
-            <div className="hidden md:flex items-center gap-6">
+            {/* Desktop Navigation - Clean Tabs */}
+            <div className="hidden lg:flex items-center gap-8">
               {navItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = location.pathname === item.path;
@@ -73,151 +74,102 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSearch }) => {
                   <Link
                     key={item.path}
                     to={item.path}
-                    className={`relative flex items-center gap-1.5 py-1 text-xs font-bold uppercase tracking-wider transition-all duration-200 ${
+                    className={`relative flex items-center gap-2 py-1 text-[11px] font-black uppercase tracking-[0.15em] transition-all duration-300 ${
                       isActive
                         ? 'text-[#D4AF37]'
                         : 'text-gray-400 hover:text-white'
                     }`}
                   >
-                    <Icon className="w-3.5 h-3.5 shrink-0" />
+                    <Icon className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-[#D4AF37]' : 'text-gray-500'}`} />
                     <span>{item.label}</span>
                     {isActive && (
-                      <span className="absolute -bottom-1 left-0 right-0 h-0.5 bg-[#D4AF37] rounded-full animate-in fade-in zoom-in duration-300" />
-                    )}
-                    {!!item.badge && item.badge > 0 && (
-                      <span className="ml-1 text-[9px] px-1.5 py-0.5 rounded-full bg-[#D4AF37] text-black font-black">
-                        {item.badge}
-                      </span>
+                      <span className="absolute -bottom-2 left-0 right-0 h-0.5 bg-[#D4AF37] rounded-full shadow-[0_0_8px_rgba(212,175,55,0.5)]" />
                     )}
                   </Link>
                 );
               })}
             </div>
 
-            {/* Right Actions */}
-            <div className="flex items-center gap-3 shrink-0">
-              {/* Search Button - Slimmer */}
+            {/* Right Side Utility Actions */}
+            <div className="flex items-center gap-4 shrink-0">
               {onOpenSearch && (
                 <button
                   onClick={onOpenSearch}
-                  className="p-2 rounded-lg text-gray-400 hover:text-[#D4AF37] hover:bg-white/5 transition-all duration-200 active:scale-95 cursor-pointer"
-                  aria-label="Search events"
+                  className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/5 border border-white/5 text-gray-400 hover:text-white hover:border-white/10 transition-all text-[10px] font-black uppercase tracking-widest"
                 >
-                  <Search className="w-4 h-4" />
+                  <Search className="w-3.5 h-3.5" />
+                  <span>Search</span>
+                  <span className="opacity-30 border border-white/20 rounded px-1 ml-2">⌘K</span>
                 </button>
               )}
 
-              {/* User Profile or Auth */}
               {isAuthenticated ? (
                 <div className="relative">
                   <button
                     onClick={() => setUserDropdownOpen(!userDropdownOpen)}
-                    className="flex items-center gap-2 p-1.5 rounded-xl bg-[#1C1C1C] hover:bg-[#262626] border border-white/10 transition-all active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D4AF37] cursor-pointer touch-min-target"
-                    aria-label="User account menu"
-                    aria-expanded={userDropdownOpen}
+                    className="flex items-center gap-2 p-1 rounded-xl bg-[#111] border border-white/10 hover:border-[#D4AF37]/30 transition-all active:scale-95"
                   >
                     <img
                       src={user?.photoUrl}
-                      alt={user?.name || 'User profile'}
-                      className="w-8 h-8 rounded-lg object-cover border border-[#D4AF37]/30"
+                      alt="Profile"
+                      className="w-8 h-8 rounded-lg object-cover"
                     />
                   </button>
 
-                  {/* Profile Dropdown Menu */}
+                  {/* Refined Dropdown */}
                   {userDropdownOpen && (
-                    <div className="absolute right-0 mt-2 sm:mt-3 w-60 sm:w-64 max-w-[calc(100vw-2rem)] bg-[#141414] border border-white/10 rounded-2xl shadow-2xl py-2 z-50 animate-in fade-in slide-in-from-top-2">
-                      <div className="px-4 py-2.5 border-b border-white/10">
-                        <p className="text-sm font-semibold text-white truncate">{user?.name}</p>
-                        <p className="text-xs text-gray-400 truncate">{user?.email}</p>
-                        <span className="mt-1.5 inline-flex items-center gap-1 px-2 py-0.5 text-[10px] bg-[#D4AF37]/15 text-[#F3E5AB] rounded-full border border-[#D4AF37]/20 font-medium uppercase tracking-wider">
-                          <Sparkles className="w-3 h-3" /> {user?.role || 'Customer'}
-                        </span>
+                    <div className="absolute right-0 mt-4 w-64 bg-[#0a0a0a] border border-white/10 rounded-2xl shadow-2xl py-3 z-50 animate-in fade-in slide-in-from-top-2 overflow-hidden">
+                      <div className="px-5 py-3 border-b border-white/5 bg-white/[0.02]">
+                        <p className="text-xs font-black text-white uppercase tracking-wider truncate">{user?.name}</p>
+                        <p className="text-[10px] text-gray-500 truncate mt-0.5">{user?.email}</p>
                       </div>
 
-                      <Link
-                        to="/account/profile"
-                        onClick={() => setUserDropdownOpen(false)}
-                        className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs text-gray-300 hover:bg-white/5 hover:text-white text-left transition-colors"
-                      >
-                        <UserIcon className="w-4 h-4 text-gray-400 shrink-0" />
-                        <span>Account Profile</span>
-                      </Link>
+                      <div className="py-2">
+                        {[
+                          { to: "/account/profile", icon: UserIcon, label: "Account Profile" },
+                          { to: "/account/tickets", icon: Ticket, label: `My Tickets (${myTickets.length})` },
+                          { to: "/counter", icon: QrCode, label: "Counter Dashboard", show: isTicketCounter || isAdmin },
+                          { to: "/admin", icon: ShieldCheck, label: "Admin Portal", show: isAdmin }
+                        ].filter(item => item.show !== false).map((item, i) => (
+                          <Link
+                            key={i}
+                            to={item.to}
+                            onClick={() => setUserDropdownOpen(false)}
+                            className="flex items-center gap-3 px-5 py-2.5 text-[11px] font-bold text-gray-400 hover:text-white hover:bg-white/5 transition-all"
+                          >
+                            <item.icon className="w-4 h-4" />
+                            <span className="uppercase tracking-widest">{item.label}</span>
+                          </Link>
+                        ))}
+                      </div>
 
-                      <Link
-                        to="/account/tickets"
-                        onClick={() => setUserDropdownOpen(false)}
-                        className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs text-gray-300 hover:bg-white/5 hover:text-white text-left transition-colors"
-                      >
-                        <Ticket className="w-4 h-4 text-gray-400 shrink-0" />
-                        <span>My Tickets ({myTickets.length})</span>
-                      </Link>
-
-                      {/* Organizer Portal Link */}
-                      <Link
-                        to="/organizer"
-                        onClick={() => setUserDropdownOpen(false)}
-                        className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs text-[#D4AF37] hover:bg-[#D4AF37]/10 text-left transition-colors font-bold"
-                      >
-                        <Building2 className="w-4 h-4 text-[#D4AF37] shrink-0" />
-                        <span>Organizer Portal</span>
-                      </Link>
-
-                      {/* Ticket Counter Staff Link */}
-                      {(isTicketCounter || isAdmin) && (
-                        <Link
-                          to="/counter"
-                          onClick={() => setUserDropdownOpen(false)}
-                          className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs text-[#D4AF37] hover:bg-[#D4AF37]/10 text-left transition-colors font-bold"
+                      <div className="border-t border-white/5 pt-2">
+                        <button
+                          onClick={() => { logout(); setUserDropdownOpen(false); navigate('/login'); }}
+                          className="w-full flex items-center gap-3 px-5 py-3 text-[11px] font-black text-red-500 hover:bg-red-500/5 transition-all uppercase tracking-widest"
                         >
-                          <QrCode className="w-4 h-4 text-[#D4AF37] shrink-0" />
-                          <span>Ticket Counter Dashboard</span>
-                        </Link>
-                      )}
-
-                      {/* Admin Portal Link */}
-                      {isAdmin && (
-                        <Link
-                          to="/admin"
-                          onClick={() => setUserDropdownOpen(false)}
-                          className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs text-[#D4AF37] hover:bg-[#D4AF37]/10 text-left transition-colors font-bold"
-                        >
-                          <ShieldCheck className="w-4 h-4 text-[#D4AF37] shrink-0" />
-                          <span>Admin Portal</span>
-                        </Link>
-                      )}
-
-                      <div className="border-t border-white/10 my-1"></div>
-
-                      <button
-                        onClick={() => {
-                          logout();
-                          setUserDropdownOpen(false);
-                          navigate('/login');
-                        }}
-                        className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs text-red-400 hover:bg-red-500/10 text-left transition-colors cursor-pointer"
-                      >
-                        <LogOut className="w-4 h-4 text-red-400 shrink-0" />
-                        <span>Sign Out</span>
-                      </button>
+                          <LogOut className="w-4 h-4" />
+                          <span>Sign Out</span>
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
               ) : (
                 <Link
                   to="/login"
-                  className="px-3.5 py-2 sm:px-4 sm:py-2 rounded-xl bg-gradient-to-r from-[#F3E5AB] via-[#D4AF37] to-[#C5A059] hover:brightness-110 text-black font-extrabold text-xs sm:text-sm shadow-md shadow-[#D4AF37]/20 transition-all duration-200 active:scale-95 whitespace-nowrap cursor-pointer flex items-center justify-center min-h-[38px]"
+                  className="px-6 py-2.5 rounded-xl bg-[#D4AF37] hover:bg-[#F3E5AB] text-black font-black text-[11px] uppercase tracking-[0.2em] transition-all shadow-xl shadow-[#D4AF37]/10"
                 >
                   Sign In
                 </Link>
               )}
 
-              {/* Mobile Drawer Hamburger */}
+              {/* Mobile Menu Toggle */}
               <button
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                className="md:hidden w-10 h-10 flex items-center justify-center rounded-xl bg-[#1C1C1C] text-gray-300 hover:text-white border border-white/10 active:scale-95 transition-all cursor-pointer touch-min-target"
-                aria-label={mobileMenuOpen ? "Close menu" : "Open navigation menu"}
+                className="lg:hidden p-2 text-gray-400 hover:text-white"
               >
-                {mobileMenuOpen ? <X className="w-5 h-5 text-white" /> : <Menu className="w-5 h-5 text-gray-300" />}
+                {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
               </button>
             </div>
           </nav>

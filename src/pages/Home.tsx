@@ -71,105 +71,137 @@ export const Home: React.FC<HomeProps> = ({
   };
 
   return (
-    <div className="space-y-24 pb-24 bg-[#0a0a0a]">
+    <div className="space-y-24 pb-24 bg-[#070707]">
       
       {/* ----------------- CINEMATIC TWO-COLUMN HERO SECTION ----------------- */}
-      <section className="relative min-h-[90vh] flex items-center overflow-hidden bg-[#070707]">
-        {/* Hero Background with Right-to-Left Gradient */}
+      <section className="relative min-h-[85vh] lg:min-h-[90vh] flex items-center overflow-hidden bg-[#070707] border-b border-white/5">
+        {/* Hero Background with Cinematic Vignette */}
         <div className="absolute inset-0 z-0">
           {currentHeroEvent ? (
-            <div className="relative w-full h-full flex justify-end">
+            <div className="relative w-full h-full">
               <img
                 src={currentHeroEvent.coverUrl || currentHeroEvent.posterUrl}
                 alt={currentHeroEvent.title}
-                className="w-full lg:w-[65%] h-full object-cover object-center filter brightness-[0.7] contrast-[1.1]"
+                className="w-full h-full object-cover object-center filter brightness-[0.4] contrast-[1.1] scale-105"
                 fetchPriority="high"
               />
-              {/* Subtle black gradient from right-to-left to ensure text readability */}
-              <div className="absolute inset-0 bg-gradient-to-r from-[#070707] via-[#070707] to-transparent lg:via-[#070707]/60" />
-              {/* Bottom fade for smooth transition to content */}
-              <div className="absolute bottom-0 inset-x-0 h-64 bg-gradient-to-t from-[#0a0a0a] to-transparent" />
+              {/* Radial and Linear Vignette for cinematic focus */}
+              <div className="absolute inset-0 bg-gradient-to-t from-[#070707] via-transparent to-[#070707]/40" />
+              <div className="absolute inset-0 bg-gradient-to-r from-[#070707] via-[#070707]/20 to-transparent" />
             </div>
           ) : (
-            <div className="w-full h-full bg-[#0a0a0a]" />
+            <div className="w-full h-full bg-[#070707]" />
           )}
         </div>
 
         {/* Hero Content Container - Two Column Layout */}
         <div className="relative z-10 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-32 pb-20">
           {currentHeroEvent ? (
-            <div className="grid lg:grid-cols-2 gap-12 items-center">
-              {/* LEFT COLUMN: Text Content */}
-              <div className="space-y-8 animate-in fade-in slide-in-from-left-8 duration-700">
-                <div className="space-y-4">
-                  <span className="text-[#D4AF37] text-xs sm:text-sm font-black uppercase tracking-[0.3em]">
+            <div className="grid lg:grid-cols-2 gap-16 items-center">
+              {/* LEFT COLUMN: Clean Editorial Typography */}
+              <div className="space-y-10 animate-in fade-in slide-in-from-left-12 duration-1000">
+                <div className="space-y-6">
+                  <span className="inline-flex items-center gap-2 text-[#D4AF37] text-[10px] font-black uppercase tracking-[0.4em]">
+                    <span className="w-8 h-[1px] bg-[#D4AF37]/50" />
                     {currentHeroEvent.category === 'concert' ? 'LIVE MUSICAL NIGHT' : currentHeroEvent.category.toUpperCase()}
                   </span>
-                  <h1 className="font-heading font-extrabold text-5xl sm:text-7xl text-white tracking-tight leading-[1.05]">
+                  <h1 className="font-heading font-black text-5xl sm:text-6xl lg:text-7xl text-white tracking-tight leading-[1.05] drop-shadow-2xl">
                     {currentHeroEvent.title}
                   </h1>
-                  <p className="text-gray-400 text-base sm:text-xl max-w-lg leading-relaxed font-medium">
+                  <p className="text-gray-400 text-base sm:text-lg max-w-lg leading-relaxed font-medium border-l-2 border-[#D4AF37]/30 pl-6">
                     {currentHeroEvent.subtitle}
                   </p>
                 </div>
 
-                {/* Scannable Metadata Row */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 pt-2 border-y border-white/5 py-8">
-                  <div className="space-y-1">
-                    <span className="text-[10px] text-[#D4AF37] font-black uppercase tracking-widest">DATE</span>
-                    <p className="text-white font-bold text-sm sm:text-base">{currentHeroEvent.date}</p>
+                {/* Editorial Metadata Cards */}
+                <div className="flex flex-wrap gap-8 py-8 border-y border-white/5">
+                  <div className="space-y-1.5">
+                    <span className="text-[9px] text-gray-500 font-black uppercase tracking-widest">Date</span>
+                    <p className="text-white font-black text-xs uppercase tracking-widest">{currentHeroEvent.date}</p>
                   </div>
-                  <div className="space-y-1">
-                    <span className="text-[10px] text-[#D4AF37] font-black uppercase tracking-widest">TIME</span>
-                    <p className="text-white font-bold text-sm sm:text-base">{currentHeroEvent.time}</p>
+                  <div className="w-[1px] h-8 bg-white/10 hidden sm:block" />
+                  <div className="space-y-1.5">
+                    <span className="text-[9px] text-gray-500 font-black uppercase tracking-widest">Time</span>
+                    <p className="text-white font-black text-xs uppercase tracking-widest">{currentHeroEvent.time}</p>
                   </div>
-                  <div className="space-y-1">
-                    <span className="text-[10px] text-[#D4AF37] font-black uppercase tracking-widest">VENUE</span>
-                    <p className="text-white font-bold text-sm sm:text-base line-clamp-1">{currentHeroEvent.venue}</p>
+                  <div className="w-[1px] h-8 bg-white/10 hidden sm:block" />
+                  <div className="space-y-1.5">
+                    <span className="text-[9px] text-gray-500 font-black uppercase tracking-widest">Venue</span>
+                    <p className="text-white font-black text-xs uppercase tracking-widest max-w-[200px] truncate">{currentHeroEvent.venue}</p>
                   </div>
                 </div>
 
-                {/* CTA Hierarchy */}
-                <div className="flex flex-col sm:flex-row items-center gap-4 pt-4">
+                {/* Primary CTA Group */}
+                <div className="flex flex-col sm:flex-row items-center gap-6">
                   <button
                     onClick={() => currentHeroEvent.isAdvertiseOnly ? onSelectEvent(currentHeroEvent) : onBookNow(currentHeroEvent)}
-                    className="w-full sm:w-auto px-10 py-4 rounded-xl bg-[#D4AF37] hover:bg-[#F3E5AB] text-black font-black text-sm uppercase tracking-widest transition-all shadow-xl shadow-[#D4AF37]/10"
+                    className="group relative w-full sm:w-auto px-10 py-4 rounded-xl bg-[#D4AF37] hover:bg-[#F3E5AB] text-black font-black text-[11px] uppercase tracking-[0.2em] transition-all duration-500 shadow-2xl shadow-[#D4AF37]/20 active:scale-95"
                   >
-                    {currentHeroEvent.isAdvertiseOnly ? "View Event Details" : `Book Now • From ${formatINR(currentHeroEvent.startingPrice)}`}
+                    <span className="relative z-10">
+                      {currentHeroEvent.isAdvertiseOnly ? "View Event Details" : `Book Now • From ${formatINR(currentHeroEvent.startingPrice)}`}
+                    </span>
                   </button>
                   <button
                     onClick={() => onSelectEvent(currentHeroEvent)}
-                    className="w-full sm:w-auto px-10 py-4 rounded-xl bg-transparent hover:bg-white/5 text-white border border-white/10 font-bold text-sm uppercase tracking-widest transition-all"
+                    className="w-full sm:w-auto px-10 py-4 rounded-xl bg-white/[0.03] hover:bg-white/[0.08] text-white border border-white/10 font-black text-[11px] uppercase tracking-[0.2em] transition-all duration-500 active:scale-95"
                   >
                     Save This Event
                   </button>
                 </div>
 
-                {/* Carousel Indicators - Integrated at bottom left */}
-                <div className="flex items-center gap-3 pt-8" role="tablist">
-                  {featuredEvents.map((_, idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => setHeroIndex(idx)}
-                      className={`h-1 transition-all duration-300 rounded-full ${
-                        idx === heroIndex ? 'w-12 bg-[#D4AF37]' : 'w-4 bg-white/20'
-                      }`}
-                      aria-label={`Slide ${idx + 1}`}
-                    />
-                  ))}
+                {/* Integrated Categories Filter */}
+                <div className="pt-10 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[9px] text-gray-500 font-black uppercase tracking-[0.3em]">Explore Categories</span>
+                  </div>
+                  <div className="flex items-center gap-3 overflow-x-auto no-scrollbar pb-2">
+                    {categories.map((cat) => (
+                      <CategoryChip
+                        key={cat}
+                        category={cat}
+                        activeCategory={selectedCategory}
+                        onSelectCategory={(c) => {
+                          setSelectedCategory(c);
+                          if (c !== 'all') onNavigateToSearch(c);
+                        }}
+                        count={cat === 'all' ? events.length : events.filter((e) => e.category === cat).length}
+                      />
+                    ))}
+                  </div>
                 </div>
               </div>
 
-              {/* RIGHT COLUMN: dominant image area is handled by background positioning */}
-              <div className="hidden lg:block h-full min-h-[400px]" />
+              {/* RIGHT COLUMN: Artist Portrait / Poster Focal Point */}
+              <div className="hidden lg:flex justify-center items-center animate-in fade-in zoom-in duration-1000 delay-300">
+                <div className="relative w-full max-w-md aspect-[3/4] rounded-3xl overflow-hidden border border-white/10 shadow-2xl rotate-2 hover:rotate-0 transition-transform duration-700">
+                  <img
+                    src={currentHeroEvent.posterUrl}
+                    alt="Featured Artist"
+                    className="w-full h-full object-cover"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-[#070707]/80 via-transparent to-transparent" />
+                  <div className="absolute bottom-6 left-6 right-6">
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className="flex -space-x-2">
+                        {[1, 2, 3].map(i => (
+                          <div key={i} className="w-6 h-6 rounded-full border border-[#070707] bg-gray-800" />
+                        ))}
+                      </div>
+                      <span className="text-[10px] text-white/70 font-bold uppercase tracking-widest">4.9/5 Rating</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           ) : (
-            <div className="max-w-2xl space-y-6">
-              <span className="text-[#D4AF37] text-sm font-black uppercase tracking-widest">Welcome to Ash-vish</span>
-              <h1 className="text-5xl sm:text-7xl text-white font-black tracking-tighter leading-none">
-                Live shows are being prepared
+            <div className="max-w-2xl space-y-8 py-20">
+              <span className="text-[#D4AF37] text-[11px] font-black uppercase tracking-[0.4em]">Ash-vish Events</span>
+              <h1 className="text-5xl sm:text-7xl text-white font-black tracking-tight leading-none">
+                Curating the next big experience
               </h1>
-              <p className="text-gray-400 text-lg">New listings will appear here shortly.</p>
+              <p className="text-gray-500 text-lg font-medium border-l-2 border-white/10 pl-6">
+                Our team is currently preparing new live musical nights and premium events. Check back soon for official ticket releases.
+              </p>
             </div>
           )}
         </div>
@@ -177,15 +209,15 @@ export const Home: React.FC<HomeProps> = ({
 
       {/* ----------------- WHY YOU SHOULDN'T MISS IT ----------------- */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="space-y-12">
-          <div className="text-center space-y-4">
-            <h2 className="text-3xl sm:text-5xl font-black text-white tracking-tight">
+        <div className="space-y-16">
+          <div className="space-y-3">
+            <span className="text-[#D4AF37] text-[10px] font-black uppercase tracking-[0.4em]">Highlights</span>
+            <h2 className="text-3xl sm:text-4xl font-black text-white uppercase tracking-tight">
               Why You Shouldn't Miss It
             </h2>
-            <div className="w-24 h-1 bg-[#D4AF37] mx-auto rounded-full" />
           </div>
 
-          <div className="grid sm:grid-cols-3 gap-8">
+          <div className="grid sm:grid-cols-3 gap-10">
             {[
               {
                 title: "Soulful Live Performance",
@@ -203,12 +235,14 @@ export const Home: React.FC<HomeProps> = ({
                 icon: Flame
               }
             ].map((feature, i) => (
-              <div key={i} className="group p-8 rounded-3xl bg-[#111] border border-white/5 hover:border-[#D4AF37]/20 transition-all text-center space-y-4">
-                <div className="w-16 h-16 rounded-2xl bg-[#D4AF37]/10 flex items-center justify-center mx-auto group-hover:scale-110 transition-transform">
-                  <feature.icon className="w-8 h-8 text-[#D4AF37]" />
+              <div key={i} className="group space-y-6">
+                <div className="w-14 h-14 rounded-2xl bg-white/[0.03] border border-white/5 flex items-center justify-center group-hover:border-[#D4AF37]/30 transition-all duration-500">
+                  <feature.icon className="w-6 h-6 text-[#D4AF37]" />
                 </div>
-                <h3 className="text-xl font-bold text-white">{feature.title}</h3>
-                <p className="text-gray-400 text-sm leading-relaxed">{feature.desc}</p>
+                <div className="space-y-3">
+                  <h3 className="text-lg font-black text-white uppercase tracking-wider">{feature.title}</h3>
+                  <p className="text-gray-500 text-sm leading-relaxed font-medium">{feature.desc}</p>
+                </div>
               </div>
             ))}
           </div>
@@ -218,10 +252,13 @@ export const Home: React.FC<HomeProps> = ({
       {/* ----------------- ABOUT THE EVENT SECTION ----------------- */}
       {currentHeroEvent && (
         <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid lg:grid-cols-3 gap-16 items-start">
-            <div className="lg:col-span-2 space-y-8">
-              <h2 className="text-3xl font-black text-white uppercase tracking-tight">About The Event</h2>
-              <div className="prose prose-invert max-w-none text-gray-400 leading-relaxed text-lg">
+          <div className="grid lg:grid-cols-3 gap-20 items-start">
+            <div className="lg:col-span-2 space-y-10">
+              <div className="space-y-3">
+                <span className="text-[#D4AF37] text-[10px] font-black uppercase tracking-[0.4em]">The Experience</span>
+                <h2 className="text-3xl sm:text-4xl font-black text-white uppercase tracking-tight">About The Event</h2>
+              </div>
+              <div className="max-w-2xl text-gray-500 leading-relaxed text-lg font-medium space-y-6">
                 <p>
                   Experience the magic of live music with Ash-vish Events. Our productions are designed to transport you into a world of rhythm and melody, featuring top-tier artists and world-class sound engineering at Kolhapur's most prestigious venues.
                 </p>
@@ -231,22 +268,22 @@ export const Home: React.FC<HomeProps> = ({
               </div>
             </div>
 
-            <div className="p-8 rounded-3xl bg-[#111] border border-white/5 space-y-8">
-              <div className="space-y-6">
+            <div className="p-10 rounded-3xl bg-white/[0.02] border border-white/5 space-y-10">
+              <div className="space-y-8">
                 <div className="space-y-2">
-                  <span className="text-[10px] text-[#D4AF37] font-black uppercase tracking-[0.2em]">Organized By</span>
-                  <p className="text-white font-bold text-lg">Ash-vish Events</p>
+                  <span className="text-[9px] text-gray-500 font-black uppercase tracking-[0.3em]">Organized By</span>
+                  <p className="text-white font-black text-lg uppercase tracking-widest">Ash-vish Events</p>
                 </div>
                 <div className="space-y-2">
-                  <span className="text-[10px] text-[#D4AF37] font-black uppercase tracking-[0.2em]">Event Type</span>
-                  <p className="text-white font-bold text-lg uppercase tracking-wide">{currentHeroEvent.category}</p>
+                  <span className="text-[9px] text-gray-500 font-black uppercase tracking-[0.3em]">Event Type</span>
+                  <p className="text-[#D4AF37] font-black text-lg uppercase tracking-widest">{currentHeroEvent.category}</p>
                 </div>
                 <div className="space-y-2">
-                  <span className="text-[10px] text-[#D4AF37] font-black uppercase tracking-[0.2em]">Venue Capacity</span>
-                  <p className="text-white font-bold text-lg">Premium Seating Available</p>
+                  <span className="text-[9px] text-gray-500 font-black uppercase tracking-[0.3em]">Venue Details</span>
+                  <p className="text-white font-bold text-sm leading-relaxed">{currentHeroEvent.venue}</p>
                 </div>
               </div>
-              <button className="w-full py-4 rounded-xl border border-[#D4AF37]/30 text-[#D4AF37] font-bold text-sm uppercase tracking-widest hover:bg-[#D4AF37]/5 transition-all">
+              <button className="w-full py-4 rounded-xl border border-white/10 text-white font-black text-[10px] uppercase tracking-[0.2em] hover:bg-white/5 transition-all duration-500">
                 Add to Calendar
               </button>
             </div>
@@ -254,43 +291,15 @@ export const Home: React.FC<HomeProps> = ({
         </section>
       )}
 
-      {/* ----------------- CATEGORIES QUICK FILTERS - Relocated below About ----------------- */}
+      {/* ----------------- TRENDING EVENTS ROW ----------------- */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between gap-4 mb-8">
-          <div>
+        <div className="flex items-center justify-between mb-10">
+          <div className="space-y-2">
+            <span className="text-[#D4AF37] text-[10px] font-black uppercase tracking-[0.4em]">Curated Picks</span>
             <h2 className="text-2xl sm:text-3xl font-black text-white uppercase tracking-tight">
-              Explore By Category
+              Trending Events
             </h2>
-            <p className="text-sm text-gray-500 mt-1">
-              Discover your next unforgettable experience
-            </p>
           </div>
-
-          <button
-            onClick={() => onNavigateToSearch('all')}
-            className="text-xs font-black text-[#D4AF37] uppercase tracking-widest hover:text-white transition-colors"
-          >
-            View All Categories
-          </button>
-        </div>
-
-        <div className="flex items-center gap-3 overflow-x-auto no-scrollbar pb-2">
-          {categories.map((cat) => (
-            <CategoryChip
-              key={cat}
-              category={cat}
-              activeCategory={selectedCategory}
-              onSelectCategory={(c) => {
-                setSelectedCategory(c);
-                if (c !== 'all') {
-                  onNavigateToSearch(c);
-                }
-              }}
-              count={cat === 'all' ? events.length : events.filter((e) => e.category === cat).length}
-            />
-          ))}
-        </div>
-      </section>
 
 
       {/* ----------------- TRENDING EVENTS ROW ----------------- */}
