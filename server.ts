@@ -5414,6 +5414,41 @@ export async function createApp() {
   }
 
   /**
+   * Recover a pass whose index entry is missing by searching the canonical
+   * ticket stores. This is intentionally used only after an exact slug lookup
+   * misses, and it never sends notifications or creates a new ticket.
+   */
+  async function recoverPassBySlug(slug: string, signature: string, adminToken: string): Promise<any | null> {
+    if (!/^[A-Za-z0-9_-]{16,128}$/.test(slug) || !/^[a-f0-9]{16}$/i.test(signature)) return null;
+
+    const matchesTicket = (ticket: any): boolean => {
+      if (!ticket || ticket.passSlug?.id !== slug) return false;
+      const storedSignature = ticket.signature || ticket.passSignature || ticket.passSlug?.sig || ticket.passSlug?.signature;
+      return matchesStoredCredential(signature, storedSignature);
+    };
+    const normalizeMatch = (ticket: any): any => ({
+      ...ticket,
+      ticketId: ticket.ticketId || ticket.id,
+      signature: ticket.signature || ticket.passSignature || ticket.passSlug?.sig || ticket.passSlug?.signature,
+    });
+
+    const rootTickets = await rtdbGet("tickets", adminToken);
+    const directMatch = Object.values((rootTickets.data || {}) as Record<string, any>)
+      .find(matchesTicket);
+    if (directMatch) return normalizeMatch(directMatch);
+
+    // Older booking flows may have only written the user mirror. Search the
+    // mirror as a read-only fallback; no record is changed here.
+    const usersSnapshot = await rtdbGet("users", adminToken);
+    for (const user of Object.values((usersSnapshot.data || {}) as Record<string, any>)) {
+      const tickets = (user as any)?.tickets || {};
+      const match = Object.values(tickets as Record<string, any>).find(matchesTicket);
+      if (match) return normalizeMatch(match);
+    }
+    return null;
+  }
+
+  /**
    * Public Secure Digital Pass Endpoint (:slug/:signature).
    */
   app.get('/api/passes/:slug/:signature', async (req: any, res) => {
@@ -5453,6 +5488,13 @@ export async function createApp() {
         }
         const passSnap = await rtdbGet(`passes/${slug}`, adminToken);
         passRecord = passSnap.data;
+
+        // A legacy booking may have the ticket but no /passes index entry.
+        // Recover it by the canonical pass-slug ID and stored signature; this
+        // avoids ambiguous ticket-number matches during legacy migrations.
+        if (!passRecord && adminToken) {
+          passRecord = await recoverPassBySlug(slug, signature, adminToken);
+        }
       }
 
       if (!passRecord) {
