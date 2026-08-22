@@ -21,7 +21,7 @@ interface HomeProps {
   onNavigateToSearch: (category: string) => void;
 }
 
-const Home: React.FC<HomeProps> = ({
+export const Home: React.FC<HomeProps> = ({
   events,
   onSelectEvent,
   onBookNow,
@@ -481,4 +481,4 @@ const Home: React.FC<HomeProps> = ({
   );
 };
 
-export default Home;
+
