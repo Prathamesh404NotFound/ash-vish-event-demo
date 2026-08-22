@@ -1,104 +1,84 @@
-import React, { useState, useRef } from 'react';
-import {
+import React, { useRef } from 'react';
+import { 
+  Ticket, 
+  Flame, 
+  Star, 
+  ChevronLeft, 
+  ChevronRight, 
   Sparkles,
-  ChevronRight,
-  ChevronLeft,
-  Calendar,
   MapPin,
-  Flame,
-  Star,
-  Ticket,
-  ArrowRight,
-  Info,
+  Calendar,
+  Clock
 } from 'lucide-react';
-import { EventItem, EventCategory } from '../types';
-import { useBooking } from '../contexts/BookingContext';
-import { EventCard } from '../components/EventCard';
-import { CategoryChip } from '../components/CategoryChip';
-import { formatINR } from '../utils/formatters';
-import { useSEO } from '../hooks/useSEO';
-import { generateOrganizationSchema } from '../utils/structuredData';
+import { Event } from '../types';
+import EventCard from '../components/EventCard';
+import CategoryChip from '../components/CategoryChip';
 
 interface HomeProps {
-  onSelectEvent: (event: EventItem) => void;
-  onBookNow: (event: EventItem) => void;
-  onNavigateToSearch: (category?: EventCategory | 'all') => void;
+  events: Event[];
+  onSelectEvent: (event: Event) => void;
+  onBookNow: (event: Event) => void;
+  onNavigateToSearch: (category: string) => void;
 }
 
-export const Home: React.FC<HomeProps> = ({
+const Home: React.FC<HomeProps> = ({
+  events,
   onSelectEvent,
   onBookNow,
   onNavigateToSearch,
 }) => {
-  const { events } = useBooking();
-  const [selectedCategory, setSelectedCategory] = useState<EventCategory | 'all'>('all');
-  const [heroIndex, setHeroIndex] = useState(0);
+  const [selectedCategory, setSelectedCategory] = React.useState('all');
+  const categories = ['all', 'concert', 'comedy', 'sports', 'theatre', 'workshop'];
 
-  useSEO({
-    title: 'Best Event Organisers in Kolhapur, Maharashtra & India',
-    description: 'Book official tickets for concerts, standup comedy, stadium events, and theatre in Kolhapur & across Maharashtra. Ash-vish Events — trusted event organisers with instant QR-code digital entry.',
-    keywords: 'event organisers kolhapur, events in kolhapur, book tickets kolhapur, concert tickets maharashtra, event management kolhapur, best event organisers india, ash-vish events, digital qr ticket, live concerts kolhapur, standup comedy kolhapur, wedding events kolhapur, corporate events kolhapur',
-    structuredData: generateOrganizationSchema(),
-  });
+  const trendingEvents = events.filter(e => e.isTrending).slice(0, 6);
+  const popularEvents = events.filter(e => e.rating && e.rating >= 4.5).slice(0, 6);
+  const musicEvents = events.filter(e => e.category === 'concert');
+  const comedyEvents = events.filter(e => e.category === 'comedy');
+  const sportsEvents = events.filter(e => e.category === 'sports');
+  
+  const currentHeroEvent = events.find(e => e.isFeatured) || events[0];
 
-  // Guard against incomplete/malformed event records so a single bad row
-  // in the database can never crash the whole homepage (e.g. "v.coverUrl
-  // undefined" TypeError on the cinematic hero).
-  const wellFormedEvents = events.filter(
-    (e) => e && typeof e === 'object' && e.title && (e.posterUrl || e.coverUrl) && typeof e.status === 'string'
-  );
-  const publicEvents = wellFormedEvents.filter((e) => e.status !== 'draft' && e.status !== 'archived' && e.isEventPublic !== false);
-  const featuredEvents = publicEvents.filter((e) => e.isFeatured);
-  const currentHeroEvent = featuredEvents[heroIndex] || publicEvents[0];
-
-  // Filtered lists for sections
-  const trendingEvents = publicEvents.filter((e) => e.isTrending);
-  const popularEvents = publicEvents.filter((e) => e.isPopularThisWeek);
-  const musicEvents = publicEvents.filter((e) => e.category === 'concert');
-  const comedyEvents = publicEvents.filter((e) => e.category === 'comedy');
-  const sportsEvents = publicEvents.filter((e) => e.category === 'sports');
-
-  // Category chips
-  const categories: (EventCategory | 'all')[] = ['all', 'concert', 'comedy', 'sports', 'theatre', 'festival'];
-
-  // Scroll helper for horizontal rows
-  const scrollRow = (rowId: string, direction: 'left' | 'right') => {
-    const container = document.getElementById(rowId);
-    if (container) {
-      const scrollAmount = direction === 'left' ? -350 : 350;
-      container.scrollBy({ left: scrollAmount, behavior: 'smooth' });
+  const scrollRow = (id: string, direction: 'left' | 'right') => {
+    const el = document.getElementById(id);
+    if (el) {
+      const scrollAmount = direction === 'left' ? -400 : 400;
+      el.scrollBy({ left: scrollAmount, behavior: 'smooth' });
     }
   };
 
+  const formatINR = (amount: number) => {
+    return new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: 'INR',
+      maximumFractionDigits: 0
+    }).format(amount);
+  };
+
   return (
-    <div className="space-y-24 pb-24 bg-[#070707]">
-      
-      {/* ----------------- CINEMATIC TWO-COLUMN HERO SECTION ----------------- */}
-      <section className="relative min-h-[85vh] lg:min-h-[90vh] flex items-center overflow-hidden bg-[#070707] border-b border-white/5">
-        {/* Hero Background with Cinematic Vignette */}
+    <div className="min-h-screen bg-[#070707] text-white pb-20 space-y-32">
+      {/* ----------------- CINEMATIC HERO SECTION ----------------- */}
+      <section className="relative min-h-[90vh] flex items-center pt-20 overflow-hidden">
+        {/* Dynamic Background */}
         <div className="absolute inset-0 z-0">
-          {currentHeroEvent ? (
+          {currentHeroEvent?.coverUrl || currentHeroEvent?.posterUrl ? (
             <div className="relative w-full h-full">
               <img
                 src={currentHeroEvent.coverUrl || currentHeroEvent.posterUrl}
-                alt={currentHeroEvent.title}
-                className="w-full h-full object-cover object-center filter brightness-[0.4] contrast-[1.1] scale-105"
-                fetchPriority="high"
+                alt="Background"
+                className="w-full h-full object-cover opacity-40 scale-105 blur-[2px]"
               />
-              {/* Radial and Linear Vignette for cinematic focus */}
-              <div className="absolute inset-0 bg-gradient-to-t from-[#070707] via-transparent to-[#070707]/40" />
-              <div className="absolute inset-0 bg-gradient-to-r from-[#070707] via-[#070707]/20 to-transparent" />
+              <div className="absolute inset-0 bg-gradient-to-r from-[#070707] via-[#070707]/80 to-transparent" />
+              <div className="absolute inset-0 bg-gradient-to-t from-[#070707] via-transparent to-transparent" />
             </div>
           ) : (
-            <div className="w-full h-full bg-[#070707]" />
+            <div className="w-full h-full bg-[#0A0A0A]" />
           )}
         </div>
 
-        {/* Hero Content Container - Two Column Layout */}
-        <div className="relative z-10 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-32 pb-20">
+        <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full">
           {currentHeroEvent ? (
-            <div className="grid lg:grid-cols-2 gap-16 items-center">
-              {/* LEFT COLUMN: Clean Editorial Typography */}
+            <div className="grid lg:grid-cols-2 gap-12 lg:gap-20 items-center">
+              {/* LEFT COLUMN: Editorial Typography */}
               <div className="space-y-10 animate-in fade-in slide-in-from-left-12 duration-1000">
                 <div className="space-y-6">
                   <span className="inline-flex items-center gap-2 text-[#D4AF37] text-[10px] font-black uppercase tracking-[0.4em]">
@@ -109,25 +89,34 @@ export const Home: React.FC<HomeProps> = ({
                     {currentHeroEvent.title}
                   </h1>
                   <p className="text-gray-400 text-base sm:text-lg max-w-lg leading-relaxed font-medium border-l-2 border-[#D4AF37]/30 pl-6">
-                    {currentHeroEvent.subtitle}
+                    {currentHeroEvent.subtitle || "Experience an unforgettable evening of premium entertainment and world-class performances."}
                   </p>
                 </div>
 
-                {/* Editorial Metadata Cards */}
+                {/* Editorial Metadata */}
                 <div className="flex flex-wrap gap-8 py-8 border-y border-white/5">
                   <div className="space-y-1.5">
                     <span className="text-[9px] text-gray-500 font-black uppercase tracking-widest">Date</span>
-                    <p className="text-white font-black text-xs uppercase tracking-widest">{currentHeroEvent.date}</p>
+                    <div className="flex items-center gap-2 text-white font-black text-xs uppercase tracking-widest">
+                      <Calendar className="w-3 h-3 text-[#D4AF37]" />
+                      {currentHeroEvent.date}
+                    </div>
                   </div>
                   <div className="w-[1px] h-8 bg-white/10 hidden sm:block" />
                   <div className="space-y-1.5">
                     <span className="text-[9px] text-gray-500 font-black uppercase tracking-widest">Time</span>
-                    <p className="text-white font-black text-xs uppercase tracking-widest">{currentHeroEvent.time}</p>
+                    <div className="flex items-center gap-2 text-white font-black text-xs uppercase tracking-widest">
+                      <Clock className="w-3 h-3 text-[#D4AF37]" />
+                      {currentHeroEvent.time}
+                    </div>
                   </div>
                   <div className="w-[1px] h-8 bg-white/10 hidden sm:block" />
                   <div className="space-y-1.5">
                     <span className="text-[9px] text-gray-500 font-black uppercase tracking-widest">Venue</span>
-                    <p className="text-white font-black text-xs uppercase tracking-widest max-w-[200px] truncate">{currentHeroEvent.venue}</p>
+                    <div className="flex items-center gap-2 text-white font-black text-xs uppercase tracking-widest max-w-[200px] truncate">
+                      <MapPin className="w-3 h-3 text-[#D4AF37]" />
+                      {currentHeroEvent.venue}
+                    </div>
                   </div>
                 </div>
 
@@ -171,7 +160,7 @@ export const Home: React.FC<HomeProps> = ({
                 </div>
               </div>
 
-              {/* RIGHT COLUMN: Artist Portrait / Poster Focal Point */}
+              {/* RIGHT COLUMN: Artist Focal Point */}
               <div className="hidden lg:flex justify-center items-center animate-in fade-in zoom-in duration-1000 delay-300">
                 <div className="relative w-full max-w-md aspect-[3/4] rounded-3xl overflow-hidden border border-white/10 shadow-2xl rotate-2 hover:rotate-0 transition-transform duration-700">
                   <img
@@ -294,26 +283,15 @@ export const Home: React.FC<HomeProps> = ({
       {/* ----------------- TRENDING EVENTS ROW ----------------- */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between mb-10">
-          <div className="space-y-2">
-            <span className="text-[#D4AF37] text-[10px] font-black uppercase tracking-[0.4em]">Curated Picks</span>
-            <h2 className="text-2xl sm:text-3xl font-black text-white uppercase tracking-tight">
-              Trending Events
-            </h2>
-          </div>
-
-
-      {/* ----------------- TRENDING EVENTS ROW ----------------- */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-2">
             <div className="p-2 bg-[#D4AF37]/10 rounded-xl border border-[#D4AF37]/20 text-[#D4AF37]">
               <Flame className="w-5 h-5 fill-[#D4AF37]" />
             </div>
             <div>
-              <h2 className="font-heading font-bold text-2xl text-white">
+              <h2 className="font-heading font-bold text-2xl text-white uppercase tracking-tight">
                 Trending Shows Near You
               </h2>
-              <p className="text-xs text-gray-400">High demand events selling fast</p>
+              <p className="text-xs text-gray-500">High demand events selling fast</p>
             </div>
           </div>
 
@@ -351,19 +329,18 @@ export const Home: React.FC<HomeProps> = ({
         </div>
       </section>
 
-
-      {/* ----------------- POPULAR THIS WEEK GRID/ROW ----------------- */}
+      {/* ----------------- POPULAR THIS WEEK ----------------- */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-10">
           <div className="flex items-center gap-2">
             <div className="p-2 bg-purple-500/10 rounded-xl border border-purple-500/20 text-purple-400">
               <Star className="w-5 h-5 fill-purple-400" />
             </div>
             <div>
-              <h2 className="font-heading font-bold text-2xl text-white">
+              <h2 className="font-heading font-bold text-2xl text-white uppercase tracking-tight">
                 Popular This Week
               </h2>
-              <p className="text-xs text-gray-400">Highest rated attendee reviews</p>
+              <p className="text-xs text-gray-500">Highest rated attendee reviews</p>
             </div>
           </div>
 
@@ -401,23 +378,21 @@ export const Home: React.FC<HomeProps> = ({
         </div>
       </section>
 
-
-      {/* ----------------- MUSIC CONCERTS ROW ----------------- */}
+      {/* ----------------- MUSIC CONCERTS ----------------- */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="font-heading font-bold text-2xl text-white">
+        <div className="flex items-center justify-between mb-10">
+          <h2 className="font-heading font-bold text-2xl text-white uppercase tracking-tight">
             Live Music & World Tours
           </h2>
-
           <button
             onClick={() => onNavigateToSearch('concert')}
-            className="text-xs font-semibold text-[#D4AF37] hover:underline"
+            className="text-[10px] font-black text-[#D4AF37] uppercase tracking-[0.2em] hover:underline"
           >
-            See All Concerts ({musicEvents.length})
+            See All Concerts
           </button>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
           {musicEvents.map((evt) => (
             <EventCard
               key={evt.id}
@@ -429,49 +404,37 @@ export const Home: React.FC<HomeProps> = ({
         </div>
       </section>
 
-
-      {/* ----------------- COMEDY SHOWS & SPORTS ----------------- */}
+      {/* ----------------- COMEDY & SPORTS ----------------- */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
           
           {/* Comedy Block */}
-          <div className="bg-[#141414] border border-white/10 rounded-3xl p-6 flex flex-col justify-between">
-            <div>
-              <span className="text-xs font-bold text-amber-400 uppercase tracking-wider">
-                Comedy Nights
-              </span>
-              <h3 className="font-heading font-bold text-xl text-white mt-1">
-                Standup Comedy Special Shows
+          <div className="bg-[#141414] border border-white/10 rounded-3xl p-8 space-y-8">
+            <div className="space-y-2">
+              <span className="text-[10px] font-black text-amber-400 uppercase tracking-[0.3em]">Comedy Nights</span>
+              <h3 className="font-heading font-bold text-2xl text-white uppercase tracking-tight">
+                Standup Specials
               </h3>
-              <p className="text-xs text-gray-400 mt-1">
-                Top award-winning Netflix and HBO headliners live on stage.
-              </p>
             </div>
 
-            <div className="mt-6 space-y-4">
+            <div className="space-y-4">
               {comedyEvents.slice(0, 2).map((evt) => (
                 <div
                   key={evt.id}
                   onClick={() => onSelectEvent(evt)}
-                  className="flex items-center gap-4 p-3 rounded-2xl bg-[#1C1C1C] hover:bg-[#262626] cursor-pointer transition-all border border-white/5"
+                  className="flex items-center gap-6 p-4 rounded-2xl bg-white/[0.02] hover:bg-white/[0.05] cursor-pointer transition-all border border-white/5"
                 >
-                  {evt.posterUrl ? (
                   <img
                     src={evt.posterUrl}
                     alt={evt.title}
-                    className="w-16 h-16 rounded-xl object-cover"
+                    className="w-20 h-20 rounded-xl object-cover"
                   />
-                  ) : (
-                    <div className="w-16 h-16 rounded-xl bg-[#262626] border border-white/10 flex items-center justify-center shrink-0">
-                      <Ticket className="w-6 h-6 text-white/30" />
-                    </div>
-                  )}
                   <div className="flex-1 min-w-0">
-                    <h4 className="font-heading font-bold text-sm text-white truncate">
+                    <h4 className="font-heading font-bold text-sm text-white uppercase tracking-wider truncate">
                       {evt.title}
                     </h4>
-                    <p className="text-xs text-gray-400">{evt.date} • {evt.venue}</p>
-                    <p className="text-xs font-bold text-[#D4AF37] mt-0.5">From {formatINR(evt.startingPrice)}</p>
+                    <p className="text-[10px] text-gray-500 uppercase tracking-widest mt-1">{evt.date}</p>
+                    <p className="text-xs font-bold text-[#D4AF37] mt-2">From {formatINR(evt.startingPrice)}</p>
                   </div>
                 </div>
               ))}
@@ -479,43 +442,32 @@ export const Home: React.FC<HomeProps> = ({
           </div>
 
           {/* Sports Block */}
-          <div className="bg-[#141414] border border-white/10 rounded-3xl p-6 flex flex-col justify-between">
-            <div>
-              <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">
-                Stadium Sports
-              </span>
-              <h3 className="font-heading font-bold text-xl text-white mt-1">
-                Championship Games & Derby Matches
+          <div className="bg-[#141414] border border-white/10 rounded-3xl p-8 space-y-8">
+            <div className="space-y-2">
+              <span className="text-[10px] font-black text-emerald-400 uppercase tracking-[0.3em]">Stadium Sports</span>
+              <h3 className="font-heading font-bold text-2xl text-white uppercase tracking-tight">
+                Championship Games
               </h3>
-              <p className="text-xs text-gray-400 mt-1">
-                NBA Finals, Premier League tours, and court-side VIP passes.
-              </p>
             </div>
 
-            <div className="mt-6 space-y-4">
+            <div className="space-y-4">
               {sportsEvents.slice(0, 2).map((evt) => (
                 <div
                   key={evt.id}
                   onClick={() => onSelectEvent(evt)}
-                  className="flex items-center gap-4 p-3 rounded-2xl bg-[#1C1C1C] hover:bg-[#262626] cursor-pointer transition-all border border-white/5"
+                  className="flex items-center gap-6 p-4 rounded-2xl bg-white/[0.02] hover:bg-white/[0.05] cursor-pointer transition-all border border-white/5"
                 >
-                  {evt.posterUrl ? (
                   <img
                     src={evt.posterUrl}
                     alt={evt.title}
-                    className="w-16 h-16 rounded-xl object-cover"
+                    className="w-20 h-20 rounded-xl object-cover"
                   />
-                  ) : (
-                    <div className="w-16 h-16 rounded-xl bg-[#262626] border border-white/10 flex items-center justify-center shrink-0">
-                      <Ticket className="w-6 h-6 text-white/30" />
-                    </div>
-                  )}
                   <div className="flex-1 min-w-0">
-                    <h4 className="font-heading font-bold text-sm text-white truncate">
+                    <h4 className="font-heading font-bold text-sm text-white uppercase tracking-wider truncate">
                       {evt.title}
                     </h4>
-                    <p className="text-xs text-gray-400">{evt.date} • {evt.venue}</p>
-                    <p className="text-xs font-bold text-[#D4AF37] mt-0.5">From {formatINR(evt.startingPrice)}</p>
+                    <p className="text-[10px] text-gray-500 uppercase tracking-widest mt-1">{evt.date}</p>
+                    <p className="text-xs font-bold text-[#D4AF37] mt-2">From {formatINR(evt.startingPrice)}</p>
                   </div>
                 </div>
               ))}
@@ -528,3 +480,5 @@ export const Home: React.FC<HomeProps> = ({
     </div>
   );
 };
+
+export default Home;
