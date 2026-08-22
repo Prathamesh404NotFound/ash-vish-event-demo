@@ -160,7 +160,7 @@ When an attendee opens the link:
 
 ### HMAC Secret Rotation
 
-To rotate the secret safely, generate a new 32-byte random value, set it as `SERVER_HMAC_SECRET`, and move the current value to `SERVER_HMAC_SECRET_PREVIOUS`. Deploy and verify that old QR codes and pass links still work. After the old tickets and counter PINs are no longer needed, remove `SERVER_HMAC_SECRET_PREVIOUS` and deploy again. Never commit either secret to the repository or expose it through frontend environment variables.
+To rotate the secret safely, generate a new 32-byte random value, set it as `SERVER_HMAC_SECRET`, and move the current value to `SERVER_HMAC_SECRET_PREVIOUS`. Deploy and verify that old QR codes and pass links still work. If the previous secret is unavailable, the server can validate an already-issued credential only when its complete value exactly matches the canonical credential stored with that ticket; this supports no-resend recovery without allowing forged values. After the old tickets and counter PINs are no longer needed, remove `SERVER_HMAC_SECRET_PREVIOUS` and deploy again. Never commit either secret to the repository or expose it through frontend environment variables.
 
 ---
 

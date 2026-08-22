@@ -57,6 +57,19 @@ function verifyHmacSignature(payload: string, providedSignature: unknown, length
   });
 }
 
+/**
+ * During a secret rotation, an already-issued credential can be validated
+ * against the exact value stored with its ticket. This does not permit token
+ * forgery: the complete old QR/pass credential must already exist in RTDB.
+ */
+function matchesStoredCredential(received: unknown, stored: unknown): boolean {
+  if (typeof received !== "string" || typeof stored !== "string") return false;
+  if (received.length === 0 || received.length !== stored.length || received.length > 4096) return false;
+  const receivedBytes = Buffer.from(received);
+  const storedBytes = Buffer.from(stored);
+  return crypto.timingSafeEqual(receivedBytes, storedBytes);
+}
+
 function hashCounterPin(pin: string, secret: string = requireHmacSecret()): string {
   return crypto.createHash("sha256").update(pin + secret).digest("hex");
 }
@@ -5123,14 +5136,6 @@ export async function createApp() {
       const payloadStr = Buffer.from(parts[1], "base64url").toString("utf8");
       const providedSig = parts[2];
 
-      if (!verifyHmacSignature(payloadStr, providedSig)) {
-        return res.status(400).json({
-          success: false,
-          valid: false,
-          error: "AUTHENTICATION FAILURE: HMAC-SHA256 Token Signature Invalid or Tampered!"
-        });
-      }
-
       let ticketId: string | null = null;
       let orderId: string | null = null;
 
@@ -5151,6 +5156,26 @@ export async function createApp() {
         if (snap.data) {
           ticketId = snap.data.ticketId;
         }
+      }
+
+      let signatureValid = verifyHmacSignature(payloadStr, providedSig);
+      if (!signatureValid && ticketId) {
+        // Preserve an existing customer credential during key rotation by
+        // comparing the complete token with the canonical ticket record.
+        try {
+          const ticketSnap = await rtdbGet(`tickets/${ticketId}`, userToken);
+          signatureValid = matchesStoredCredential(signedToken, ticketSnap.data?.qrCodeValue);
+        } catch {
+          signatureValid = false;
+        }
+      }
+
+      if (!signatureValid) {
+        return res.status(400).json({
+          success: false,
+          valid: false,
+          error: "AUTHENTICATION FAILURE: HMAC-SHA256 Token Signature Invalid or Tampered!"
+        });
       }
 
       if (!ticketId) {
@@ -5439,7 +5464,8 @@ export async function createApp() {
         return res.status(404).json({ success: false, error: 'TICKET_NOT_FOUND' });
       }
 
-      if (!verifyHmacSignature(`${slug}|${ticketId}`, signature)) {
+      if (!verifyHmacSignature(`${slug}|${ticketId}`, signature) &&
+          !matchesStoredCredential(signature, passRecord.signature)) {
         return res.status(403).json({ success: false, error: 'INVALID_LINK' });
       }
 
@@ -5553,7 +5579,8 @@ export async function createApp() {
         if (!sig || String(sig).length !== 16) {
           return res.status(403).json({ success: false, error: "Invalid or missing pass signature." });
         }
-        if (!verifyHmacSignature(`${passId}|${ticketId}`, sig)) {
+        if (!verifyHmacSignature(`${passId}|${ticketId}`, sig) &&
+            !matchesStoredCredential(sig, passRecord.signature)) {
           return res.status(403).json({ success: false, error: "Invalid or forged digital pass signature." });
         }
       } else {
@@ -5577,7 +5604,8 @@ export async function createApp() {
           if (!sig || String(sig).length !== 16) {
             return res.status(403).json({ success: false, error: "Invalid or missing pass signature." });
           }
-          if (!verifyHmacSignature(`${passId}|${ticketId}`, sig)) {
+          if (!verifyHmacSignature(`${passId}|${ticketId}`, sig) &&
+            !matchesStoredCredential(sig, passRecord.signature)) {
             return res.status(403).json({ success: false, error: "Invalid or forged digital pass signature." });
           }
         } else {
