@@ -1189,6 +1189,7 @@ async function finalizeBookingServerSide(
       channel: isWalkInChannel ? "counter" : "online",
       ticketId,
       bookingId,
+      createdBy: pendingOrder?.issuedBySubUserName || "system",
     }).catch(() => {});
 
     // Confirmation email (Prompt B Item 6): send on order confirmation. When
@@ -1213,8 +1214,22 @@ async function finalizeBookingServerSide(
     if (newTicket && targetPhone && targetPhone.replace(/\D/g, '').length >= 10) {
       (async () => {
         try {
-          const res = await sendTicketWhatsAppWithImage(newTicket, targetPhone);
           const adminToken = await getAdminAuthToken();
+          
+          // Idempotency Lock: Ensure automatic confirmation is only sent once per ticket.
+          const lockPath = `tickets/${ticketId}/whatsappConfirmationSent`;
+          const lockTx = await rtdbTransaction(lockPath, (curr: any) => {
+            if (curr === true) return undefined; // Already sent, abort.
+            return true; // Mark as sent.
+          }, adminToken);
+
+          if (!lockTx.committed) {
+            console.log(`[WHATSAPP LOCK] Confirmation already sent for ticket ${ticketId}. Skipping.`);
+            return;
+          }
+
+          // Use text-only for automatic confirmation as per user preference "no img for now".
+          const res = await sendTicketWhatsApp(newTicket, targetPhone);
           
           const notificationEntry: any = {
             channel: 'enotify_whatsapp',
@@ -1225,6 +1240,9 @@ async function finalizeBookingServerSide(
             notificationEntry.status = 'sent';
             notificationEntry.waMessageId = res.waMessageId;
           } else {
+            // If it failed, we might want to clear the lock so it can be retried automatically?
+            // Actually, for "production-harden", it's safer to leave it "sent" to avoid loops,
+            // and let the operator use manual resend if needed.
             notificationEntry.status = 'failed';
             notificationEntry.reason = res.error?.message || JSON.stringify(res.error) || 'Unknown error';
           }

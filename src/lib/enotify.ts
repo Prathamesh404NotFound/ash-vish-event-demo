@@ -410,9 +410,10 @@ export async function sendTicketWhatsAppWithImage(
     if (response.ok && (responseData.status === 'success' || responseData.status === true || responseData.status === 200)) {
       return { success: true, waMessageId: responseData.data?.id || responseData.messageId || `enotify_img_${Date.now()}` };
     }
+    
     return { success: false, error: responseData };
   } catch (err) {
-    console.error("[ENOTIFY] Image send failed, falling back to text:", err);
-    return sendTicketWhatsApp(ticket, recipientPhone);
+    console.error("[ENOTIFY] Image send network/fetch error:", err);
+    return { success: false, error: err };
   }
 }
