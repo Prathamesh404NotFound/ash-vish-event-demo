@@ -436,6 +436,15 @@ export const AdminBookings: React.FC = () => {
   const [edName, setEdName] = useState('');
   const [edEmail, setEdEmail] = useState('');
   const [edPhone, setEdPhone] = useState('');
+  const [edEventId, setEdEventId] = useState('');
+  const [edTierId, setEdTierId] = useState('');
+  const [edQuantity, setEdQuantity] = useState(1);
+  const [edSeats, setEdSeats] = useState('');
+  const [edDiscount, setEdDiscount] = useState(0);
+  const [edCouponCode, setEdCouponCode] = useState('');
+  const [edPaymentMethod, setEdPaymentMethod] = useState('');
+  const [edCounterName, setEdCounterName] = useState('');
+  const [edIssuer, setEdIssuer] = useState('');
   const [edErrorMessage, setEdErrorMessage] = useState('');
   const [edSubmitting, setEdSubmitting] = useState(false);
 
@@ -444,6 +453,15 @@ export const AdminBookings: React.FC = () => {
     setEdName(o.customerName || o.attendeeName || '');
     setEdEmail(o.customerEmail || o.attendeeEmail || '');
     setEdPhone(o.customerPhone || o.attendeePhone || '');
+    setEdEventId(o.eventId || '');
+    setEdTierId(o.tierId || '');
+    setEdQuantity(Number(o.quantity || 1));
+    setEdSeats((o.seatLabels || o.seatNumbers || o.seatIds || []).join(', '));
+    setEdDiscount(Number(o.discountAmount ?? o.discount ?? 0));
+    setEdCouponCode(o.couponCode || '');
+    setEdPaymentMethod(o.paymentMethod || o.paymentMethodLabel || '');
+    setEdCounterName(o.counterName || '');
+    setEdIssuer(o.issuedBySubUserName || o.issuedBy || '');
     setEdErrorMessage('');
   };
 
@@ -461,6 +479,15 @@ export const AdminBookings: React.FC = () => {
           email: edEmail.trim(),
           phone: edPhone.trim(),
         },
+        eventId: edEventId || undefined,
+        tierId: edTierId || undefined,
+        quantity: Math.max(1, Number(edQuantity) || 1),
+        selectedSeats: edSeats.trim() ? edSeats.split(',').map((seat) => seat.trim()).filter(Boolean) : [],
+        discount: Math.max(0, Number(edDiscount) || 0),
+        couponCode: edCouponCode.trim(),
+        paymentMethod: edPaymentMethod.trim(),
+        counterName: edCounterName.trim(),
+        issuedBySubUserName: edIssuer.trim(),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -1105,32 +1132,80 @@ export const AdminBookings: React.FC = () => {
             )}
 
             <form onSubmit={handleEditOrder} className="space-y-4 text-xs">
-              <div>
-                <label className="font-bold text-gray-300 block mb-1">Customer Name</label>
-                <input
-                  type="text"
-                  value={edName}
-                  onChange={(e) => setEdName(e.target.value)}
-                  className="w-full bg-[#141414] border border-white/10 rounded-xl px-3.5 py-3 text-white focus:outline-none focus:border-[#D4AF37]"
-                />
+              <div className="p-3 rounded-xl bg-[#D4AF37]/5 border border-[#D4AF37]/20 text-gray-300">
+                <span className="font-bold text-white">Protected ticket:</span> {editOrderTarget.ticketNumber || 'Ticket reference unavailable'}
+                <span className="block text-[10px] text-gray-500 mt-1">Ticket number, QR code, pass link, payment status, and audit history cannot be changed here.</span>
               </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="font-bold text-gray-300 block mb-1">Customer Name</label>
+                  <input type="text" value={edName} onChange={(e) => setEdName(e.target.value)} className="w-full bg-[#141414] border border-white/10 rounded-xl px-3.5 py-3 text-white focus:outline-none focus:border-[#D4AF37]" />
+                </div>
+                <div>
+                  <label className="font-bold text-gray-300 block mb-1">Phone</label>
+                  <input type="tel" value={edPhone} onChange={(e) => setEdPhone(e.target.value)} className="w-full bg-[#141414] border border-white/10 rounded-xl px-3.5 py-3 text-white focus:outline-none focus:border-[#D4AF37]" />
+                </div>
+              </div>
+
               <div>
                 <label className="font-bold text-gray-300 block mb-1">Email</label>
-                <input
-                  type="email"
-                  value={edEmail}
-                  onChange={(e) => setEdEmail(e.target.value)}
-                  className="w-full bg-[#141414] border border-white/10 rounded-xl px-3.5 py-3 text-white focus:outline-none focus:border-[#D4AF37]"
-                />
+                <input type="email" value={edEmail} onChange={(e) => setEdEmail(e.target.value)} className="w-full bg-[#141414] border border-white/10 rounded-xl px-3.5 py-3 text-white focus:outline-none focus:border-[#D4AF37]" />
               </div>
-              <div>
-                <label className="font-bold text-gray-300 block mb-1">Phone</label>
-                <input
-                  type="tel"
-                  value={edPhone}
-                  onChange={(e) => setEdPhone(e.target.value)}
-                  className="w-full bg-[#141414] border border-white/10 rounded-xl px-3.5 py-3 text-white focus:outline-none focus:border-[#D4AF37]"
-                />
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="font-bold text-gray-300 block mb-1">Event</label>
+                  <select value={edEventId} disabled className="w-full bg-[#141414] border border-white/10 rounded-xl px-3.5 py-3 text-gray-400 focus:outline-none">
+                    {events.filter((evt) => evt.id === edEventId).map((evt) => <option key={evt.id} value={evt.id}>{evt.title}</option>)}
+                  </select>
+                  <p className="text-[9px] text-gray-500 mt-1">Event changes require a replacement order.</p>
+                </div>
+                <div>
+                  <label className="font-bold text-gray-300 block mb-1">Ticket Tier</label>
+                  <select value={edTierId} onChange={(e) => setEdTierId(e.target.value)} className="w-full bg-[#141414] border border-white/10 rounded-xl px-3.5 py-3 text-white focus:outline-none focus:border-[#D4AF37]">
+                    {normalizeTiers(events.find((evt) => evt.id === edEventId)?.ticketTiers).map((tier, index) => <option key={tier.id || index} value={tier.id || ''}>{tier.name || `Tier ${index + 1}`} · ₹{Number(tier.price || 0).toLocaleString('en-IN')}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="font-bold text-gray-300 block mb-1">Quantity</label>
+                  <input type="number" min={1} max={100} value={edQuantity} onChange={(e) => setEdQuantity(Math.max(1, Number(e.target.value) || 1))} className="w-full bg-[#141414] border border-white/10 rounded-xl px-3.5 py-3 text-white focus:outline-none focus:border-[#D4AF37]" />
+                </div>
+                <div>
+                  <label className="font-bold text-gray-300 block mb-1">Seat / Access</label>
+                  <input type="text" value={edSeats} onChange={(e) => setEdSeats(e.target.value)} placeholder="Seat IDs separated by commas" className="w-full bg-[#141414] border border-white/10 rounded-xl px-3.5 py-3 text-white focus:outline-none focus:border-[#D4AF37]" />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="font-bold text-gray-300 block mb-1">Discount (₹)</label>
+                  <input type="number" min={0} value={edDiscount} onChange={(e) => setEdDiscount(Math.max(0, Number(e.target.value) || 0))} className="w-full bg-[#141414] border border-white/10 rounded-xl px-3.5 py-3 text-white focus:outline-none focus:border-[#D4AF37]" />
+                </div>
+                <div>
+                  <label className="font-bold text-gray-300 block mb-1">Coupon Code</label>
+                  <input type="text" value={edCouponCode} onChange={(e) => setEdCouponCode(e.target.value)} placeholder="Optional" className="w-full bg-[#141414] border border-white/10 rounded-xl px-3.5 py-3 text-white focus:outline-none focus:border-[#D4AF37]" />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="font-bold text-gray-300 block mb-1">Payment Method</label>
+                  <select value={edPaymentMethod} onChange={(e) => setEdPaymentMethod(e.target.value)} className="w-full bg-[#141414] border border-white/10 rounded-xl px-3.5 py-3 text-white focus:outline-none focus:border-[#D4AF37]">
+                    <option value="cash">Cash</option><option value="upi">UPI</option><option value="card">Card</option><option value="online">Online</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="font-bold text-gray-300 block mb-1">Counter</label>
+                  <input type="text" value={edCounterName} onChange={(e) => setEdCounterName(e.target.value)} placeholder="Counter name" className="w-full bg-[#141414] border border-white/10 rounded-xl px-3.5 py-3 text-white focus:outline-none focus:border-[#D4AF37]" />
+                </div>
+                <div>
+                  <label className="font-bold text-gray-300 block mb-1">Issued By</label>
+                  <input type="text" value={edIssuer} onChange={(e) => setEdIssuer(e.target.value)} placeholder="Staff or sub-user" className="w-full bg-[#141414] border border-white/10 rounded-xl px-3.5 py-3 text-white focus:outline-none focus:border-[#D4AF37]" />
+                </div>
               </div>
 
               <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-3 pt-3 border-t border-white/10">

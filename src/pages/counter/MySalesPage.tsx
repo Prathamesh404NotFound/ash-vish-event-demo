@@ -22,7 +22,14 @@ interface Ticket {
   status: 'valid' | 'redeemed' | 'cancelled';
   purchasedAt: string;
   cancelledReason?: string;
+  tierId?: string;
+  selectedSeats?: string[];
+  discount?: number;
+  couponCode?: string;
+  paymentMethod?: string;
+  counterName?: string;
   issuedBySubUserName?: string;
+  orderId?: string;
 }
 
 interface Summary {
@@ -31,9 +38,14 @@ interface Summary {
   bySubUser?: Record<string, number>;
 }
 
+function normalizeEditTiers(ticketTiers: any): any[] {
+  if (!ticketTiers) return [];
+  return Array.isArray(ticketTiers) ? ticketTiers : Object.values(ticketTiers);
+}
+
 export const MySalesPage: React.FC = () => {
   const { user, firebaseUser } = useAuth();
-  const { events } = useBooking();
+  const { events, editOrder } = useBooking();
 
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [total, setTotal] = useState(0);
@@ -51,7 +63,10 @@ export const MySalesPage: React.FC = () => {
 
   // Modals / Actions State
   const [editingTicket, setEditingTicket] = useState<Ticket | null>(null);
-  const [editForm, setEditForm] = useState({ name: '', phone: '', email: '' });
+  const [editForm, setEditForm] = useState({
+    name: '', phone: '', email: '', eventId: '', tierId: '', quantity: 1,
+    seats: '', discount: 0, couponCode: '', paymentMethod: '', counterName: '', issuer: '',
+  });
   const [voidingTicket, setVoidingTicket] = useState<Ticket | null>(null);
   const [voidReason, setVoidReason] = useState('');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -157,6 +172,15 @@ export const MySalesPage: React.FC = () => {
       name: ticket.attendeeName,
       phone: ticket.attendeePhone || '',
       email: ticket.attendeeEmail || '',
+      eventId: ticket.eventId || '',
+      tierId: ticket.tierId || '',
+      quantity: Number(ticket.quantity || 1),
+      seats: (ticket.selectedSeats || (ticket.seatNumber ? [ticket.seatNumber] : [])).join(', '),
+      discount: Number(ticket.discount || 0),
+      couponCode: ticket.couponCode || '',
+      paymentMethod: ticket.paymentMethod || '',
+      counterName: ticket.counterName || '',
+      issuer: ticket.issuedBySubUserName || '',
     });
   };
 
@@ -170,26 +194,32 @@ export const MySalesPage: React.FC = () => {
 
     setActionLoading('edit');
     try {
-      const idToken = await firebaseUser?.getIdToken();
-      const res = await fetch(`/api/counter/tickets/${editingTicket.id}/edit-attendee`, {
-        method: 'POST',
-        headers: { 
-          'Authorization': `Bearer ${idToken}`,
-          'Content-Type': 'application/json'
+      if (!editingTicket.orderId) {
+        throw new Error('This ticket has no linked order and cannot be edited from My Sales.');
+      }
+      const res = await editOrder(editingTicket.orderId, {
+        customerDetails: {
+          name: editForm.name,
+          phone: editForm.phone,
+          email: editForm.email,
         },
-        body: JSON.stringify({
-          attendeeName: editForm.name,
-          attendeePhone: editForm.phone,
-          attendeeEmail: editForm.email
-        })
+        eventId: editForm.eventId || undefined,
+        tierId: editForm.tierId || undefined,
+        quantity: Math.max(1, Number(editForm.quantity) || 1),
+        selectedSeats: editForm.seats.trim() ? editForm.seats.split(',').map((seat) => seat.trim()).filter(Boolean) : [],
+        discount: Math.max(0, Number(editForm.discount) || 0),
+        couponCode: editForm.couponCode.trim(),
+        paymentMethod: editForm.paymentMethod.trim(),
+        counterName: editForm.counterName.trim(),
+        issuedBySubUserName: editForm.issuer.trim(),
       });
       const data = await res.json();
       if (data.success) {
-        setSuccessMsg("Attendee details updated successfully.");
+        setSuccessMsg("Ticket details updated successfully.");
         setEditingTicket(null);
         fetchSales();
       } else {
-        alert(data.error || "Failed to edit attendee.");
+        alert(data.error || "Failed to edit ticket details.");
       }
     } catch (err: any) {
       alert(err.message || "Network error.");
@@ -645,40 +675,81 @@ export const MySalesPage: React.FC = () => {
                 <X className="w-4 h-4" />
               </button>
             </div>
-            <form onSubmit={handleSaveEdit} className="p-5 space-y-4">
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Attendee Name *</label>
-                <input
-                  type="text"
-                  required
-                  value={editForm.name}
-                  onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
-                  className="w-full bg-[#1A1A1A] border border-white/10 focus:border-[#D4AF37]/50 rounded-xl py-2 px-3.5 text-xs text-white outline-none transition-all"
-                  placeholder="John Doe"
-                />
+            <form onSubmit={handleSaveEdit} className="p-5 space-y-4 max-h-[80vh] overflow-y-auto">
+              <div className="p-3 rounded-xl bg-[#D4AF37]/5 border border-[#D4AF37]/20 text-gray-300 text-xs">
+                <span className="font-bold text-white">Protected ticket:</span> {editingTicket.ticketNumber}
+                <span className="block text-[9px] text-gray-500 mt-1">Ticket number, QR code, pass link, payment status, and audit history cannot be changed here.</span>
               </div>
 
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Phone Number</label>
-                <input
-                  type="text"
-                  value={editForm.phone}
-                  onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
-                  className="w-full bg-[#1A1A1A] border border-white/10 focus:border-[#D4AF37]/50 rounded-xl py-2 px-3.5 text-xs text-white outline-none transition-all"
-                  placeholder="919876543210"
-                />
-                <p className="text-[9px] text-gray-500">Must include country code (e.g. 91 for India) without '+' or spaces.</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Attendee Name *</label>
+                  <input type="text" required value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} className="w-full bg-[#1A1A1A] border border-white/10 focus:border-[#D4AF37]/50 rounded-xl py-2 px-3.5 text-xs text-white outline-none transition-all" placeholder="John Doe" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Phone Number</label>
+                  <input type="text" value={editForm.phone} onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })} className="w-full bg-[#1A1A1A] border border-white/10 focus:border-[#D4AF37]/50 rounded-xl py-2 px-3.5 text-xs text-white outline-none transition-all" placeholder="919876543210" />
+                </div>
               </div>
 
               <div className="space-y-1.5">
                 <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Email Address</label>
-                <input
-                  type="email"
-                  value={editForm.email}
-                  onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
-                  className="w-full bg-[#1A1A1A] border border-white/10 focus:border-[#D4AF37]/50 rounded-xl py-2 px-3.5 text-xs text-white outline-none transition-all"
-                  placeholder="john@example.com"
-                />
+                <input type="email" value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} className="w-full bg-[#1A1A1A] border border-white/10 focus:border-[#D4AF37]/50 rounded-xl py-2 px-3.5 text-xs text-white outline-none transition-all" placeholder="john@example.com" />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Event</label>
+                  <select value={editForm.eventId} disabled className="w-full bg-[#1A1A1A] border border-white/10 rounded-xl py-2 px-3.5 text-xs text-gray-400 outline-none">
+                    {events.filter((event) => event.id === editForm.eventId).map((event) => <option key={event.id} value={event.id}>{event.title}</option>)}
+                  </select>
+                  <p className="text-[9px] text-gray-500">Event changes require a replacement order.</p>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Ticket Tier</label>
+                  <select value={editForm.tierId} onChange={(e) => setEditForm({ ...editForm, tierId: e.target.value })} className="w-full bg-[#1A1A1A] border border-white/10 rounded-xl py-2 px-3.5 text-xs text-white outline-none focus:border-[#D4AF37]/50">
+                    {normalizeEditTiers(events.find((event) => event.id === editForm.eventId)?.ticketTiers).map((tier: any, index: number) => <option key={tier.id || index} value={tier.id || ''}>{tier.name || `Tier ${index + 1}`} · ₹{Number(tier.price || 0).toLocaleString('en-IN')}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Quantity</label>
+                  <input type="number" min={1} max={100} value={editForm.quantity} onChange={(e) => setEditForm({ ...editForm, quantity: Math.max(1, Number(e.target.value) || 1) })} className="w-full bg-[#1A1A1A] border border-white/10 rounded-xl py-2 px-3.5 text-xs text-white outline-none focus:border-[#D4AF37]/50" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Seat / Access</label>
+                  <input type="text" value={editForm.seats} onChange={(e) => setEditForm({ ...editForm, seats: e.target.value })} placeholder="Seat IDs separated by commas" className="w-full bg-[#1A1A1A] border border-white/10 rounded-xl py-2 px-3.5 text-xs text-white outline-none focus:border-[#D4AF37]/50" />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Discount (₹)</label>
+                  <input type="number" min={0} value={editForm.discount} onChange={(e) => setEditForm({ ...editForm, discount: Math.max(0, Number(e.target.value) || 0) })} className="w-full bg-[#1A1A1A] border border-white/10 rounded-xl py-2 px-3.5 text-xs text-white outline-none focus:border-[#D4AF37]/50" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Coupon Code</label>
+                  <input type="text" value={editForm.couponCode} onChange={(e) => setEditForm({ ...editForm, couponCode: e.target.value })} placeholder="Optional" className="w-full bg-[#1A1A1A] border border-white/10 rounded-xl py-2 px-3.5 text-xs text-white outline-none focus:border-[#D4AF37]/50" />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Payment Method</label>
+                  <select value={editForm.paymentMethod} onChange={(e) => setEditForm({ ...editForm, paymentMethod: e.target.value })} className="w-full bg-[#1A1A1A] border border-white/10 rounded-xl py-2 px-3.5 text-xs text-white outline-none focus:border-[#D4AF37]/50">
+                    <option value="cash">Cash</option><option value="upi">UPI</option><option value="card">Card</option><option value="online">Online</option>
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Counter</label>
+                  <input type="text" value={editForm.counterName} onChange={(e) => setEditForm({ ...editForm, counterName: e.target.value })} placeholder="Counter name" className="w-full bg-[#1A1A1A] border border-white/10 rounded-xl py-2 px-3.5 text-xs text-white outline-none focus:border-[#D4AF37]/50" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Issued By</label>
+                  <input type="text" value={editForm.issuer} onChange={(e) => setEditForm({ ...editForm, issuer: e.target.value })} placeholder="Staff or sub-user" className="w-full bg-[#1A1A1A] border border-white/10 rounded-xl py-2 px-3.5 text-xs text-white outline-none focus:border-[#D4AF37]/50" />
+                </div>
               </div>
 
               <div className="pt-2 flex items-center justify-end gap-2.5">

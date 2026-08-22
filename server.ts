@@ -570,6 +570,55 @@ async function restoreInventoryTier(
   }
 }
 
+/**
+ * Atomically changes a tier's remaining inventory. A positive delta deducts
+ * tickets; a negative delta restores them. Used only by protected edit flows.
+ */
+async function adjustInventoryTier(
+  authToken: string | undefined,
+  eventId: string,
+  tierId: string,
+  delta: number
+): Promise<{ success: boolean; error?: string }> {
+  if (!delta) return { success: true };
+  try {
+    const res = await rtdbTransaction(`events/${eventId}`, (currEvent: any) => {
+      if (!currEvent?.ticketTiers) return undefined;
+      const isArray = Array.isArray(currEvent.ticketTiers);
+      let found = false;
+      let insufficient = false;
+      const updatedTiers: any = isArray ? [] : {};
+      const apply = (tier: any) => {
+        if (!tier) return tier;
+        const currentRem = typeof tier.remainingInventory === 'number'
+          ? tier.remainingInventory
+          : Number(tier.totalInventory || tier.capacity || 0);
+        const total = Number(tier.totalInventory || tier.capacity || currentRem);
+        const nextRem = delta > 0 ? currentRem - delta : Math.min(total, currentRem - delta);
+        if (nextRem < 0) insufficient = true;
+        found = true;
+        return { ...tier, remainingInventory: Math.max(0, nextRem) };
+      };
+      if (isArray) {
+        for (let i = 0; i < currEvent.ticketTiers.length; i++) {
+          const tier = currEvent.ticketTiers[i];
+          updatedTiers.push(tier && (tier.id === tierId || (!tier.id && String(i) === tierId)) ? apply(tier) : tier);
+        }
+      } else {
+        for (const [key, tier] of Object.entries(currEvent.ticketTiers as any)) {
+          updatedTiers[key] = tier && ((tier as any).id === tierId || key === tierId) ? apply(tier) : tier;
+        }
+      }
+      if (!found || insufficient) return undefined;
+      currEvent.ticketTiers = updatedTiers;
+      return currEvent;
+    }, authToken);
+    return res.committed ? { success: true } : { success: false, error: "Tier inventory is unavailable for this edit." };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Could not update tier inventory." };
+  }
+}
+
 async function bookSeat(
   authToken: string | undefined,
   eventId: string,
@@ -4746,9 +4795,28 @@ export async function createApp() {
       if (!order) return res.status(404).json({ success: false, error: "Order not found." });
       if (order.status !== "confirmed") return res.status(400).json({ success: false, error: `Order cannot be edited (status: ${order.status}).` });
 
-      const { selectedSeats, customerDetails, tierId } = req.body || {};
+      const {
+        selectedSeats,
+        customerDetails,
+        tierId,
+        quantity: requestedQuantity,
+        discount: requestedDiscount,
+        couponCode: requestedCouponCode,
+        paymentMethod: requestedPaymentMethod,
+        counterName: requestedCounterName,
+        issuedBySubUserName: requestedIssuer,
+        eventId: requestedEventId,
+      } = req.body || {};
       const updates: Record<string, any> = {};
       const before = JSON.parse(JSON.stringify(order));
+
+      // An issued ticket cannot be moved to another event in-place because
+      // event changes require a new seat map, inventory reservation, and pass
+      // identity. Keep the event visible/editable only through a controlled
+      // replacement flow so a normal edit can never corrupt inventory.
+      if (requestedEventId && requestedEventId !== order.eventId) {
+        return res.status(400).json({ success: false, error: "Event cannot be changed after ticket issuance. Create a replacement order instead." });
+      }
 
       if (customerDetails) {
         updates.customerDetails = {
@@ -4757,6 +4825,35 @@ export async function createApp() {
           phone: String(customerDetails.phone ?? order.customerDetails?.phone).trim(),
         };
       }
+
+      if (requestedQuantity !== undefined) {
+        const nextQuantity = Number(requestedQuantity);
+        if (!Number.isInteger(nextQuantity) || nextQuantity < 1 || nextQuantity > 100) {
+          return res.status(400).json({ success: false, error: "Quantity must be a whole number between 1 and 100." });
+        }
+        updates.quantity = nextQuantity;
+      }
+
+      if (requestedDiscount !== undefined) {
+        const nextDiscount = Number(requestedDiscount);
+        if (!Number.isFinite(nextDiscount) || nextDiscount < 0) {
+          return res.status(400).json({ success: false, error: "Discount must be a non-negative amount." });
+        }
+        updates.discount = Math.round(nextDiscount);
+      }
+
+      if (requestedCouponCode !== undefined) {
+        updates.couponCode = String(requestedCouponCode || "").trim().slice(0, 64) || null;
+      }
+
+      if (requestedPaymentMethod !== undefined) {
+        const nextPaymentMethod = String(requestedPaymentMethod || "").trim().slice(0, 32);
+        if (!nextPaymentMethod) return res.status(400).json({ success: false, error: "Payment method cannot be empty." });
+        updates.paymentMethod = nextPaymentMethod;
+      }
+
+      if (requestedCounterName !== undefined) updates.counterName = String(requestedCounterName || "").trim().slice(0, 80) || null;
+      if (requestedIssuer !== undefined) updates.issuedBySubUserName = String(requestedIssuer || "").trim().slice(0, 80) || null;
 
       if (selectedSeats !== undefined && Array.isArray(selectedSeats)) {
         const oldSeats: string[] = order.seatIds || [];
@@ -4795,6 +4892,22 @@ export async function createApp() {
       const newQty = updates.quantity !== undefined ? Number(updates.quantity) : oldQty;
       const oldTierId = order.tierId;
       const newTierId = updates.tierId || oldTierId;
+
+      if (requestedQuantity !== undefined || requestedDiscount !== undefined || tierId) {
+        const event = (await rtdbGet(`events/${order.eventId}`, adminToken)).data as any;
+        const tier = normalizeTiers(event?.ticketTiers).find((t: any) => t.id === newTierId);
+        const unitPrice = Number(tier?.price ?? 0);
+        if (!tier || !Number.isFinite(unitPrice) || unitPrice < 0) {
+          return res.status(400).json({ success: false, error: "The selected ticket tier is not available." });
+        }
+        const discount = Number(updates.discount ?? order.discount ?? 0);
+        const grossAmount = unitPrice * newQty;
+        if (discount > grossAmount) {
+          return res.status(400).json({ success: false, error: "Discount cannot be greater than the ticket total." });
+        }
+        updates.amount = Math.max(0, grossAmount - discount);
+        updates.amountDue = order.paymentStatus === "pending" ? updates.amount : 0;
+      }
 
       if (oldTierId !== newTierId || oldQty !== newQty) {
         // Restore old tier
@@ -4836,6 +4949,68 @@ export async function createApp() {
 
       updates.updatedAt = new Date().toISOString();
       await rtdbUpdate(`orders/${orderId}`, updates, adminToken);
+
+      // Mirror editable ticket metadata everywhere the issued ticket is read,
+      // while deliberately preserving ticketNumber, qrCodeValue, pass slug,
+      // pass signature, paymentStatus, and audit history.
+      if (order.ticketId) {
+        const ticketSnap = await rtdbGet(`tickets/${order.ticketId}`, adminToken);
+        const ticket = ticketSnap.data as any;
+        if (ticket) {
+          const event = (await rtdbGet(`events/${order.eventId}`, adminToken)).data as any;
+          const tier = normalizeTiers(event?.ticketTiers).find((t: any) => t.id === newTierId);
+          const nextSeats = updates.seatIds !== undefined ? updates.seatIds : (ticket.selectedSeats || []);
+          const updatedTicket = {
+            ...ticket,
+            attendeeName: updates.customerDetails?.name ?? ticket.attendeeName,
+            attendeeEmail: updates.customerDetails?.email ?? ticket.attendeeEmail,
+            attendeePhone: updates.customerDetails?.phone ?? ticket.attendeePhone,
+            tierName: tier?.name ?? ticket.tierName,
+            price: tier?.price ?? ticket.price,
+            quantity: newQty,
+            totalPaid: Number(updates.amount ?? ticket.totalPaid ?? 0),
+            selectedSeats: nextSeats,
+            seatNumber: nextSeats.length ? nextSeats.join(", ") : ticket.seatNumber,
+            discount: updates.discount ?? ticket.discount ?? 0,
+            couponCode: updates.couponCode ?? ticket.couponCode ?? null,
+            paymentMethod: updates.paymentMethod ?? ticket.paymentMethod,
+            counterName: updates.counterName ?? ticket.counterName,
+            issuedBySubUserName: updates.issuedBySubUserName ?? ticket.issuedBySubUserName,
+            updatedAt: updates.updatedAt,
+          };
+          await rtdbSet(`tickets/${order.ticketId}`, updatedTicket, adminToken);
+          if (ticket.ownerId) await rtdbSet(`users/${ticket.ownerId}/tickets/${order.ticketId}`, updatedTicket, adminToken).catch(() => {});
+
+          const passesSnap = await rtdbGet("passes", adminToken);
+          for (const [passId, pass] of Object.entries((passesSnap.data || {}) as Record<string, any>)) {
+            if ((pass as any)?.ticketId !== order.ticketId) continue;
+            await rtdbUpdate(`passes/${passId}`, {
+              eventTitle: updatedTicket.eventTitle,
+              tierName: updatedTicket.tierName,
+              quantity: updatedTicket.quantity,
+              seatNumber: updatedTicket.seatNumber,
+              attendeeName: updatedTicket.attendeeName,
+              paymentStatus: updatedTicket.paymentStatus,
+              amountDue: updatedTicket.amountDue,
+            }, adminToken).catch(() => {});
+          }
+
+          const processedSnap = await rtdbGet(`processed_orders/${orderId}`, adminToken);
+          if (processedSnap.data) {
+            const processed = processedSnap.data as any;
+            processed.ticket = updatedTicket;
+            if (processed.booking) Object.assign(processed.booking, {
+              attendeeName: updatedTicket.attendeeName,
+              attendeePhone: updatedTicket.attendeePhone,
+              attendeeEmail: updatedTicket.attendeeEmail,
+              quantity: updatedTicket.quantity,
+              totalAmount: updates.amount ?? processed.booking.totalAmount,
+            });
+            await rtdbSet(`processed_orders/${orderId}`, processed, adminToken).catch(() => {});
+          }
+        }
+      }
+
       await writeAuditEntry({
         actorId: req.user.uid,
         actorRole: req.user.rbacRole,
@@ -6636,7 +6811,13 @@ app.post("/api/counter/tickets/:ticketId/toggle-checkin", requireRole(["counter_
 app.post("/api/counter/tickets/:ticketId/edit-attendee", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
   try {
     const { ticketId } = req.params;
-    const { attendeeName, attendeePhone, attendeeEmail } = req.body || {};
+    const {
+      attendeeName, attendeePhone, attendeeEmail, selectedSeats, tierId,
+      quantity: requestedQuantity, discount: requestedDiscount,
+      couponCode: requestedCouponCode, paymentMethod: requestedPaymentMethod,
+      counterName: requestedCounterName, issuedBySubUserName: requestedIssuer,
+      eventId: requestedEventId,
+    } = req.body || {};
     const adminToken = await getAdminAuthToken();
 
     if (!attendeeName || !String(attendeeName).trim()) {
@@ -6648,12 +6829,59 @@ app.post("/api/counter/tickets/:ticketId/edit-attendee", requireRole(["counter_s
     if (!ticket) return res.status(404).json({ success: false, error: "Ticket not found." });
 
     const beforeState = JSON.parse(JSON.stringify(ticket));
+    if (requestedEventId && requestedEventId !== ticket.eventId) {
+      return res.status(400).json({ success: false, error: "Event cannot be changed after ticket issuance. Create a replacement order instead." });
+    }
+    if (requestedQuantity !== undefined) {
+      const nextQuantity = Number(requestedQuantity);
+      if (!Number.isInteger(nextQuantity) || nextQuantity < 1 || nextQuantity > 100) {
+        return res.status(400).json({ success: false, error: "Quantity must be a whole number between 1 and 100." });
+      }
+    }
+    const nextQuantity = requestedQuantity !== undefined ? Number(requestedQuantity) : (Number(ticket.quantity) || 1);
+    const nextDiscount = requestedDiscount !== undefined ? Number(requestedDiscount) : Number(ticket.discount || 0);
+    if (!Number.isFinite(nextDiscount) || nextDiscount < 0) {
+      return res.status(400).json({ success: false, error: "Discount must be a non-negative amount." });
+    }
+    const event = (await rtdbGet(`events/${ticket.eventId}`, adminToken)).data as any;
+    const availableTiers = normalizeTiers(event?.ticketTiers);
+    const currentTier = availableTiers.find((t: any) => t.id === ticket.tierId || t.name === ticket.tierName || Number(t.price) === Number(ticket.price));
+    const oldTierId = ticket.tierId || currentTier?.id;
+    const nextTierId = tierId || oldTierId;
+    const tier = availableTiers.find((t: any) => t.id === nextTierId || (!nextTierId && t.name === ticket.tierName));
+    if (!tier) return res.status(400).json({ success: false, error: "The selected ticket tier is not available." });
+    const grossAmount = Number(tier.price || 0) * nextQuantity;
+    if (nextDiscount > grossAmount) return res.status(400).json({ success: false, error: "Discount cannot be greater than the ticket total." });
+    const nextSeats = Array.isArray(selectedSeats) ? selectedSeats.map((seat: any) => String(seat).trim()).filter(Boolean) : (ticket.selectedSeats || []);
+    if (nextSeats.length > nextQuantity) return res.status(400).json({ success: false, error: "The number of selected seats cannot exceed the ticket quantity." });
+    const oldQty = Number(ticket.quantity) || 1;
+    if (oldTierId && (oldTierId !== nextTierId || oldQty !== nextQuantity)) {
+      const restored = await adjustInventoryTier(adminToken, ticket.eventId, oldTierId, -oldQty);
+      if (!restored.success) return res.status(409).json({ success: false, error: restored.error || "Could not restore the previous inventory." });
+      const deducted = await adjustInventoryTier(adminToken, ticket.eventId, nextTierId, nextQuantity);
+      if (!deducted.success) {
+        await adjustInventoryTier(adminToken, ticket.eventId, oldTierId, oldQty).catch(() => {});
+        return res.status(409).json({ success: false, error: deducted.error || "Not enough inventory for the new ticket quantity." });
+      }
+    }
 
     const updatedTicket = {
       ...ticket,
       attendeeName: String(attendeeName).trim(),
       attendeePhone: attendeePhone ? String(attendeePhone).trim() : (ticket.attendeePhone || ""),
       attendeeEmail: attendeeEmail ? String(attendeeEmail).trim() : (ticket.attendeeEmail || ""),
+      tierId: nextTierId,
+      tierName: tier.name || ticket.tierName,
+      price: Number(tier.price || ticket.price || 0),
+      quantity: nextQuantity,
+      selectedSeats: nextSeats,
+      seatNumber: nextSeats.length ? nextSeats.join(", ") : ticket.seatNumber,
+      discount: nextDiscount,
+      couponCode: requestedCouponCode !== undefined ? String(requestedCouponCode || "").trim().slice(0, 64) || null : (ticket.couponCode || null),
+      paymentMethod: requestedPaymentMethod !== undefined ? String(requestedPaymentMethod || "").trim().slice(0, 32) : ticket.paymentMethod,
+      counterName: requestedCounterName !== undefined ? String(requestedCounterName || "").trim().slice(0, 80) || null : ticket.counterName,
+      issuedBySubUserName: requestedIssuer !== undefined ? String(requestedIssuer || "").trim().slice(0, 80) || null : ticket.issuedBySubUserName,
+      totalPaid: Math.max(0, grossAmount - nextDiscount),
     };
 
     await rtdbSet(`tickets/${ticketId}`, updatedTicket, adminToken);
@@ -6675,9 +6903,32 @@ app.post("/api/counter/tickets/:ticketId/edit-attendee", requireRole(["counter_s
             name: updatedTicket.attendeeName,
             phone: updatedTicket.attendeePhone,
             email: updatedTicket.attendeeEmail,
-          }
+          },
+          tierId: updatedTicket.tierId,
+          quantity: updatedTicket.quantity,
+          seatIds: updatedTicket.selectedSeats || [],
+          amount: updatedTicket.totalPaid,
+          discount: updatedTicket.discount,
+          couponCode: updatedTicket.couponCode,
+          paymentMethod: updatedTicket.paymentMethod,
+          counterName: updatedTicket.counterName,
+          issuedBySubUserName: updatedTicket.issuedBySubUserName,
+          updatedAt: new Date().toISOString(),
         };
         await rtdbSet(`orders/${orderId}`, updatedOrder, adminToken).catch(() => {});
+        const passesSnap = await rtdbGet("passes", adminToken);
+        for (const [passId, pass] of Object.entries((passesSnap.data || {}) as Record<string, any>)) {
+          if ((pass as any)?.ticketId !== ticketId) continue;
+          await rtdbUpdate(`passes/${passId}`, {
+            eventTitle: updatedTicket.eventTitle,
+            tierName: updatedTicket.tierName,
+            quantity: updatedTicket.quantity,
+            seatNumber: updatedTicket.seatNumber,
+            attendeeName: updatedTicket.attendeeName,
+            paymentStatus: updatedTicket.paymentStatus,
+            amountDue: updatedTicket.amountDue,
+          }, adminToken).catch(() => {});
+        }
         const procSnap = await rtdbGet(`processed_orders/${orderId}`, adminToken);
         if (procSnap.data) {
           const proc = procSnap.data as any;
@@ -6686,6 +6937,8 @@ app.post("/api/counter/tickets/:ticketId/edit-attendee", requireRole(["counter_s
             proc.booking.attendeeName = updatedTicket.attendeeName;
             proc.booking.attendeePhone = updatedTicket.attendeePhone;
             proc.booking.attendeeEmail = updatedTicket.attendeeEmail;
+            proc.booking.quantity = updatedTicket.quantity;
+            proc.booking.totalAmount = updatedTicket.totalPaid;
           }
           await rtdbSet(`processed_orders/${orderId}`, proc, adminToken).catch(() => {});
         }
@@ -6701,6 +6954,9 @@ app.post("/api/counter/tickets/:ticketId/edit-attendee", requireRole(["counter_s
           attendeeName: updatedTicket.attendeeName,
           attendeePhone: updatedTicket.attendeePhone,
           attendeeEmail: updatedTicket.attendeeEmail,
+          quantity: updatedTicket.quantity,
+          totalAmount: updatedTicket.totalPaid,
+          paymentMethod: updatedTicket.paymentMethod,
         };
         await rtdbSet(`bookings/${bookingId}`, updatedBkg, adminToken).catch(() => {});
         if (bkg.userId) {
@@ -6712,7 +6968,7 @@ app.post("/api/counter/tickets/:ticketId/edit-attendee", requireRole(["counter_s
     await writeAuditEntry({
       actorId: req.user.uid,
       actorRole: req.user.rbacRole,
-      action: "ticket.edit_attendee",
+      action: "ticket.edit_details",
       entityType: "ticket",
       entityId: ticketId,
       beforeState,

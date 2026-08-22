@@ -148,6 +148,18 @@ interface BookingContextType {
   deleteReview: (reviewId: string) => Promise<void>;
   registerOrganizer: (orgData: { userId: string; name: string; email: string; organizationName: string; phone: string; description?: string }) => Promise<boolean>;
   updateOrganizerStatus: (organizerId: string, status: 'approved' | 'rejected') => Promise<void>;
+  fetchOrders: (params?: {
+    eventId?: string; status?: string; channel?: string;
+    counterName?: string; issuer?: string; discountStatus?: 'applied' | 'none';
+    dateFrom?: string; dateTo?: string; search?: string; page?: number; pageSize?: number;
+  }) => Promise<any>;
+  editOrder: (orderId: string, data: {
+    customerDetails?: { name?: string; email?: string; phone?: string };
+    selectedSeats?: string[]; tierId?: string; quantity?: number; discount?: number;
+    couponCode?: string; paymentMethod?: string; counterName?: string;
+    issuedBySubUserName?: string; eventId?: string;
+  }) => Promise<Response>;
+  resendTicketWhatsApp: (ticketId: string) => Promise<Response>;
 }
 
 const BookingContext = createContext<BookingContextType | undefined>(undefined);
@@ -1299,7 +1311,9 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const editOrder = async (orderId: string, data: {
     customerDetails?: { name?: string; email?: string; phone?: string };
-    selectedSeats?: string[]; tierId?: string;
+    selectedSeats?: string[]; tierId?: string; quantity?: number; discount?: number;
+    couponCode?: string; paymentMethod?: string; counterName?: string;
+    issuedBySubUserName?: string; eventId?: string;
   }) => {
     const res = await adminApi(`/api/admin/orders/${orderId}`, { method: 'PUT', body: JSON.stringify(data) });
     return res;
