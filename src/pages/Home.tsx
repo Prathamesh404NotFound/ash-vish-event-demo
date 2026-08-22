@@ -71,171 +71,224 @@ export const Home: React.FC<HomeProps> = ({
   };
 
   return (
-    <div className="space-y-12 pb-12">
+    <div className="space-y-24 pb-24 bg-[#0a0a0a]">
       
-      {/* ----------------- CINEMATIC HERO SECTION ----------------- */}
-      <section className="relative min-h-[85vh] sm:min-h-[60vh] flex items-end justify-start overflow-hidden rounded-b-[36px] bg-[#070707]">
-        {/* Hero Background Poster Image */}
-        <div className="absolute inset-0">
+      {/* ----------------- CINEMATIC TWO-COLUMN HERO SECTION ----------------- */}
+      <section className="relative min-h-[90vh] flex items-center overflow-hidden bg-[#070707]">
+        {/* Hero Background with Right-to-Left Gradient */}
+        <div className="absolute inset-0 z-0">
           {currentHeroEvent ? (
-          <img
-            src={currentHeroEvent.coverUrl || currentHeroEvent.posterUrl}
-            alt={currentHeroEvent.title}
-            className="aspect-ratio-fix w-full h-full object-cover object-center filter brightness-[0.75] contrast-[1.1] transition-all duration-700 scale-100 sm:scale-105"
-            fetchPriority="high"
-            decoding="async"
-          />
+            <div className="relative w-full h-full flex justify-end">
+              <img
+                src={currentHeroEvent.coverUrl || currentHeroEvent.posterUrl}
+                alt={currentHeroEvent.title}
+                className="w-full lg:w-[65%] h-full object-cover object-center filter brightness-[0.7] contrast-[1.1]"
+                fetchPriority="high"
+              />
+              {/* Subtle black gradient from right-to-left to ensure text readability */}
+              <div className="absolute inset-0 bg-gradient-to-r from-[#070707] via-[#070707] to-transparent lg:via-[#070707]/60" />
+              {/* Bottom fade for smooth transition to content */}
+              <div className="absolute bottom-0 inset-x-0 h-64 bg-gradient-to-t from-[#0a0a0a] to-transparent" />
+            </div>
           ) : (
-            <div className="w-full h-full bg-gradient-to-br from-[#0A0A0A] via-[#1C1C1C] to-[#0A0A0A]" />
+            <div className="w-full h-full bg-[#0a0a0a]" />
           )}
-          {/* Overlay Gradients - Enhanced for mobile readability and text isolation */}
-          <div className="absolute inset-0 bg-gradient-to-t from-[#070707] via-[#070707]/95 to-transparent lg:via-[#070707]/40" />
-          <div className="absolute inset-0 bg-gradient-to-r from-[#070707]/90 via-[#070707]/40 to-transparent lg:from-[#070707]/80" />
-          {/* Top fade to prevent header clash */}
-          <div className="absolute top-0 inset-x-0 h-48 bg-gradient-to-b from-[#070707]/95 to-transparent lg:from-[#070707]/40" />
-          {/* Subtle blur on the background image to separate from foreground text */}
-          <div className="absolute inset-0 backdrop-blur-[2px] lg:backdrop-blur-0" />
         </div>
 
-        {/* Hero Content Container */}
-        <div className="relative z-10 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pb-12 pt-56 sm:pb-12 sm:pt-20">
+        {/* Hero Content Container - Two Column Layout */}
+        <div className="relative z-10 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-32 pb-20">
           {currentHeroEvent ? (
-          <div className="max-w-2xl space-y-6 sm:space-y-6 flex flex-col justify-end">
-            {/* Category Eyebrow */}
-            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#D4AF37]/20 text-[#F3E5AB] border border-[#D4AF37]/40 text-[10px] sm:text-xs font-bold uppercase tracking-widest backdrop-blur-xl w-fit">
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>FEATURED HEADLINER SHOW</span>
-            </div>
-            {/* Title & Subtitle */}
-            <div className="space-y-3 sm:space-y-3 relative z-20">
-              <h1 className="font-heading font-extrabold text-4xl sm:text-7xl text-white tracking-tight leading-[1.1] drop-shadow-[0_8px_32px_rgba(0,0,0,1)]">
-                {currentHeroEvent.title}
-              </h1>
-              <p className="text-gray-100 text-sm sm:text-lg line-clamp-3 leading-relaxed drop-shadow-[0_2px_12px_rgba(0,0,0,0.9)] max-w-lg font-semibold">
-                {currentHeroEvent.subtitle}
-              </p>
-            </div>
-            {/* Event Quick Meta */}
-            <div className="flex flex-wrap items-center gap-3 sm:gap-4 text-xs sm:text-sm text-white">
-              <div className="flex items-center gap-1.5 bg-black/60 px-3 py-2 rounded-xl border border-white/20 backdrop-blur-xl shadow-lg">
-                <Calendar className="w-4 h-4 text-[#D4AF37]" />
-                <span className="font-bold">{currentHeroEvent.date} @ {currentHeroEvent.time}</span>
+            <div className="grid lg:grid-cols-2 gap-12 items-center">
+              {/* LEFT COLUMN: Text Content */}
+              <div className="space-y-8 animate-in fade-in slide-in-from-left-8 duration-700">
+                <div className="space-y-4">
+                  <span className="text-[#D4AF37] text-xs sm:text-sm font-black uppercase tracking-[0.3em]">
+                    {currentHeroEvent.category === 'concert' ? 'LIVE MUSICAL NIGHT' : currentHeroEvent.category.toUpperCase()}
+                  </span>
+                  <h1 className="font-heading font-extrabold text-5xl sm:text-7xl text-white tracking-tight leading-[1.05]">
+                    {currentHeroEvent.title}
+                  </h1>
+                  <p className="text-gray-400 text-base sm:text-xl max-w-lg leading-relaxed font-medium">
+                    {currentHeroEvent.subtitle}
+                  </p>
+                </div>
+
+                {/* Scannable Metadata Row */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 pt-2 border-y border-white/5 py-8">
+                  <div className="space-y-1">
+                    <span className="text-[10px] text-[#D4AF37] font-black uppercase tracking-widest">DATE</span>
+                    <p className="text-white font-bold text-sm sm:text-base">{currentHeroEvent.date}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-[10px] text-[#D4AF37] font-black uppercase tracking-widest">TIME</span>
+                    <p className="text-white font-bold text-sm sm:text-base">{currentHeroEvent.time}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-[10px] text-[#D4AF37] font-black uppercase tracking-widest">VENUE</span>
+                    <p className="text-white font-bold text-sm sm:text-base line-clamp-1">{currentHeroEvent.venue}</p>
+                  </div>
+                </div>
+
+                {/* CTA Hierarchy */}
+                <div className="flex flex-col sm:flex-row items-center gap-4 pt-4">
+                  <button
+                    onClick={() => currentHeroEvent.isAdvertiseOnly ? onSelectEvent(currentHeroEvent) : onBookNow(currentHeroEvent)}
+                    className="w-full sm:w-auto px-10 py-4 rounded-xl bg-[#D4AF37] hover:bg-[#F3E5AB] text-black font-black text-sm uppercase tracking-widest transition-all shadow-xl shadow-[#D4AF37]/10"
+                  >
+                    {currentHeroEvent.isAdvertiseOnly ? "View Event Details" : `Book Now • From ${formatINR(currentHeroEvent.startingPrice)}`}
+                  </button>
+                  <button
+                    onClick={() => onSelectEvent(currentHeroEvent)}
+                    className="w-full sm:w-auto px-10 py-4 rounded-xl bg-transparent hover:bg-white/5 text-white border border-white/10 font-bold text-sm uppercase tracking-widest transition-all"
+                  >
+                    Save This Event
+                  </button>
+                </div>
+
+                {/* Carousel Indicators - Integrated at bottom left */}
+                <div className="flex items-center gap-3 pt-8" role="tablist">
+                  {featuredEvents.map((_, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => setHeroIndex(idx)}
+                      className={`h-1 transition-all duration-300 rounded-full ${
+                        idx === heroIndex ? 'w-12 bg-[#D4AF37]' : 'w-4 bg-white/20'
+                      }`}
+                      aria-label={`Slide ${idx + 1}`}
+                    />
+                  ))}
+                </div>
               </div>
-              <div className="flex items-center gap-1.5 bg-black/60 px-3 py-2 rounded-xl border border-white/20 backdrop-blur-xl shadow-lg">
-                <MapPin className="w-4 h-4 text-[#D4AF37]" />
-                <span className="font-semibold">{currentHeroEvent.venue}</span>
-              </div>
-              <div className="flex items-center gap-1.5 bg-black/60 px-3 py-2 rounded-xl border border-white/20 backdrop-blur-xl shadow-lg">
-                <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
-                <span className="font-bold">{currentHeroEvent.rating}</span>
-              </div>
+
+              {/* RIGHT COLUMN: dominant image area is handled by background positioning */}
+              <div className="hidden lg:block h-full min-h-[400px]" />
             </div>
-            {/* CTAs */}
-            <div className="pt-4 flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
-              <button
-                onClick={() => currentHeroEvent.isAdvertiseOnly ? onSelectEvent(currentHeroEvent) : onBookNow(currentHeroEvent)}
-                className="px-8 py-4 rounded-2xl bg-gradient-to-r from-[#F3E5AB] via-[#D4AF37] to-[#C5A059] hover:brightness-110 text-black font-black text-sm sm:text-base flex items-center justify-center gap-2 shadow-2xl shadow-[#D4AF37]/30 hover:scale-[1.02] active:scale-95 transition-all"
-              >
-                {currentHeroEvent.isAdvertiseOnly ? (
-                  <>
-                    <Info className="w-5 h-5 stroke-[3]" />
-                    <span>View Event Details</span>
-                  </>
-                ) : (
-                  <>
-                    <Ticket className="w-5 h-5 stroke-[3]" />
-                    <span>Book Now (From {formatINR(currentHeroEvent.startingPrice)})</span>
-                  </>
-                )}
-              </button>
-              <button
-                onClick={() => onSelectEvent(currentHeroEvent)}
-                className="px-7 py-4 rounded-2xl bg-white/10 hover:bg-white/20 text-white font-bold text-sm backdrop-blur-xl border border-white/20 transition-all flex items-center justify-center"
-              >
-                View Event Info
-              </button>
-            </div>
-          </div>
           ) : (
-            /* Empty-state hero: shows when the events collection has no public,
-               well-formed events (e.g. all events were deleted). Never crashes. */
-            <div className="max-w-2xl space-y-5 min-h-[260px] sm:min-h-[300px] flex flex-col justify-center">
-              <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#D4AF37]/15 text-[#F3E5AB] border border-[#D4AF37]/30 text-xs font-bold uppercase tracking-wider backdrop-blur-md">
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>Welcome to Ash-vish Events</span>
-              </div>
-              <h1 className="font-heading font-extrabold text-4xl sm:text-5xl text-white tracking-tight leading-[1.1] drop-shadow-2xl">
+            <div className="max-w-2xl space-y-6">
+              <span className="text-[#D4AF37] text-sm font-black uppercase tracking-widest">Welcome to Ash-vish</span>
+              <h1 className="text-5xl sm:text-7xl text-white font-black tracking-tighter leading-none">
                 Live shows are being prepared
               </h1>
-              <p className="text-gray-300 text-sm sm:text-base leading-relaxed">
-                We are setting up the next season of concerts, comedy nights, and stadium events. New listings will appear here shortly.
-              </p>
-              <div className="flex items-center gap-1.5 text-xs text-gray-400">
-                <MapPin className="w-4 h-4 text-gray-400" />
-                <span>Browse categories below for upcoming availability</span>
-              </div>
+              <p className="text-gray-400 text-lg">New listings will appear here shortly.</p>
             </div>
           )}
-
-          <div className="mt-8 flex items-center gap-3" role="tablist" aria-label="Featured show carousel">
-            {featuredEvents.map((_, idx) => (
-              <button
-                key={idx}
-                role="tab"
-                aria-selected={idx === heroIndex}
-                aria-label={`Show slide ${idx + 1} of ${featuredEvents.length}`}
-                onClick={() => setHeroIndex(idx)}
-                className={`h-2 rounded-full transition-all duration-300 ${
-                  idx === heroIndex
-                    ? 'w-10 bg-[#D4AF37] shadow-md shadow-[#D4AF37]/50'
-                    : 'w-2 bg-white/30 hover:bg-white/60'
-                }`}
-              />
-            ))}
-          </div>
-
         </div>
       </section>
 
-
-      {/* ----------------- CATEGORIES QUICK FILTERS ----------------- */}
+      {/* ----------------- WHY YOU SHOULDN'T MISS IT ----------------- */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between gap-4 mb-4 sm:mb-6">
+        <div className="space-y-12">
+          <div className="text-center space-y-4">
+            <h2 className="text-3xl sm:text-5xl font-black text-white tracking-tight">
+              Why You Shouldn't Miss It
+            </h2>
+            <div className="w-24 h-1 bg-[#D4AF37] mx-auto rounded-full" />
+          </div>
+
+          <div className="grid sm:grid-cols-3 gap-8">
+            {[
+              {
+                title: "Soulful Live Performance",
+                desc: "Timeless Bollywood melodies performed live by professional musicians.",
+                icon: Sparkles
+              },
+              {
+                title: "Talented Artists",
+                desc: "A team of passionate musicians bringing the music to life with every note.",
+                icon: Star
+              },
+              {
+                title: "Unforgettable Evening",
+                desc: "Great music, premium atmosphere, and memories that last a lifetime.",
+                icon: Flame
+              }
+            ].map((feature, i) => (
+              <div key={i} className="group p-8 rounded-3xl bg-[#111] border border-white/5 hover:border-[#D4AF37]/20 transition-all text-center space-y-4">
+                <div className="w-16 h-16 rounded-2xl bg-[#D4AF37]/10 flex items-center justify-center mx-auto group-hover:scale-110 transition-transform">
+                  <feature.icon className="w-8 h-8 text-[#D4AF37]" />
+                </div>
+                <h3 className="text-xl font-bold text-white">{feature.title}</h3>
+                <p className="text-gray-400 text-sm leading-relaxed">{feature.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ----------------- ABOUT THE EVENT SECTION ----------------- */}
+      {currentHeroEvent && (
+        <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="grid lg:grid-cols-3 gap-16 items-start">
+            <div className="lg:col-span-2 space-y-8">
+              <h2 className="text-3xl font-black text-white uppercase tracking-tight">About The Event</h2>
+              <div className="prose prose-invert max-w-none text-gray-400 leading-relaxed text-lg">
+                <p>
+                  Experience the magic of live music with Ash-vish Events. Our productions are designed to transport you into a world of rhythm and melody, featuring top-tier artists and world-class sound engineering at Kolhapur's most prestigious venues.
+                </p>
+                <p>
+                  Join us for an evening that celebrates the rich heritage of Bollywood music, reimagined for a modern audience. From soulful ballads to high-energy anthems, every moment is crafted to perfection.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-8 rounded-3xl bg-[#111] border border-white/5 space-y-8">
+              <div className="space-y-6">
+                <div className="space-y-2">
+                  <span className="text-[10px] text-[#D4AF37] font-black uppercase tracking-[0.2em]">Organized By</span>
+                  <p className="text-white font-bold text-lg">Ash-vish Events</p>
+                </div>
+                <div className="space-y-2">
+                  <span className="text-[10px] text-[#D4AF37] font-black uppercase tracking-[0.2em]">Event Type</span>
+                  <p className="text-white font-bold text-lg uppercase tracking-wide">{currentHeroEvent.category}</p>
+                </div>
+                <div className="space-y-2">
+                  <span className="text-[10px] text-[#D4AF37] font-black uppercase tracking-[0.2em]">Venue Capacity</span>
+                  <p className="text-white font-bold text-lg">Premium Seating Available</p>
+                </div>
+              </div>
+              <button className="w-full py-4 rounded-xl border border-[#D4AF37]/30 text-[#D4AF37] font-bold text-sm uppercase tracking-widest hover:bg-[#D4AF37]/5 transition-all">
+                Add to Calendar
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* ----------------- CATEGORIES QUICK FILTERS - Relocated below About ----------------- */}
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="flex items-center justify-between gap-4 mb-8">
           <div>
-            <h2 className="font-heading font-bold text-xl sm:text-3xl text-white">
+            <h2 className="text-2xl sm:text-3xl font-black text-white uppercase tracking-tight">
               Explore By Category
             </h2>
-            <p className="text-xs sm:text-sm text-gray-400 mt-0.5 sm:mt-1">
-              Handpicked live concerts, standup comedy, sports, and theatrical shows.
+            <p className="text-sm text-gray-500 mt-1">
+              Discover your next unforgettable experience
             </p>
           </div>
 
           <button
             onClick={() => onNavigateToSearch('all')}
-            className="flex items-center gap-1.5 text-xs font-bold text-[#D4AF37] hover:text-[#F3E5AB] transition-colors shrink-0 px-2.5 py-1.5 rounded-lg bg-[#D4AF37]/10 sm:bg-transparent border border-[#D4AF37]/20 sm:border-none"
+            className="text-xs font-black text-[#D4AF37] uppercase tracking-widest hover:text-white transition-colors"
           >
-            <span>View All</span>
-            <ArrowRight className="w-3.5 h-3.5" />
+            View All Categories
           </button>
         </div>
 
-        <div className="relative group">
-          <div className="flex items-center gap-2.5 sm:gap-3 overflow-x-auto no-scrollbar pb-3 pt-1 -mx-4 px-4 sm:mx-0 sm:px-0 snap-x snap-mandatory overscroll-x-contain">
-            {categories.map((cat) => (
-              <CategoryChip
-                key={cat}
-                category={cat}
-                activeCategory={selectedCategory}
-                onSelectCategory={(c) => {
-                  setSelectedCategory(c);
-                  if (c !== 'all') {
-                    onNavigateToSearch(c);
-                  }
-                }}
-                count={cat === 'all' ? events.length : events.filter((e) => e.category === cat).length}
-              />
-            ))}
-          </div>
+        <div className="flex items-center gap-3 overflow-x-auto no-scrollbar pb-2">
+          {categories.map((cat) => (
+            <CategoryChip
+              key={cat}
+              category={cat}
+              activeCategory={selectedCategory}
+              onSelectCategory={(c) => {
+                setSelectedCategory(c);
+                if (c !== 'all') {
+                  onNavigateToSearch(c);
+                }
+              }}
+              count={cat === 'all' ? events.length : events.filter((e) => e.category === cat).length}
+            />
+          ))}
         </div>
       </section>
 

@@ -43,43 +43,29 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSearch }) => {
 
   return (
     <>
-      {/* Floating Top Navbar */}
+      {/* Slimmer Floating Top Navbar */}
       <header className="fixed top-0 inset-x-0 z-50 transition-all duration-300">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-2 sm:pt-4">
-          <nav className="bg-[#0c0c0e]/70 backdrop-blur-xl rounded-2xl px-3 py-2 sm:px-6 sm:py-3 flex items-center justify-between shadow-[0_12px_35px_rgba(0,0,0,0.85)] border border-white/10 hover:border-[#D4AF37]/25 transition-colors duration-300">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-2 sm:pt-3">
+          <nav className="bg-[#0a0a0a]/80 backdrop-blur-xl rounded-xl px-4 py-2 flex items-center justify-between shadow-2xl border border-white/5 hover:border-[#D4AF37]/10 transition-colors duration-300">
 
-            {/* Logo & Brand Container */}
-            <Link to="/" className="flex items-center gap-3 cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D4AF37] rounded-xl p-0.5 shrink-0">
-              <div className="relative">
-                <div className="absolute -inset-1 bg-gradient-to-r from-[#F3E5AB] via-[#D4AF37] to-[#C5A059] rounded-xl opacity-20 group-hover:opacity-60 blur-[4px] transition-opacity duration-300"></div>
-                <div className="relative w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-[#141417] border border-white/10 overflow-hidden shadow-2xl flex items-center justify-center group-hover:scale-105 transition-transform duration-300">
-                  <img
-                    src="/favicon-192.png"
-                    alt="Ash-vish Events Logo"
-                    onError={(e) => {
-                      const target = e.currentTarget;
-                      if (target.src.includes('favicon-192.png')) {
-                        target.src = '/logo-tiny.webp';
-                      } else if (target.src.includes('logo-tiny.webp')) {
-                        target.src = '/ash-vish-events-logo.png';
-                      }
-                    }}
-                    className="w-full h-full object-cover"
-                  />
-                </div>
+            {/* Logo & Brand Container - Cleaner */}
+            <Link to="/" className="flex items-center gap-2.5 cursor-pointer group focus-visible:outline-none rounded-lg shrink-0">
+              <div className="relative w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-[#141417] border border-white/10 overflow-hidden flex items-center justify-center transition-transform duration-300 group-hover:scale-105">
+                <img
+                  src="/favicon-192.png"
+                  alt="Ash-vish Events Logo"
+                  className="w-full h-full object-cover"
+                />
               </div>
               <div className="flex flex-col">
-                <span className="font-heading font-extrabold text-lg sm:text-2xl tracking-tighter text-white leading-none group-hover:text-[#F3E5AB] transition-colors">
-                  Ash-vish<span className="bg-gradient-to-r from-[#F3E5AB] via-[#D4AF37] to-[#C5A059] bg-clip-text text-transparent ml-0.5 font-black font-sans">events</span>
-                </span>
-                <span className="text-[8px] sm:text-[9px] uppercase tracking-[0.2em] text-gray-400 font-bold mt-1">
-                  Premium Experience
+                <span className="font-heading font-bold text-base sm:text-xl tracking-tight text-white leading-none group-hover:text-[#D4AF37] transition-colors">
+                  Ash-vish<span className="text-[#D4AF37] ml-0.5 font-black">events</span>
                 </span>
               </div>
             </Link>
 
-            {/* Desktop Navigation Links */}
-            <div className="hidden md:flex items-center gap-1 bg-[#141417]/90 p-1.5 rounded-xl border border-white/10 shadow-inner">
+            {/* Desktop Navigation Links - More Horizontal Spacing, Smaller Icons */}
+            <div className="hidden md:flex items-center gap-6">
               {navItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = location.pathname === item.path;
@@ -87,20 +73,19 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSearch }) => {
                   <Link
                     key={item.path}
                     to={item.path}
-                    className={`relative flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs md:text-sm font-semibold transition-all duration-200 ${
+                    className={`relative flex items-center gap-1.5 py-1 text-xs font-bold uppercase tracking-wider transition-all duration-200 ${
                       isActive
-                        ? 'bg-gradient-to-r from-[#F3E5AB] via-[#D4AF37] to-[#C5A059] text-black font-bold shadow-md shadow-[#D4AF37]/30'
-                        : 'text-gray-300 hover:text-white hover:bg-white/5'
+                        ? 'text-[#D4AF37]'
+                        : 'text-gray-400 hover:text-white'
                     }`}
                   >
-                    <Icon className="w-4 h-4 shrink-0" />
+                    <Icon className="w-3.5 h-3.5 shrink-0" />
                     <span>{item.label}</span>
+                    {isActive && (
+                      <span className="absolute -bottom-1 left-0 right-0 h-0.5 bg-[#D4AF37] rounded-full animate-in fade-in zoom-in duration-300" />
+                    )}
                     {!!item.badge && item.badge > 0 && (
-                      <span
-                        className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${
-                          isActive ? 'bg-black text-white' : 'bg-[#D4AF37] text-black'
-                        }`}
-                      >
+                      <span className="ml-1 text-[9px] px-1.5 py-0.5 rounded-full bg-[#D4AF37] text-black font-black">
                         {item.badge}
                       </span>
                     )}
@@ -109,20 +94,16 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSearch }) => {
               })}
             </div>
 
-            {/* Right Actions: Search trigger & Auth / User Profile */}
-            <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-              {/* Search Button */}
+            {/* Right Actions */}
+            <div className="flex items-center gap-3 shrink-0">
+              {/* Search Button - Slimmer */}
               {onOpenSearch && (
                 <button
                   onClick={onOpenSearch}
-                  className="flex items-center gap-2 px-3 py-2 rounded-xl bg-[#18181c] hover:bg-[#222228] border border-white/10 text-gray-300 text-xs sm:text-sm transition-all duration-200 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D4AF37] cursor-pointer touch-min-target"
+                  className="p-2 rounded-lg text-gray-400 hover:text-[#D4AF37] hover:bg-white/5 transition-all duration-200 active:scale-95 cursor-pointer"
                   aria-label="Search events"
                 >
-                  <Search className="w-4 h-4 text-[#D4AF37] shrink-0" />
-                  <span className="hidden sm:inline font-medium">Search...</span>
-                  <kbd className="hidden md:inline-flex items-center px-1.5 py-0.5 text-[10px] font-mono font-medium text-gray-400 bg-white/10 rounded border border-white/10">
-                    ⌘K
-                  </kbd>
+                  <Search className="w-4 h-4" />
                 </button>
               )}
 
