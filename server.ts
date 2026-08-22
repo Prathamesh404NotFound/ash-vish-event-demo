@@ -19,10 +19,19 @@ import {
   KEY_ID as razorpayKeyId,
 } from "./src/lib/payment/razorpay.js";
 
-const SERVER_HMAC_SECRET = process.env.SERVER_HMAC_SECRET;
-if (!SERVER_HMAC_SECRET) {
-  console.error('[FATAL] SERVER_HMAC_SECRET is not set in environment variables. Server cannot start securely.');
-  process.exit(1);
+const SERVER_HMAC_SECRET = process.env.SERVER_HMAC_SECRET?.trim();
+
+/**
+ * HMAC is required for ticket/pass signing, counter PIN verification, and the
+ * rules-deploy guard. Read-only dashboard routes must still be able to start
+ * when this optional deployment secret is missing, so validate it lazily at
+ * the security boundary instead of terminating the whole serverless function.
+ */
+function requireHmacSecret(): string {
+  if (!SERVER_HMAC_SECRET) {
+    throw new Error("SERVER_HMAC_SECRET is not configured.");
+  }
+  return SERVER_HMAC_SECRET;
 }
 
 // ============================================================
@@ -1111,12 +1120,12 @@ async function finalizeBookingServerSide(
     // /api/tickets/generate-token, with the ASH_RES header for deferred passes).
     const issuedAt = new Date().toISOString();
     const tokenPayload = `${bookingId}|${eventId}|${seatLabel}|${ticketId}|${issuedAt}`;
-    const tokenSig = crypto.createHmac("sha256", SERVER_HMAC_SECRET).update(tokenPayload).digest("hex").substring(0, 16);
+    const tokenSig = crypto.createHmac("sha256", requireHmacSecret()).update(tokenPayload).digest("hex").substring(0, 16);
     const signedQrToken = `${isDeferred ? 'ASH_RES' : 'ASH_PASS'}.${Buffer.from(tokenPayload).toString('base64url')}.${tokenSig}`;
 
     // Generate secure opaque pass slug
     const passId = crypto.randomBytes(24).toString('base64url');
-    const passSig = crypto.createHmac("sha256", SERVER_HMAC_SECRET).update(`${passId}|${ticketId}`).digest("hex").substring(0, 16);
+    const passSig = crypto.createHmac("sha256", requireHmacSecret()).update(`${passId}|${ticketId}`).digest("hex").substring(0, 16);
     const passSlug = { id: passId, sig: passSig, createdAt: Date.now() };
 
     const newTicket = {
@@ -4426,7 +4435,7 @@ export async function createApp() {
 
       const subUserId = `sub_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       const pin = Math.floor(1000 + Math.random() * 9000).toString();
-      const pinHash = crypto.createHash('sha256').update(pin + SERVER_HMAC_SECRET).digest('hex');
+      const pinHash = crypto.createHash('sha256').update(pin + requireHmacSecret()).digest('hex');
 
       const subUser = {
         id: subUserId,
@@ -4484,7 +4493,7 @@ export async function createApp() {
 
       // Since we don't store plain PIN, we regenerate a new one and update the hash
       const pin = Math.floor(1000 + Math.random() * 9000).toString();
-      const pinHash = crypto.createHash('sha256').update(pin + SERVER_HMAC_SECRET).digest('hex');
+      const pinHash = crypto.createHash('sha256').update(pin + requireHmacSecret()).digest('hex');
       await rtdbUpdate(`counters/${counterId}/subUsers/${subUserId}`, { pinHash }, adminToken);
 
       const message = `*Ash-vish Events Counter Access:*\nHello ${subUser.name}, your 4-digit access PIN for ${counterName} is: *${pin}*.\nKeep it secure.`;
@@ -4915,7 +4924,7 @@ export async function createApp() {
         return res.status(404).json({ success: false, error: "Rules deploy not enabled." });
       }
       const secret = req.headers["x-rules-deploy-secret"];
-      if (secret !== SERVER_HMAC_SECRET) {
+      if (!SERVER_HMAC_SECRET || secret !== SERVER_HMAC_SECRET) {
         return res.status(403).json({ success: false, error: "Invalid deploy secret." });
       }
       const rulesPath = path.join(process.cwd(), "database.rules.json");
@@ -5047,7 +5056,7 @@ export async function createApp() {
       const payloadString = `${bookingId || 'bkg_demo'}|${eventId || 'evt_001'}|${seatId || 'S1'}|${ticketId || 'tkt_demo'}|${issuedAt}`;
       
       const signature = crypto
-        .createHmac("sha256", SERVER_HMAC_SECRET)
+        .createHmac("sha256", requireHmacSecret())
         .update(payloadString)
         .digest("hex");
 
@@ -5082,7 +5091,7 @@ export async function createApp() {
       const providedSig = parts[2];
 
       const expectedSig = crypto
-        .createHmac("sha256", SERVER_HMAC_SECRET)
+        .createHmac("sha256", requireHmacSecret())
         .update(payloadStr)
         .digest("hex")
         .substring(0, 16);
@@ -5404,7 +5413,7 @@ export async function createApp() {
       }
 
       const expectedSig = crypto
-        .createHmac('sha256', SERVER_HMAC_SECRET)
+        .createHmac('sha256', requireHmacSecret())
         .update(`${slug}|${ticketId}`)
         .digest('hex')
         .substring(0, 16);
@@ -5524,7 +5533,7 @@ export async function createApp() {
         if (!sig || String(sig).length !== 16) {
           return res.status(403).json({ success: false, error: "Invalid or missing pass signature." });
         }
-        const expectedSig = crypto.createHmac("sha256", SERVER_HMAC_SECRET).update(`${passId}|${ticketId}`).digest("hex").substring(0, 16);
+        const expectedSig = crypto.createHmac("sha256", requireHmacSecret()).update(`${passId}|${ticketId}`).digest("hex").substring(0, 16);
         if (String(sig).length !== expectedSig.length ||
             !crypto.timingSafeEqual(Buffer.from(String(sig)), Buffer.from(expectedSig))) {
           return res.status(403).json({ success: false, error: "Invalid or forged digital pass signature." });
@@ -5550,7 +5559,7 @@ export async function createApp() {
           if (!sig || String(sig).length !== 16) {
             return res.status(403).json({ success: false, error: "Invalid or missing pass signature." });
           }
-          const expectedSig = crypto.createHmac("sha256", SERVER_HMAC_SECRET).update(`${passId}|${ticketId}`).digest("hex").substring(0, 16);
+          const expectedSig = crypto.createHmac("sha256", requireHmacSecret()).update(`${passId}|${ticketId}`).digest("hex").substring(0, 16);
           if (String(sig).length !== expectedSig.length ||
               !crypto.timingSafeEqual(Buffer.from(String(sig)), Buffer.from(expectedSig))) {
             return res.status(403).json({ success: false, error: "Invalid or forged digital pass signature." });
@@ -5649,7 +5658,7 @@ export async function createApp() {
         await rtdbSet(`passes/${ticket.passSlug.id}`, null, adminToken).catch(() => {});
       }
       const passId = crypto.randomBytes(24).toString('base64url');
-      const passSig = crypto.createHmac("sha256", SERVER_HMAC_SECRET).update(`${passId}|${ticketId}`).digest("hex").substring(0, 16);
+      const passSig = crypto.createHmac("sha256", requireHmacSecret()).update(`${passId}|${ticketId}`).digest("hex").substring(0, 16);
       const passSlug = { id: passId, sig: passSig, createdAt: Date.now() };
 
       const passPayload = {
@@ -5874,7 +5883,7 @@ async function computeShiftCashTotals(
       const subUser = counter.subUsers ? Object.values(counter.subUsers).find((u: any) => u.id === subUserId) as any : null;
       if (!subUser) return res.status(404).json({ success: false, error: "Sub-user not found on this counter." });
       
-      const providedPinHash = crypto.createHash('sha256').update(String(pin) + SERVER_HMAC_SECRET).digest('hex');
+      const providedPinHash = crypto.createHash('sha256').update(String(pin) + requireHmacSecret()).digest('hex');
       if (providedPinHash !== subUser.pinHash) {
         return res.status(401).json({ success: false, error: "Invalid PIN." });
       }
