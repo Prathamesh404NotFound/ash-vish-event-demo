@@ -139,11 +139,23 @@ export const CounterOverview: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="pt-2 border-t border-white/5 flex items-center justify-between text-xs">
-                  <span className="text-gray-400">Check-In Status:</span>
-                  <span className="font-bold text-white">
-                    <span className="text-emerald-400">{eventScanned}</span> / {eventTickets.length} Passes Scanned
-                  </span>
+                <div className="pt-2 border-t border-white/5 space-y-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-gray-400">Check-In Status:</span>
+                    <span className="font-bold text-white">
+                      <span className="text-emerald-400">{eventScanned}</span> / {eventTickets.length} Passes Scanned
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-gray-400">Availability:</span>
+                    <span className={`font-bold ${
+                      (evt.ticketTiers || []).reduce((sum, t) => sum + (t.remainingInventory ?? (t.totalInventory || 0)), 0) > 0 
+                        ? 'text-amber-400' 
+                        : 'text-red-400'
+                    }`}>
+                      {(evt.ticketTiers || []).reduce((sum, t) => sum + (t.remainingInventory ?? (t.totalInventory || 0)), 0)} Tickets Left
+                    </span>
+                  </div>
                 </div>
               </div>
             );

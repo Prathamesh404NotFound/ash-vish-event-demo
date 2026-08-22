@@ -762,6 +762,7 @@ export const AdminEvents: React.FC = () => {
                   const totalCap =
                     evt.totalCapacity ||
                     (evt.ticketTiers || []).reduce((sum, t) => sum + (t.totalInventory || 0), 0);
+                  const totalRem = (evt.ticketTiers || []).reduce((sum, t) => sum + (t.remainingInventory ?? (t.totalInventory || 0)), 0);
 
                   return (
                     <tr key={evt.id} className="hover:bg-white/[0.02] transition-colors group">
@@ -846,7 +847,13 @@ export const AdminEvents: React.FC = () => {
                         </div>
                         <div className="text-gray-400 text-[11px] flex items-center gap-1">
                           <TicketIcon className="w-3.5 h-3.5 text-gray-500" />
-                          <span>{evt.ticketTiers?.length || 1} Tiers • Cap: {totalCap}</span>
+                          <span>{evt.ticketTiers?.length || 1} Tiers • {totalCap} Cap</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <div className={`w-1.5 h-1.5 rounded-full ${totalRem > 0 ? 'bg-emerald-500' : 'bg-red-500'}`} />
+                          <span className={`text-[11px] font-bold ${totalRem > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                            {totalRem} Left
+                          </span>
                         </div>
                       </td>
 
@@ -1680,6 +1687,14 @@ export const AdminEvents: React.FC = () => {
                             onChange={(e) => handleUpdateTier(t.id, 'totalInventory', Number(e.target.value))}
                             className="w-full bg-[#121212] border border-white/10 rounded-lg px-2.5 py-2 text-white font-bold text-xs focus:outline-none focus:border-[#D4AF37]"
                           />
+                        </div>
+
+                        <div>
+                          <label className="text-gray-400 text-[10px] font-bold block mb-1">Tickets Left (Live)</label>
+                          <div className="w-full bg-black/40 border border-white/5 rounded-lg px-2.5 py-2 text-[#D4AF37] font-black text-xs flex items-center justify-between">
+                            <span>{t.remainingInventory ?? t.totalInventory}</span>
+                            <span className="text-[9px] text-gray-500 uppercase tracking-tighter">Auto-Reconciled</span>
+                          </div>
                         </div>
                       </div>
 

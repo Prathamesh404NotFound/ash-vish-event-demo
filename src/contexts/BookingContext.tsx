@@ -777,11 +777,15 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (e.id === ticket.eventId) {
           return {
             ...e,
-            ticketTiers: e.ticketTiers.map((t) =>
-              t.name === ticket.tierName
-                ? { ...t, remainingInventory: Math.max(0, t.remainingInventory - (ticket.quantity || 1)) }
-                : t
-            ),
+            ticketTiers: e.ticketTiers.map((t) => {
+              // Fix: Use tierId from ticket to match exactly instead of relying on tierName,
+              // which could be duplicate or have different casing.
+              const tid = ticket.tierId || ticket.tierName;
+              const isMatch = t.id === tid || t.name === ticket.tierName;
+              return isMatch
+                ? { ...t, remainingInventory: Math.max(0, (t.remainingInventory || 0) - (ticket.quantity || 1)) }
+                : t;
+            }),
           };
         }
         return e;

@@ -909,27 +909,49 @@ async function finalizeBookingServerSide(
         inventoryError = "Event or ticket tiers not found.";
         return undefined;
       }
-      // Normalize: RTDB may store tiers as an object map with numeric keys (no id) plus
-      // id-bearing entries. Work on a stable array so the deduction transaction is shape-agnostic.
-      const tiers = normalizeTiers(currEvent.ticketTiers);
+
+      // Handle both array and object storage formats in RTDB
+      const isArray = Array.isArray(currEvent.ticketTiers);
+      const tierEntries = isArray ? currEvent.ticketTiers : Object.entries(currEvent.ticketTiers);
+      
       let tierFound = false;
-      const updatedTiers = tiers.map((t: any) => {
-        if (t.id === tierId) {
-          tierFound = true;
-          if ((t.remainingInventory || 0) < quantity) {
-            inventoryError = `Not enough tickets remaining. Only ${t.remainingInventory || 0} tickets left.`;
-            return t;
+      const updatedTiers = isArray ? [] : {};
+
+      if (isArray) {
+        for (let i = 0; i < currEvent.ticketTiers.length; i++) {
+          let t = currEvent.ticketTiers[i];
+          if (t && (t.id === tierId || (!t.id && String(i) === tierId))) {
+            tierFound = true;
+            const currentRem = typeof t.remainingInventory === 'number' ? t.remainingInventory : (t.totalInventory || t.capacity || 0);
+            if (currentRem < quantity) {
+              inventoryError = `Not enough tickets remaining. Only ${currentRem} tickets left.`;
+              (updatedTiers as any[]).push(t);
+              continue;
+            }
+            (updatedTiers as any[]).push({ ...t, remainingInventory: currentRem - quantity });
+          } else {
+            (updatedTiers as any[]).push(t);
           }
-          return {
-            ...t,
-            remainingInventory: (t.remainingInventory || 0) - quantity,
-          };
         }
-        return t;
-      });
-      if (!tierFound || inventoryError) {
-        return undefined;
+      } else {
+        for (const [key, t] of Object.entries(currEvent.ticketTiers as any)) {
+          const tier = t as any;
+          if (tier && (tier.id === tierId || key === tierId)) {
+            tierFound = true;
+            const currentRem = typeof tier.remainingInventory === 'number' ? tier.remainingInventory : (tier.totalInventory || tier.capacity || 0);
+            if (currentRem < quantity) {
+              inventoryError = `Not enough tickets remaining. Only ${currentRem} tickets left.`;
+              (updatedTiers as any)[key] = tier;
+              continue;
+            }
+            (updatedTiers as any)[key] = { ...tier, remainingInventory: currentRem - quantity };
+          } else {
+            (updatedTiers as any)[key] = tier;
+          }
+        }
       }
+
+      if (!tierFound || inventoryError) return undefined;
       currEvent.ticketTiers = updatedTiers;
       return currEvent;
     }, authToken);
@@ -3288,9 +3310,54 @@ export async function createApp() {
       const defaultPoster =
         "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&q=80&w=800";
       const normalizedPoster = body.posterUrl || existing.posterUrl || defaultPoster;
+      // Reconcile ticket tier inventory to prevent overwriting live counts with stale admin form data.
+      let reconciledTiers = body.ticketTiers;
+      if (reconciledTiers && existing.ticketTiers) {
+        const isNewArray = Array.isArray(reconciledTiers);
+        const isOldArray = Array.isArray(existing.ticketTiers);
+        
+        // Convert existing tiers to a lookup map for stable matching
+        const oldTiersList = isOldArray ? existing.ticketTiers : Object.values(existing.ticketTiers);
+        const oldTiersMap = new Map();
+        oldTiersList.forEach((t: any) => {
+          if (t && t.id) oldTiersMap.set(t.id, t);
+        });
+
+        const reconcileOne = (newTier: any) => {
+          if (!newTier) return newTier;
+          const oldTier = oldTiersMap.get(newTier.id) || oldTiersList.find((t: any) => t && t.name === newTier.name && t.price === newTier.price);
+          
+          if (oldTier) {
+            const oldTotal = oldTier.totalInventory ?? oldTier.capacity ?? 0;
+            const newTotal = newTier.totalInventory ?? newTier.capacity ?? 0;
+            const currentRemaining = oldTier.remainingInventory ?? oldTotal;
+            const delta = newTotal - oldTotal;
+            return {
+              ...newTier,
+              remainingInventory: Math.max(0, currentRemaining + delta)
+            };
+          }
+          return {
+            ...newTier,
+            remainingInventory: newTier.totalInventory ?? newTier.capacity ?? 0
+          };
+        };
+
+        if (isNewArray) {
+          reconciledTiers = reconciledTiers.map(reconcileOne);
+        } else {
+          const newObj: any = {};
+          Object.entries(reconciledTiers).forEach(([key, val]) => {
+            newObj[key] = reconcileOne(val);
+          });
+          reconciledTiers = newObj;
+        }
+      }
+
       const updatedEvent = {
         ...existing,
         ...body,
+        ticketTiers: reconciledTiers || existing.ticketTiers,
         id: eventId,
         organizerId: existing.organizerId || (req.user.role === 'organizer' ? req.user.uid : null),
         status: body.status || existing.status || "published",
