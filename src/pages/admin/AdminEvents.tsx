@@ -436,11 +436,21 @@ export const AdminEvents: React.FC = () => {
   };
 
   const handleRemoveTier = (tierId: string) => {
-    if (tiers.length <= 1) {
+    if (tiers.length <= 1 && !isAdvertiseOnly) {
       alert('An event must have at least one ticket pricing tier.');
       return;
     }
     setTiers((prev) => prev.filter((t) => t.id !== tierId));
+  };
+
+  const handleAdvertiseOnlyToggle = () => {
+    setIsAdvertiseOnly((previous) => {
+      const next = !previous;
+      // A new external-only listing should not accidentally inherit the form's
+      // default local inventory. Existing events keep their tiers until removed.
+      if (next && !editingEventId) setTiers([]);
+      return next;
+    });
   };
 
   const handleUpdateTier = (id: string, field: keyof TierInput, value: any) => {
@@ -491,8 +501,9 @@ export const AdminEvents: React.FC = () => {
     }
 
     // 4. Validation: Pricing Tiers
-    if (tiers.length === 0) {
-      setFormError('At least one ticket pricing tier is required.');
+    const isExternalOnlyListing = isAdvertiseOnly && Boolean(externalBookingUrl.trim());
+    if (tiers.length === 0 && !isExternalOnlyListing) {
+      setFormError('At least one ticket pricing tier is required unless this is an advertisement-only event with an external booking URL.');
       return;
     }
 
@@ -513,7 +524,7 @@ export const AdminEvents: React.FC = () => {
     }
 
     // Compute minimum price and total capacity
-    const startingPrice = Math.min(...tiers.map((t) => Number(t.price)));
+    const startingPrice = tiers.length > 0 ? Math.min(...tiers.map((t) => Number(t.price))) : 0;
     const totalCapacity = tiers.reduce((sum, t) => sum + Number(t.totalInventory), 0);
 
     const formattedTiers: TicketTier[] = tiers.map((t) => {
@@ -1296,7 +1307,7 @@ export const AdminEvents: React.FC = () => {
                       type="button"
                       role="switch"
                       aria-checked={isAdvertiseOnly}
-                      onClick={() => setIsAdvertiseOnly((v) => !v)}
+                      onClick={handleAdvertiseOnlyToggle}
                       className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors cursor-pointer ${
                         isAdvertiseOnly ? 'bg-amber-500' : 'bg-gray-600'
                       }`}
@@ -1695,8 +1706,13 @@ export const AdminEvents: React.FC = () => {
               <div className="space-y-4">
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-white/5 pb-2">
                   <h4 className="text-gray-400 uppercase font-black tracking-wider text-[10px]">
-                    4. Ticket Categories & Pricing Tiers (Price ≥ 0, Capacity &gt; 0)
+                    4. Ticket Categories & Pricing Tiers
                   </h4>
+                  <p className="text-[11px] text-gray-500 mt-1">
+                    {isAdvertiseOnly && externalBookingUrl.trim()
+                      ? 'External booking is enabled — leave this section empty because Ticket Khidakee handles ticket sales and capacity.'
+                      : 'Add at least one local tier for Ash-vish ticket sales, or enable external booking for an advertisement-only listing.'}
+                  </p>
                   <button
                     type="button"
                     onClick={handleAddTier}
@@ -1708,7 +1724,18 @@ export const AdminEvents: React.FC = () => {
                 </div>
 
                 <div className="space-y-3">
-                  {tiers.map((t, idx) => (
+                  {tiers.length === 0 ? (
+                    <div className="p-5 rounded-2xl border border-dashed border-amber-500/40 bg-amber-500/5 text-center">
+                      <TicketIcon className="w-6 h-6 text-amber-300 mx-auto mb-2" />
+                      <p className="text-xs font-bold text-amber-200">No local ticket tiers</p>
+                      <p className="text-[11px] text-gray-400 mt-1">
+                        {isAdvertiseOnly
+                          ? 'This listing will send guests to the external booking provider.'
+                          : 'Add a pricing tier before publishing a regular Ash-vish event.'}
+                      </p>
+                    </div>
+                  ) : (
+                    tiers.map((t, idx) => (
                     <div
                       key={t.id}
                       className="p-4 bg-[#1A1A1A] border border-white/10 rounded-2xl space-y-3 relative group"
@@ -1718,7 +1745,7 @@ export const AdminEvents: React.FC = () => {
                           <TicketIcon className="w-3.5 h-3.5 text-[#D4AF37]" />
                           Tier #{idx + 1}
                         </span>
-                        {tiers.length > 1 && (
+                        {(tiers.length > 1 || isAdvertiseOnly) && (
                           <button
                             type="button"
                             onClick={() => handleRemoveTier(t.id)}
@@ -1798,7 +1825,8 @@ export const AdminEvents: React.FC = () => {
                         </div>
                       </div>
                     </div>
-                  ))}
+                    ))
+                  )}
                 </div>
               </div>
 
