@@ -89,7 +89,7 @@ export const WalkInPage: React.FC = () => {
   });
   const [selectedTierId, setSelectedTierId] = useState(() => {
     const memory = readMemory();
-    return memory.tierId || events[0]?.ticketTiers[0]?.id || '';
+    return memory.tierId || events[0]?.ticketTiers?.[0]?.id || '';
   });
   const [quantity, setQuantity] = useState(1);
   const [selectedSeats, setSelectedSeats] = useState<string[]>([]);
@@ -186,7 +186,8 @@ export const WalkInPage: React.FC = () => {
   ));
 
   const selectedEvent = events.find((e) => e.id === selectedEventId) || events[0];
-  const selectedTier = selectedEvent?.ticketTiers.find((t) => t.id === selectedTierId) || selectedEvent?.ticketTiers[0];
+  const selectedEventTiers = selectedEvent?.ticketTiers || [];
+  const selectedTier = selectedEventTiers.find((t) => t.id === selectedTierId) || selectedEventTiers[0];
 
   // Remember the last event + tier for fast repeat issuance.
   useEffect(() => {
@@ -977,8 +978,10 @@ export const WalkInPage: React.FC = () => {
                   setSelectedSeats([]);
                   setSeatSearch('');
                   const evt = events.find((item) => item.id === e.target.value);
-                  if (evt && evt.ticketTiers[0]) {
+                  if (evt?.ticketTiers?.[0]) {
                     setSelectedTierId(evt.ticketTiers[0].id);
+                  } else {
+                    setSelectedTierId('');
                   }
                 }}
                 className="w-full py-2.5 px-3 rounded-xl bg-[#1C1C1C] border border-white/10 text-white font-semibold text-sm focus:outline-none focus:border-[#D4AF37] transition-colors cursor-pointer"
@@ -1000,7 +1003,7 @@ export const WalkInPage: React.FC = () => {
               <div className="p-4 rounded-3xl bg-[#141414] border border-white/10 space-y-2.5">
                 <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest">Category</label>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                  {selectedEvent.ticketTiers.map((tier) => (
+                  {selectedEventTiers.map((tier) => (
                     <button
                       type="button"
                       key={tier.id}
@@ -1098,7 +1101,7 @@ export const WalkInPage: React.FC = () => {
                   selectedSeatIds={selectedSeats}
                   onSeatsSelected={(seatIds) => setSelectedSeats(seatIds)}
                   currentUserId={`counter_${user?.uid || 'staff'}`}
-                  ticketTiers={selectedEvent.ticketTiers}
+                  ticketTiers={selectedEventTiers}
                   eventDate={selectedEvent.date}
                   eventTime={selectedEvent.time}
                   onReservationError={(msg) => setErrorBanner(msg)}
