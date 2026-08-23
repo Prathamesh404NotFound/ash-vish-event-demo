@@ -75,6 +75,19 @@ import { ShiftPage } from './pages/counter/ShiftPage';
 import { CounterOrders } from './pages/counter/CounterOrders';
 import { MySalesPage } from './pages/counter/MySalesPage';
 
+function CounterEntryPage() {
+  const [hasActiveShift] = React.useState(() => {
+    try {
+      const stored = localStorage.getItem('ashvish_active_shift');
+      return Boolean(stored && JSON.parse(stored)?.status === 'open');
+    } catch {
+      return false;
+    }
+  });
+
+  return hasActiveShift ? <CounterOverview /> : <Navigate to="shift" replace />;
+}
+
 // Main Public Customer Shell Layout
 function MainLayout() {
   const navigate = useNavigate();
@@ -297,7 +310,8 @@ export default function App() {
                 </RoleRoute>
               }
             >
-              <Route index element={<CounterOverview />} />
+              {/* New counter sessions must select an assigned user and verify a PIN first. */}
+              <Route index element={<CounterEntryPage />} />
               <Route path="shift" element={<ShiftPage />} />
               <Route path="my-sales" element={<MySalesPage />} />
               <Route path="scan" element={<QRScanner />} />

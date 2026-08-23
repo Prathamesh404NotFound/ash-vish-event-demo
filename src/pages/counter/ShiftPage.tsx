@@ -18,6 +18,7 @@ import {
   Unlock,
   Sparkles,
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { safeFetch } from '../../lib/api';
 import { authenticatedApiHeaders } from '../../lib/authHeaders';
@@ -61,15 +62,15 @@ interface CounterShift {
   cashSalesCount?: number;
   totalSales?: number;
   byMethod?: Record<string, number>;
+  autoReconciled?: boolean;
   status: 'open' | 'closed';
   closedBy?: string;
   liveTotals?: ShiftLiveTotals;
 }
 
-const QUICK_FLOAT_PRESETS = [0, 500, 1000, 2000, 5000];
-
 export const ShiftPage: React.FC = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
 
   const [shifts, setShifts] = useState<CounterShift[]>([]);
   const [activeShift, setActiveShift] = useState<CounterShift | null>(null);
@@ -79,14 +80,12 @@ export const ShiftPage: React.FC = () => {
   const [successBanner, setSuccessBanner] = useState<string>('');
 
   // Start shift form
-  const [startingCash, setStartingCash] = useState<number | ''>(1000);
   const [counters, setCounters] = useState<Counter[]>([]);
   const [assignedCounter, setAssignedCounter] = useState<Counter | null>(null);
   const [selectedSubUserId, setSelectedSubUserId] = useState<string>('');
   const [pin, setPin] = useState<string>('');
 
-  // End shift form
-  const [countedCash, setCountedCash] = useState<number | ''>('');
+  // End shift summary
   const [recentEndedShift, setRecentEndedShift] = useState<CounterShift | null>(null);
 
   const loadShifts = useCallback(async () => {
@@ -152,12 +151,6 @@ export const ShiftPage: React.FC = () => {
     setErrorBanner('');
     setSuccessBanner('');
 
-    const startVal = Number(startingCash);
-    if (!Number.isFinite(startVal) || startVal < 0) {
-      setErrorBanner('Starting cash float must be a valid non-negative number.');
-      return;
-    }
-
     try {
       setIsSubmitting(true);
       const headers = await authenticatedApiHeaders();
@@ -166,23 +159,22 @@ export const ShiftPage: React.FC = () => {
         {
           method: 'POST',
           headers,
-          body: JSON.stringify({ 
-            startingCash: startVal,
-            counterId: assignedCounter?.id, // Send if we have it, backend will auto-resolve if missing
+          body: JSON.stringify({
+            counterId: assignedCounter?.id, // Backend also auto-resolves when omitted.
             subUserId: selectedSubUserId,
-            pin: pin
+            pin,
           }),
         }
       );
 
       if (res.ok && res.data?.success && res.data.shift) {
-        setSuccessBanner('Shift started successfully! Cash drawer is now open.');
-        // Persist shift to localStorage so other pages (My Sales, Walk-in) know the current sub-user session
+        setSuccessBanner('Signed in successfully! Ticket issuance is now ready.');
+        // Persist shift to localStorage so other pages (My Sales, Walk-in) know the current sub-user session.
         localStorage.setItem('ashvish_active_shift', JSON.stringify(res.data.shift));
-        setStartingCash(1000);
         setSelectedSubUserId('');
         setPin('');
         await loadShifts();
+        navigate('/counter/walk-in');
       } else {
         setErrorBanner(res.data?.error || res.error || 'Could not start shift.');
       }
@@ -201,12 +193,6 @@ export const ShiftPage: React.FC = () => {
     setErrorBanner('');
     setSuccessBanner('');
 
-    const countedVal = Number(countedCash);
-    if (!Number.isFinite(countedVal) || countedVal < 0) {
-      setErrorBanner('Counted ending cash must be a valid non-negative number.');
-      return;
-    }
-
     try {
       setIsSubmitting(true);
       const headers = await authenticatedApiHeaders();
@@ -215,7 +201,7 @@ export const ShiftPage: React.FC = () => {
         {
           method: 'POST',
           headers,
-          body: JSON.stringify({ countedCash: countedVal }),
+          body: JSON.stringify({}),
         }
       );
 
@@ -223,7 +209,6 @@ export const ShiftPage: React.FC = () => {
         setRecentEndedShift(res.data.shift);
         setSuccessBanner('Shift closed and reconciled successfully.');
         localStorage.removeItem('ashvish_active_shift');
-        setCountedCash('');
         await loadShifts();
       } else {
         setErrorBanner(res.data?.error || res.error || 'Could not end shift.');
@@ -243,6 +228,10 @@ export const ShiftPage: React.FC = () => {
     byMethod: {},
   };
   const expectedTotalCashInDrawer = (activeShift?.startingCash || 0) + liveTotals.expectedCash;
+  const assignedSubUsers: CounterSubUser[] = assignedCounter
+    ? (Object.values(assignedCounter.subUsers || {}) as CounterSubUser[]).filter((subUser) => subUser.status !== 'inactive')
+    : [];
+  const selectedSubUser = assignedSubUsers.find((subUser) => subUser.id === selectedSubUserId);
 
   const pastClosedShifts = shifts.filter((s) => s.status === 'closed');
 
@@ -257,7 +246,7 @@ export const ShiftPage: React.FC = () => {
           <div>
             <h1 className="font-heading font-extrabold text-xl text-white">Shift & Cash Reconciliation</h1>
             <p className="text-gray-400 text-xs mt-0.5">
-              Open/close gate cash registers, balance float amounts, and audit counter transaction totals.
+              Select your assigned counter identity, sign in with your PIN, and let the system track every sale automatically.
             </p>
           </div>
         </div>
@@ -329,11 +318,11 @@ export const ShiftPage: React.FC = () => {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="p-4 rounded-2xl bg-black/50 border border-white/10 space-y-1.5">
                 <div className="flex items-center justify-between text-gray-400 text-xs">
-                  <span>Starting Float</span>
+                  <span>System Start Balance</span>
                   <DollarSign className="w-4 h-4 text-[#D4AF37]" />
                 </div>
-                <p className="font-heading font-extrabold text-2xl text-white">₹{activeShift.startingCash}</p>
-                <p className="text-[10px] text-gray-500">Initial drawer cash</p>
+                <p className="font-heading font-extrabold text-2xl text-white">₹{activeShift.startingCash || 0}</p>
+                <p className="text-[10px] text-gray-500">No manual float required</p>
               </div>
 
               <div className="p-4 rounded-2xl bg-black/50 border border-emerald-500/20 space-y-1.5">
@@ -373,53 +362,41 @@ export const ShiftPage: React.FC = () => {
               <div>
                 <h3 className="font-heading font-bold text-base text-white flex items-center gap-2">
                   <Lock className="w-4 h-4 text-[#D4AF37]" />
-                  <span>End Shift & Reconcile Cash</span>
+                  <span>End Ticket-Counter Session</span>
                 </h3>
                 <p className="text-gray-400 text-xs mt-0.5">
-                  Count the physical cash in the drawer and enter below. The server will compute any variance.
+                  The system will close this session and calculate sales, payment-method totals, and reconciliation automatically. No cash count is required.
                 </p>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
-                <div className="sm:col-span-2 space-y-1.5">
-                  <label className="block text-xs font-semibold text-gray-300">
-                    Counted Ending Cash Amount (₹) <span className="text-red-400">*</span>
-                  </label>
-                  <div className="relative">
-                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500 text-sm font-bold">₹</span>
-                    <input
-                      type="number"
-                      min="0"
-                      step="1"
-                      required
-                      placeholder="e.g. 3500"
-                      value={countedCash}
-                      onChange={(e) => setCountedCash(e.target.value === '' ? '' : Math.max(0, Number(e.target.value)))}
-                      className="w-full pl-8 pr-4 py-2.5 rounded-xl bg-[#1A1A1A] border border-white/10 text-white font-mono text-sm focus:outline-none focus:border-[#D4AF37] transition-all"
-                    />
-                  </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                <div className="p-3 rounded-xl bg-[#1A1A1A] border border-white/10">
+                  <span className="text-gray-500 block">Recorded Sales</span>
+                  <strong className="text-emerald-400 text-lg">₹{liveTotals.totalSales}</strong>
                 </div>
-
-                <button
-                  type="submit"
-                  disabled={isSubmitting || countedCash === ''}
-                  className="w-full py-2.5 px-5 rounded-xl bg-gradient-to-r from-red-500/80 to-red-600 hover:brightness-110 text-white font-extrabold text-xs flex items-center justify-center gap-2 shadow-lg shadow-red-600/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                >
-                  {isSubmitting ? (
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <>
-                      <Lock className="w-4 h-4" />
-                      <span>Reconcile & Close Shift</span>
-                    </>
-                  )}
-                </button>
+                <div className="p-3 rounded-xl bg-[#1A1A1A] border border-white/10">
+                  <span className="text-gray-500 block">Cash Collected</span>
+                  <strong className="text-white text-lg">₹{liveTotals.expectedCash}</strong>
+                </div>
+                <div className="p-3 rounded-xl bg-[#1A1A1A] border border-white/10">
+                  <span className="text-gray-500 block">System Drawer Total</span>
+                  <strong className="text-[#D4AF37] text-lg">₹{expectedTotalCashInDrawer}</strong>
+                </div>
               </div>
+
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="w-full py-3 px-5 rounded-xl bg-gradient-to-r from-red-500/80 to-red-600 hover:brightness-110 text-white font-extrabold text-xs flex items-center justify-center gap-2 shadow-lg shadow-red-600/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+              >
+                {isSubmitting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />}
+                <span>End Session & Save Totals</span>
+              </button>
             </form>
           </div>
         </div>
       ) : (
-        /* NO ACTIVE SHIFT — START SHIFT FORM */
+        /* NO ACTIVE SHIFT — PIN SIGN-IN */
         <div className="p-6 md:p-8 rounded-3xl bg-[#141414] border border-white/10 space-y-6">
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 rounded-2xl bg-[#D4AF37]/10 border border-[#D4AF37]/30 flex items-center justify-center text-[#D4AF37]">
@@ -427,151 +404,99 @@ export const ShiftPage: React.FC = () => {
             </div>
             <div>
               <span className="px-2.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/30 text-[10px] font-bold uppercase tracking-wider">
-                Cash Drawer Closed
+                Counter Sign-In Required
               </span>
-              <h2 className="font-heading font-extrabold text-xl text-white mt-1">Start New Shift</h2>
+              <h2 className="font-heading font-extrabold text-xl text-white mt-1">Who is operating this counter?</h2>
               <p className="text-gray-400 text-xs">
-                Enter the opening float in the cash drawer before issuing walk-in passes.
+                Select your assigned name and enter your private PIN. The system starts and tracks your session automatically.
               </p>
             </div>
           </div>
 
           {recentEndedShift && (
-            <div className={`p-4 rounded-2xl border text-xs space-y-2 ${
-              Number(recentEndedShift.discrepancy || 0) === 0
-                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
-                : 'bg-amber-500/10 border-amber-500/30 text-amber-300'
-            }`}>
+            <div className="p-4 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 text-xs space-y-1.5">
               <div className="flex items-center justify-between font-bold">
-                <span>Last Shift Summary (Shift #{recentEndedShift.shiftId})</span>
-                <span>Discrepancy: ₹{recentEndedShift.discrepancy || 0}</span>
+                <span>Previous session closed</span>
+                <span>Sales: ₹{recentEndedShift.totalSales || 0}</span>
               </div>
-              <p className="text-[11px] opacity-90">
-                Counted: ₹{recentEndedShift.countedCash} vs Expected: ₹{(Number(recentEndedShift.startingCash) + Number(recentEndedShift.expectedCash || 0))}
-                {Number(recentEndedShift.discrepancy || 0) === 0 ? ' (Perfect match ✓)' : ' (Variance recorded in audit log)'}
-              </p>
+              <p className="text-[11px] opacity-90">The system saved its payment totals and closed it without requiring a cash count.</p>
             </div>
           )}
 
-          <form onSubmit={handleStartShift} className="space-y-5 max-w-xl">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <label className="block text-xs font-semibold text-gray-300">
-                  Assigned Counter
-                </label>
-                <div className="w-full px-4 py-3 rounded-xl bg-[#1A1A1A] border border-white/10 text-gray-400 text-sm flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-[#D4AF37]" />
-                  <span>{assignedCounter ? assignedCounter.name : (isLoading ? 'Detecting counter...' : 'No counter assigned')}</span>
-                </div>
-                {!assignedCounter && !isLoading && (
-                  <p className="text-[10px] text-red-400 mt-1 flex items-center gap-1">
-                    <AlertCircle className="w-3 h-3" />
-                    Ask admin to assign your account to a counter.
-                  </p>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <label className="block text-xs font-semibold text-gray-300">
-                  Select Your Name <span className="text-red-400">*</span>
-                </label>
-                <select
-                  required
-                  disabled={!assignedCounter}
-                  value={selectedSubUserId}
-                  onChange={(e) => setSelectedSubUserId(e.target.value)}
-                  className="w-full px-4 py-3 rounded-xl bg-[#1A1A1A] border border-[#D4AF37]/20 text-white text-sm focus:outline-none focus:border-[#D4AF37] transition-all disabled:opacity-50"
-                >
-                  <option value="">Choose your name...</option>
-                  {assignedCounter?.subUsers && 
-                    Object.values(assignedCounter.subUsers).map(u => {
-                      const sub = u as any;
-                      return <option key={sub.id} value={sub.id}>{sub.name}</option>;
-                    })
-                  }
-                </select>
-              </div>
+          <div className="p-4 rounded-2xl bg-black/30 border border-white/10 space-y-4">
+            <div className="flex items-center gap-2 text-xs font-bold text-[#D4AF37] uppercase tracking-wider">
+              <Sparkles className="w-4 h-4" />
+              <span>{assignedCounter ? assignedCounter.name : (isLoading ? 'Detecting assigned counter…' : 'No counter assigned')}</span>
             </div>
+            {!assignedCounter && !isLoading ? (
+              <p className="text-xs text-red-400 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4" /> Ask an administrator to assign your account to an active counter.
+              </p>
+            ) : (
+              <>
+                <p className="text-xs text-gray-400">Choose one of the users assigned to this counter:</p>
+                {assignedSubUsers.length === 0 ? (
+                  <p className="p-4 rounded-xl bg-[#1A1A1A] border border-amber-500/30 text-xs text-amber-300">
+                    No active counter users are configured yet. Ask an administrator to add a counter user and PIN.
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {assignedSubUsers.map((subUser) => {
+                      const isSelected = selectedSubUserId === subUser.id;
+                      return (
+                        <button
+                          key={subUser.id}
+                          type="button"
+                          onClick={() => { setSelectedSubUserId(subUser.id); setPin(''); setErrorBanner(''); }}
+                          className={`min-h-20 p-4 rounded-2xl border text-left transition-all cursor-pointer ${
+                            isSelected
+                              ? 'bg-[#D4AF37]/15 border-[#D4AF37] shadow-lg shadow-[#D4AF37]/10'
+                              : 'bg-[#1A1A1A] border-white/10 hover:border-[#D4AF37]/50'
+                          }`}
+                        >
+                          <span className="block text-sm font-extrabold text-white">{subUser.name}</span>
+                          <span className="block text-[10px] text-gray-400 mt-1">PIN-protected operator</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {selectedSubUser && (
+            <form onSubmit={handleStartShift} className="space-y-4 max-w-md">
               <div className="space-y-2">
                 <label className="block text-xs font-semibold text-gray-300">
-                  Access PIN (4-digits) <span className="text-red-400">*</span>
+                  Enter PIN for <span className="text-[#D4AF37]">{selectedSubUser.name}</span> <span className="text-red-400">*</span>
                 </label>
                 <div className="relative">
-                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500">
-                    <Lock className="w-4 h-4" />
-                  </span>
+                  <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
                   <input
                     type="password"
                     inputMode="numeric"
-                    pattern="[0-9]*"
+                    pattern="[0-9]{4}"
                     maxLength={4}
                     required
-                    placeholder="****"
+                    autoFocus
+                    placeholder="4-digit PIN"
                     value={pin}
-                    onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
-                    className="w-full pl-10 pr-4 py-3 rounded-xl bg-[#1A1A1A] border border-white/10 text-white font-mono text-base tracking-widest focus:outline-none focus:border-[#D4AF37] transition-all"
+                    onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                    className="w-full pl-10 pr-4 py-3 rounded-xl bg-[#1A1A1A] border border-[#D4AF37]/30 text-white font-mono text-base tracking-[0.45em] focus:outline-none focus:border-[#D4AF37] transition-all"
                   />
                 </div>
               </div>
-
-              <div className="space-y-2">
-                <label className="block text-xs font-semibold text-gray-300">
-                  Starting Cash Float Amount (₹) <span className="text-red-400">*</span>
-                </label>
-                <div className="relative">
-                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500 text-sm font-bold">₹</span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="1"
-                    required
-                    placeholder="1000"
-                    value={startingCash}
-                    onChange={(e) => setStartingCash(e.target.value === '' ? '' : Math.max(0, Number(e.target.value)))}
-                    className="w-full pl-8 pr-4 py-3 rounded-xl bg-[#1A1A1A] border border-white/10 text-white font-mono text-base focus:outline-none focus:border-[#D4AF37] transition-all"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              {/* Quick Float Chips */}
-              <div className="flex items-center gap-2 pt-1 flex-wrap">
-                <span className="text-[11px] text-gray-500">Quick presets:</span>
-                {QUICK_FLOAT_PRESETS.map((preset) => (
-                  <button
-                    key={preset}
-                    type="button"
-                    onClick={() => setStartingCash(preset)}
-                    className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                      startingCash === preset
-                        ? 'bg-[#D4AF37] text-black shadow-md shadow-[#D4AF37]/30'
-                        : 'bg-white/5 hover:bg-white/10 text-gray-300 border border-white/10'
-                    }`}
-                  >
-                    ₹{preset}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              disabled={isSubmitting || startingCash === ''}
-              className="py-3 px-6 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] hover:brightness-110 text-black font-extrabold text-xs flex items-center justify-center gap-2 shadow-lg shadow-[#D4AF37]/25 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-            >
-              {isSubmitting ? (
-                <RefreshCw className="w-4 h-4 animate-spin" />
-              ) : (
-                <>
-                  <Unlock className="w-4 h-4 stroke-[2.5]" />
-                  <span>Open Shift & Start Terminal</span>
-                </>
-              )}
-            </button>
-          </form>
+              <button
+                type="submit"
+                disabled={isSubmitting || pin.length !== 4}
+                className="w-full py-3 px-6 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] hover:brightness-110 text-black font-extrabold text-xs flex items-center justify-center gap-2 shadow-lg shadow-[#D4AF37]/25 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+              >
+                {isSubmitting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Unlock className="w-4 h-4 stroke-[2.5]" />}
+                <span>Verify PIN & Start Ticket Issuance</span>
+              </button>
+            </form>
+          )}
         </div>
       )}
 

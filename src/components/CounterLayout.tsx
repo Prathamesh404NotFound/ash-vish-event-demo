@@ -15,10 +15,10 @@ export const CounterLayout: React.FC = () => {
       description: "Live entry counts and event status"
     },
     {
-      title: "Shift Management",
+      title: "Counter Sign-In",
       path: "/counter/shift",
       icon: Clock,
-      description: "Drawer float & cash reconciliation"
+      description: "PIN sign-in & automatic totals"
     },
     {
       title: "My Sales Log",
@@ -36,7 +36,7 @@ export const CounterLayout: React.FC = () => {
       title: "Walk-In Ticket Issuance",
       path: "/counter/walk-in",
       icon: UserPlus,
-      description: "Manual cash & counter bookings"
+      description: "Issue tickets after PIN sign-in"
     },
     {
       title: "Orders & Actions",

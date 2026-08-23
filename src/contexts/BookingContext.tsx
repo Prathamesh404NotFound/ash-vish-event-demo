@@ -65,6 +65,12 @@ const isInternalUrl = (u: unknown): boolean => {
 const sanitizeImageUrl = (u: unknown, fallback = DEFAULT_IMAGE_URL): string =>
   isInternalUrl(u) ? fallback : (String(u || '') || fallback);
 
+const normalizeEventTicketTiers = (value: unknown): TicketTier[] => {
+  if (Array.isArray(value)) return value.filter(Boolean) as TicketTier[];
+  if (value && typeof value === 'object') return Object.values(value).filter(Boolean) as TicketTier[];
+  return [];
+};
+
 /** Abort reason token used to cancel a superseded in-flight reservation request. */
 const STALE_REQUEST_TOKEN = '__stale_reservation_request__';
 
@@ -358,6 +364,7 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
             posterUrl: sanitizeImageUrl(e.posterUrl),
             coverUrl: isInternalUrl(e.coverUrl) || !e.coverUrl ? sanitizeImageUrl(e.posterUrl) : e.coverUrl,
             cardImageUrl: e.cardImageUrl || null,
+            ticketTiers: normalizeEventTicketTiers((e as any).ticketTiers),
             title: e.title || 'Untitled Event',
             startingPrice: typeof e.startingPrice === 'number' ? e.startingPrice : 0,
             rating: typeof e.rating === 'number' ? e.rating : 0,

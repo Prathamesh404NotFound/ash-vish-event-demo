@@ -6216,15 +6216,12 @@ async function computeShiftCashTotals(
   // Start a shift: requires staff (counter_staff and up).
   app.post("/api/counter/shifts/start", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
     try {
-      let { startingCash, counterId, subUserId, pin } = req.body || {};
+      let { counterId, subUserId, pin } = req.body || {};
       const staffUid = req.user.uid;
       const rbacRole = (req.user.rbacRole as string) || "counter_staff";
-      
-      // Validate starting cash: non-negative number.
-      const startCash = Number(startingCash);
-      if (!Number.isFinite(startCash) || startCash < 0) {
-        return res.status(400).json({ success: false, error: "Starting cash must be a non-negative number." });
-      }
+      // Counter sessions start with a system-managed zero float. Sales and
+      // payment totals are calculated from recorded orders, not user input.
+      const startCash = 0;
 
       if (!subUserId || !pin) {
         return res.status(400).json({ success: false, error: "Sub-user selection and PIN are required." });
@@ -6253,8 +6250,13 @@ async function computeShiftCashTotals(
       const counter = counterSnap.data as any;
       if (!counter) return res.status(404).json({ success: false, error: "Counter not found." });
       
+      if (rbacRole === "counter_staff" && (!Array.isArray(counter.assignedStaffIds) || !counter.assignedStaffIds.includes(staffUid))) {
+        return res.status(403).json({ success: false, error: "You are not assigned to this counter." });
+      }
+
       const subUser = counter.subUsers ? Object.values(counter.subUsers).find((u: any) => u.id === subUserId) as any : null;
       if (!subUser) return res.status(404).json({ success: false, error: "Sub-user not found on this counter." });
+      if (subUser.status === "inactive") return res.status(403).json({ success: false, error: "This counter user is inactive. Contact an administrator." });
       
       if (!verifyCounterPin(String(pin), subUser.pinHash)) {
         return res.status(401).json({ success: false, error: "Invalid PIN." });
@@ -6301,12 +6303,13 @@ async function computeShiftCashTotals(
     }
   });
 
-// End a shift: owner or admin; counted cash entered; server computes expected cash.
+// End a shift: owner or admin; the server computes and records all totals automatically.
 app.post("/api/counter/shifts/:shiftId/end", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
   try {
     const { shiftId } = req.params;
-    const { countedCash } = req.body || {};
-    const actorUid = req.user.uid;
+          const { countedCash } = req.body || {};
+      const actorUid = req.user.uid;
+
     const rbacRole = (req.user.rbacRole as string) || "counter_staff";
     const snap = await rtdbGet(`counter_shifts/${shiftId}`, await getAdminAuthToken());
     const shift = snap.data as any;
@@ -6318,13 +6321,17 @@ app.post("/api/counter/shifts/:shiftId/end", requireRole(["counter_staff", "even
     if (shift.status !== "open") {
       return res.status(409).json({ success: false, error: "This shift has already been closed." });
     }
-    const counted = Number(countedCash);
+    const totals = await computeShiftCashTotals(await getAdminAuthToken(), { ...shift, shiftId });
+    const expectedCash = totals.expectedCash;
+    const systemExpectedDrawer = Number(shift.startingCash || 0) + expectedCash;
+    const hasManualCount = countedCash !== undefined && countedCash !== null && countedCash !== "";
+    const counted = hasManualCount ? Number(countedCash) : systemExpectedDrawer;
     if (!Number.isFinite(counted) || counted < 0) {
       return res.status(400).json({ success: false, error: "Counted cash must be a non-negative number." });
     }
-    const totals = await computeShiftCashTotals(await getAdminAuthToken(), { ...shift, shiftId });
-    const expectedCash = totals.expectedCash;
-    const discrepancy = Math.round((counted - (Number(shift.startingCash) + expectedCash)) * 100) / 100;
+    const discrepancy = hasManualCount
+      ? Math.round((counted - systemExpectedDrawer) * 100) / 100
+      : 0;
     const update: Record<string, any> = {
       status: "closed",
       endTime: new Date().toISOString(),
@@ -6335,6 +6342,7 @@ app.post("/api/counter/shifts/:shiftId/end", requireRole(["counter_staff", "even
       totalSales: totals.totalSales,
       byMethod: totals.byMethod,
       closedBy: actorUid,
+      autoReconciled: !hasManualCount,
     };
     await rtdbUpdate(`counter_shifts/${shiftId}`, update, await getAdminAuthToken());
     await writeAuditEntry({
@@ -7271,10 +7279,21 @@ app.get("/api/counter/list", requireRole(["counter_staff", "event_manager", "sup
         name: c.name || "Box Office Counter",
         venue: c.venue || "",
         status: c.status || "active",
-        subUsers: c.subUsers || {},
+        subUsers: Object.fromEntries(
+          Object.entries(c.subUsers || {}).map(([key, u]: [string, any]) => [key, {
+            id: String(u?.id || key),
+            name: String(u?.name || "Counter User"),
+            phone: String(u?.phone || ""),
+            status: u?.status === "inactive" ? "inactive" : "active",
+          }])
+        ),
         assignedStaffIds: Array.isArray(c.assignedStaffIds) ? c.assignedStaffIds : []
       }))
-      .filter((c) => c.status === "active");
+      .filter((c) => c.status === "active")
+      .filter((c) => {
+        const elevated = ["event_manager", "super_admin"].includes(String(req.user.rbacRole || ""));
+        return elevated || c.assignedStaffIds.includes(req.user.uid);
+      });
     return res.status(200).json({ success: true, counters });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message || "Could not fetch counter list." });

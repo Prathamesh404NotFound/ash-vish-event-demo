@@ -29,6 +29,7 @@ import {
   MessageSquareCode,
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
+import { useNavigate } from 'react-router-dom';
 import { useBooking } from '../../contexts/BookingContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { Ticket as TicketType } from '../../types';
@@ -79,6 +80,7 @@ const readMemory = (): PosMemory => {
 
 export const WalkInPage: React.FC = () => {
   const { events, createWalkInBooking } = useBooking();
+  const navigate = useNavigate();
   const { user } = useAuth();
 
   // ---------- Selection ----------
@@ -575,6 +577,12 @@ export const WalkInPage: React.FC = () => {
     setErrorBanner('');
     setFormError('');
 
+    if (!activeShiftId) {
+      setFormError('Sign in with an assigned counter user PIN before issuing tickets.');
+      navigate('/counter/shift');
+      return;
+    }
+
     const trimmedName = attendeeName.trim();
     const trimmedPhone = attendeePhone.trim();
     if (!trimmedName) {
@@ -783,6 +791,7 @@ export const WalkInPage: React.FC = () => {
     isSubmitting ||
     !attendeeName.trim() ||
     !attendeePhone.trim() ||
+    !activeShiftId ||
     !selectedEvent ||
     !selectedTier ||
     (isSeatBasedEvent(selectedEvent) && selectedSeats.length === 0) ||
@@ -956,6 +965,18 @@ export const WalkInPage: React.FC = () => {
       ) : (
         /* POS Checkout Form */
         <div className="grid grid-cols-1 lg:grid-cols-[1.25fr_1fr] gap-5 items-start">
+          {!activeShiftId && (
+            <div className="lg:col-span-2 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs flex items-center justify-between gap-3">
+              <span>Counter sign-in is required before tickets can be issued.</span>
+              <button
+                type="button"
+                onClick={() => navigate('/counter/shift')}
+                className="shrink-0 px-3 py-1.5 rounded-lg bg-amber-300 text-black font-bold hover:bg-amber-200"
+              >
+                Sign In
+              </button>
+            </div>
+          )}
           {/* ================= LEFT: selection column ================= */}
           <div className="space-y-4">
             {/* 1. Event selector */}
@@ -979,7 +1000,7 @@ export const WalkInPage: React.FC = () => {
                   setSeatSearch('');
                   const evt = events.find((item) => item.id === e.target.value);
                   if (evt?.ticketTiers?.[0]) {
-                    setSelectedTierId(evt.ticketTiers[0].id);
+                    setSelectedTierId(evt.ticketTiers?.[0]?.id || '');
                   } else {
                     setSelectedTierId('');
                   }
