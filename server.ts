@@ -3422,6 +3422,9 @@ export async function createApp() {
       if (event.externalBookingEnabled !== undefined && typeof event.externalBookingEnabled !== 'boolean') {
         return res.status(400).json({ success: false, error: "externalBookingEnabled must be a boolean." });
       }
+      if (event.externalBookingShowTicketInfo !== undefined && typeof event.externalBookingShowTicketInfo !== 'boolean') {
+        return res.status(400).json({ success: false, error: "externalBookingShowTicketInfo must be a boolean." });
+      }
       if (event.externalBookingEnabled === true && (typeof event.externalBookingUrl !== 'string' || !event.externalBookingUrl.trim())) {
         return res.status(400).json({ success: false, error: "An external booking URL is required when external booking is enabled." });
       }
@@ -3472,6 +3475,7 @@ export async function createApp() {
         title: (event.title || "Untitled Event").trim() || "Untitled Event",
         isAdvertiseOnly: typeof event.isAdvertiseOnly === 'boolean' ? event.isAdvertiseOnly : false,
         externalBookingEnabled: createdExternalBookingEnabled,
+        externalBookingShowTicketInfo: typeof event.externalBookingShowTicketInfo === 'boolean' ? event.externalBookingShowTicketInfo : true,
         externalBookingUrl: createdExternalBookingEnabled ? (cleanExternalBookingUrl || null) : null,
         counterLocation: event.counterLocation ? String(event.counterLocation).trim() : null,
         counterTimingText: event.counterTimingText ? String(event.counterTimingText).trim() : null,
@@ -3533,6 +3537,9 @@ export async function createApp() {
       }
       if (body.externalBookingEnabled !== undefined && typeof body.externalBookingEnabled !== 'boolean') {
         return res.status(400).json({ success: false, error: "externalBookingEnabled must be a boolean." });
+      }
+      if (body.externalBookingShowTicketInfo !== undefined && typeof body.externalBookingShowTicketInfo !== 'boolean') {
+        return res.status(400).json({ success: false, error: "externalBookingShowTicketInfo must be a boolean." });
       }
       if (body.externalBookingEnabled === true && (typeof body.externalBookingUrl !== 'string' || !body.externalBookingUrl.trim())) {
         return res.status(400).json({ success: false, error: "An external booking URL is required when external booking is enabled." });
@@ -3642,6 +3649,9 @@ export async function createApp() {
         cashOnCounterOnly: typeof body.cashOnCounterOnly === 'boolean' ? body.cashOnCounterOnly : Boolean(existing.cashOnCounterOnly),
         isAdvertiseOnly: typeof body.isAdvertiseOnly === 'boolean' ? body.isAdvertiseOnly : Boolean(existing.isAdvertiseOnly),
         externalBookingEnabled: resolvedExternalBookingEnabled,
+        externalBookingShowTicketInfo: typeof body.externalBookingShowTicketInfo === 'boolean'
+          ? body.externalBookingShowTicketInfo
+          : existing.externalBookingShowTicketInfo !== false,
         externalBookingUrl: resolvedExternalBookingUrl || null,
         counterLocation: body.counterLocation === "" ? null : (body.counterLocation !== undefined ? body.counterLocation : (existing.counterLocation ?? null)),
         counterTimingText: body.counterTimingText === "" ? null : (body.counterTimingText !== undefined ? body.counterTimingText : (existing.counterTimingText ?? null)),

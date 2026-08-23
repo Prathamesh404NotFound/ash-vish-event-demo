@@ -101,6 +101,7 @@ export const AdminEvents: React.FC = () => {
   const [mapsUrl, setMapsUrl] = useState('');
   const [externalBookingUrl, setExternalBookingUrl] = useState('');
   const [externalBookingEnabled, setExternalBookingEnabled] = useState(false);
+  const [externalBookingShowTicketInfo, setExternalBookingShowTicketInfo] = useState(true);
   const [presentedBy, setPresentedBy] = useState('');
   const [isFeatured, setIsFeatured] = useState(false);
   const [isTrending, setIsTrending] = useState(false);
@@ -268,6 +269,7 @@ export const AdminEvents: React.FC = () => {
     setMapsUrl('');
     setExternalBookingUrl('');
     setExternalBookingEnabled(false);
+    setExternalBookingShowTicketInfo(true);
     setPresentedBy('');
     setIsFeatured(false);
     setIsTrending(false);
@@ -315,6 +317,7 @@ export const AdminEvents: React.FC = () => {
     const cleanLegacyBookingUrl = ['null', 'undefined'].includes(legacyBookingUrl.toLowerCase()) ? '' : legacyBookingUrl;
     setExternalBookingUrl(cleanLegacyBookingUrl);
     setExternalBookingEnabled(evt.externalBookingEnabled !== false && Boolean(cleanLegacyBookingUrl));
+    setExternalBookingShowTicketInfo(evt.externalBookingShowTicketInfo !== false);
     setPresentedBy(evt.presentedBy || '');
     setIsFeatured(!!evt.isFeatured);
     setIsTrending(!!evt.isTrending);
@@ -628,6 +631,7 @@ export const AdminEvents: React.FC = () => {
       schedule: formattedSchedule,
       mapsUrl: mapsUrl.trim() || null,
       externalBookingEnabled,
+      externalBookingShowTicketInfo,
       externalBookingUrl: externalBookingEnabled ? (cleanExternalBookingUrl || null) : null,
       presentedBy: presentedBy.trim() || null,
       isFeatured,
@@ -1254,6 +1258,27 @@ export const AdminEvents: React.FC = () => {
                           className="w-full bg-[#121212] border border-white/10 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-[#D4AF37]"
                         />
                         <p className="text-[11px] text-gray-500 mt-1">Only a valid http:// or https:// link will be shown to visitors.</p>
+                        <div className="mt-3 pt-3 border-t border-white/10 flex items-center justify-between gap-3">
+                          <div>
+                            <label className="text-gray-300 font-bold block mb-0.5 text-xs">Show Ticket Prices & Info Publicly</label>
+                            <p className="text-[10px] text-gray-500">Turn OFF to hide ticket price, tier, and availability information on the public event page.</p>
+                          </div>
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={externalBookingShowTicketInfo}
+                            onClick={() => setExternalBookingShowTicketInfo((show) => !show)}
+                            className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors cursor-pointer ${
+                              externalBookingShowTicketInfo ? 'bg-[#D4AF37]' : 'bg-gray-600'
+                            }`}
+                          >
+                            <span
+                              className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                                externalBookingShowTicketInfo ? 'translate-x-6' : 'translate-x-1'
+                              }`}
+                            />
+                          </button>
+                        </div>
                       </div>
                     )}
                   </div>

@@ -51,6 +51,8 @@ export const EventDetail: React.FC<EventDetailProps> = ({
   const hasExternalBooking = event.externalBookingEnabled !== false &&
     /^https?:\/\//i.test(normalizedExternalBookingUrl) &&
     !['null', 'undefined'].includes(normalizedExternalBookingUrl.toLowerCase());
+  const showPublicTicketInfo = !hasExternalBooking || event.externalBookingShowTicketInfo !== false;
+  const ticketTiers = Array.isArray(event.ticketTiers) ? event.ticketTiers : [];
 
   const eventSchema = generateEventSchema(event);
   useSEO({
@@ -67,7 +69,7 @@ export const EventDetail: React.FC<EventDetailProps> = ({
   const [flatPrice] = useState<number>(() => {
     // Use the most popular tier's price as the single flat price, falling back
     // to the first tier when no tier is marked popular.
-    const flat = event.ticketTiers.find((t) => t.popular) || event.ticketTiers[0];
+    const flat = ticketTiers.find((t) => t.popular) || ticketTiers[0];
     return typeof flat?.price === 'number' && flat.price > 0 ? flat.price : 0;
   });
   const [quantity, setQuantity] = useState(1);
@@ -103,7 +105,7 @@ export const EventDetail: React.FC<EventDetailProps> = ({
   const handleBookNow = () => {
     // Seat selection happens exclusively in the checkout wizard (Seats step).
     // Pass an empty seat list so the wizard drives the map there.
-    onProceedToCheckout(event, event.ticketTiers[0], quantity, []);
+    onProceedToCheckout(event, ticketTiers[0], quantity, []);
   };
 
   return (
@@ -304,7 +306,7 @@ export const EventDetail: React.FC<EventDetailProps> = ({
           )}
 
           {/* What's Included (event perks + tier perks) */}
-          {(event.perks?.length > 0 || event.ticketTiers[0]?.perks?.length > 0) && (
+          {(event.perks?.length > 0 || (showPublicTicketInfo && ticketTiers[0]?.perks?.length > 0)) && (
             <div className="space-y-3">
               <h3 className="font-heading font-bold text-xl text-white flex items-center gap-2">
                 <Sparkles className="w-5 h-5 text-[#D4AF37]" />
@@ -327,13 +329,14 @@ export const EventDetail: React.FC<EventDetailProps> = ({
                     </ul>
                   </div>
                 )}
-                {event.ticketTiers[0]?.perks?.length > 0 && (
+                {showPublicTicketInfo && ticketTiers[0]?.perks?.length > 0 && (
                   <div className="space-y-2">
                     <span className="text-[10px] uppercase tracking-widest font-bold text-gray-500 flex items-center gap-1.5">
-                      <Star className="w-3 h-3 text-[#D4AF37]" /> {event.ticketTiers[0].name} Benefits
+                      <Star className="w-3 h-3 text-[#D4AF37]" /> {ticketTiers[0].name} Benefits
+
                     </span>
                     <ul className="space-y-2">
-                      {event.ticketTiers[0].perks.map((perk) => (
+                      {ticketTiers[0].perks.map((perk) => (
                         <li key={perk} className="flex items-start gap-2.5 text-xs text-gray-300">
                           <Star className="w-4 h-4 text-[#D4AF37] shrink-0 mt-0.5" />
                           <span>{perk}</span>
@@ -500,7 +503,7 @@ export const EventDetail: React.FC<EventDetailProps> = ({
         <div className="lg:col-span-4">
           <div className="sticky top-24 card-depth rounded-3xl p-6 bg-[#141414] border border-white/10 space-y-6 shadow-2xl">
             
-            {event.isAdvertiseOnly ? (
+            {event.isAdvertiseOnly || hasExternalBooking ? (
               <div className="space-y-5">
                 <div className="border-b border-white/10 pb-4">
                   <span className="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-white/10 text-amber-300 border border-white/15 inline-flex items-center gap-1.5 mb-2.5">
@@ -621,10 +624,12 @@ export const EventDetail: React.FC<EventDetailProps> = ({
                     <span className="text-gray-400">Date:</span>
                     <span className="font-semibold text-white">{event.date}</span>
                   </div>
-                  <div className="flex justify-between py-1">
-                    <span className="text-gray-400">Entry Rate:</span>
-                    <span className="font-bold text-[#D4AF37] text-sm">{formatINR(flatPrice)}</span>
-                  </div>
+                  {showPublicTicketInfo && (
+                    <div className="flex justify-between py-1">
+                      <span className="text-gray-400">Entry Rate:</span>
+                      <span className="font-bold text-[#D4AF37] text-sm">{formatINR(flatPrice)}</span>
+                    </div>
+                  )}
                 </div>
 
                 <p className="text-[11px] text-gray-400 text-center leading-relaxed px-2">
