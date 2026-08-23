@@ -99,6 +99,7 @@ export const AdminEvents: React.FC = () => {
   const [faqsText, setFaqsText] = useState('');
   const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
   const [mapsUrl, setMapsUrl] = useState('');
+  const [externalBookingUrl, setExternalBookingUrl] = useState('');
   const [presentedBy, setPresentedBy] = useState('');
   const [isFeatured, setIsFeatured] = useState(false);
   const [isTrending, setIsTrending] = useState(false);
@@ -264,6 +265,7 @@ export const AdminEvents: React.FC = () => {
     setFaqsText('');
     setGalleryUrls([]);
     setMapsUrl('');
+    setExternalBookingUrl('');
     setPresentedBy('');
     setIsFeatured(false);
     setIsTrending(false);
@@ -307,6 +309,7 @@ export const AdminEvents: React.FC = () => {
     setPerksText((evt.perks || []).join(', '));
     setArtistsText((evt.artists || []).map((a) => `${a.name}${a.role ? ` | ${a.role}` : ''}`).join('\n'));
     setMapsUrl(evt.mapsUrl || '');
+    setExternalBookingUrl(evt.externalBookingUrl || '');
     setPresentedBy(evt.presentedBy || '');
     setIsFeatured(!!evt.isFeatured);
     setIsTrending(!!evt.isTrending);
@@ -476,7 +479,18 @@ export const AdminEvents: React.FC = () => {
       return;
     }
 
-    // 3. Validation: Pricing Tiers
+    // 3. Validation: External booking URL
+    if (externalBookingUrl.trim()) {
+      try {
+        const parsedBookingUrl = new URL(externalBookingUrl.trim());
+        if (!['http:', 'https:'].includes(parsedBookingUrl.protocol)) throw new Error('Unsupported protocol');
+      } catch {
+        setFormError('External booking URL must be a valid http:// or https:// link.');
+        return;
+      }
+    }
+
+    // 4. Validation: Pricing Tiers
     if (tiers.length === 0) {
       setFormError('At least one ticket pricing tier is required.');
       return;
@@ -589,6 +603,7 @@ export const AdminEvents: React.FC = () => {
       faqs: formattedFaqs,
       schedule: formattedSchedule,
       mapsUrl: mapsUrl.trim() || null,
+      externalBookingUrl: externalBookingUrl.trim() || null,
       presentedBy: presentedBy.trim() || null,
       isFeatured,
       isTrending,
@@ -1181,6 +1196,17 @@ export const AdminEvents: React.FC = () => {
                     />
                     <p className="text-[11px] text-gray-500 mt-1">Optional. Overrides the default address-based map link.</p>
                   </div>
+                  <div>
+                    <label className="text-gray-300 font-bold block mb-1">External Booking URL</label>
+                    <input
+                      type="url"
+                      value={externalBookingUrl}
+                      onChange={(e) => setExternalBookingUrl(e.target.value)}
+                      placeholder="e.g. https://ticketkhidakee.com/..."
+                      className="w-full bg-[#1C1C1C] border border-white/10 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-[#D4AF37]"
+                    />
+                    <p className="text-[11px] text-gray-500 mt-1">Optional. Used as the booking button destination for an advertisement-only event.</p>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -1263,7 +1289,7 @@ export const AdminEvents: React.FC = () => {
                         <span className="px-2 py-0.5 rounded text-[9px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 uppercase">INFO ONLY</span>
                       </div>
                       <p className="text-[11px] text-gray-400">
-                        When enabled, online checkout is hidden and guests are guided to venue ticket counters for admission.
+                        When enabled, local checkout is hidden. Guests can be sent to the external booking link below, or shown counter information.
                       </p>
                     </div>
                     <button

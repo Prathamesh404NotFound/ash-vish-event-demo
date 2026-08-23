@@ -340,33 +340,63 @@ export const EventDetail: React.FC<EventDetailProps> = ({
             </div>
           )}
 
-          {/* Simple Flat-Price Ticket Info */}
-          <div className="p-5 rounded-2xl bg-[#141414] border border-[#D4AF37]/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <div className="flex items-start gap-3">
-              <div className="p-2.5 rounded-xl bg-[#D4AF37]/10 text-[#D4AF37] border border-[#D4AF37]/20 shrink-0">
-                <Ticket className="w-5 h-5" />
+          {/* Ticket information or external booking CTA */}
+          {event.isAdvertiseOnly && event.externalBookingUrl ? (
+            <div className="p-5 rounded-2xl bg-[#141414] border border-[#D4AF37]/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <div className="p-2.5 rounded-xl bg-[#D4AF37]/10 text-[#D4AF37] border border-[#D4AF37]/20 shrink-0">
+                  <Ticket className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wider block">
+                    Tickets & Booking
+                  </span>
+                  <span className="font-heading font-bold text-lg text-white block mt-0.5">
+                    Book this event on Ticket Khidakee
+                  </span>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    Ticket selection, availability, and payment are handled securely on the external booking page.
+                  </p>
+                </div>
               </div>
-              <div>
-                <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wider block">
-                  One Simple Price
+              <a
+                href={event.externalBookingUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-[#D4AF37] hover:bg-[#F3E5AB] text-black font-bold text-xs transition-colors whitespace-nowrap"
+              >
+                Book on Ticket Khidakee
+                <ExternalLink className="w-4 h-4" />
+              </a>
+            </div>
+          ) : (
+            <div className="p-5 rounded-2xl bg-[#141414] border border-[#D4AF37]/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <div className="p-2.5 rounded-xl bg-[#D4AF37]/10 text-[#D4AF37] border border-[#D4AF37]/20 shrink-0">
+                  <Ticket className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wider block">
+                    One Simple Price
+                  </span>
+                  <span className="font-heading font-bold text-lg text-white block mt-0.5">
+                    {formatINR(flatPrice)} per ticket — all {isSeatBasedEvent(event) ? "seats" : "guests"}
+                  </span>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {isSeatBasedEvent(event)
+                      ? "Choose your exact seat on the map during checkout."
+                      : "General admission — pick your tickets during checkout; no seat selection."}
+                  </p>
+                </div>
+              </div>
+              <div className="text-left sm:text-right">
+                <span className="text-xs text-gray-400 font-medium block">Total Availability</span>
+                <span className="font-heading font-extrabold text-xl text-[#D4AF37]">
+                  {event.ticketTiers.reduce((sum, t) => sum + (t.remainingInventory || 0), 0)} tickets left
                 </span>
-                <span className="font-heading font-bold text-lg text-white block mt-0.5">
-                  {formatINR(flatPrice)} per ticket — all {isSeatBasedEvent(event) ? "seats" : "guests"}
-                </span>
-                <p className="text-xs text-gray-400 mt-0.5">
-                  {isSeatBasedEvent(event)
-                    ? "Choose your exact seat on the map during checkout."
-                    : "General admission — pick your tickets during checkout; no seat selection."}
-                </p>
               </div>
             </div>
-            <div className="text-left sm:text-right">
-              <span className="text-xs text-gray-400 font-medium block">Total Availability</span>
-              <span className="font-heading font-extrabold text-xl text-[#D4AF37]">
-                {event.ticketTiers.reduce((sum, t) => sum + (t.remainingInventory || 0), 0)} tickets left
-              </span>
-            </div>
-          </div>
+          )}
 
           {/* Schedule */}
           {event.schedule && event.schedule.length > 0 && (
@@ -469,15 +499,29 @@ export const EventDetail: React.FC<EventDetailProps> = ({
                 <div className="border-b border-white/10 pb-4">
                   <span className="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-white/10 text-amber-300 border border-white/15 inline-flex items-center gap-1.5 mb-2.5">
                     <Building2 className="w-3.5 h-3.5 text-[#D4AF37]" />
-                    Walk-In Ticket Sales
+                    {event.externalBookingUrl ? 'External Booking' : 'Walk-In Ticket Sales'}
                   </span>
                   <h3 className="font-heading font-extrabold text-xl text-white">
                     Event Information & Entry
                   </h3>
                   <p className="text-xs text-gray-400 mt-1 leading-relaxed">
-                    Tickets and admission for this event are available directly at venue ticket counters.
+                    {event.externalBookingUrl
+                      ? 'Book tickets through Ticket Khidakee. Ash-vish Events is displaying this listing only and does not collect payment here.'
+                      : 'Tickets and admission for this event are available directly at venue ticket counters.'}
                   </p>
                 </div>
+
+                {event.externalBookingUrl && (
+                  <a
+                    href={event.externalBookingUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-[#D4AF37] hover:bg-[#F3E5AB] text-black font-bold text-sm transition-colors"
+                  >
+                    Book on Ticket Khidakee
+                    <ExternalLink className="w-4 h-4" />
+                  </a>
+                )}
 
                 {/* Assigned Ticket Counters Box */}
                 <div className="bg-[#1C1C1C] border border-[#D4AF37]/30 rounded-2xl p-4 space-y-3">
@@ -578,7 +622,9 @@ export const EventDetail: React.FC<EventDetailProps> = ({
                 </div>
 
                 <p className="text-[11px] text-gray-400 text-center leading-relaxed px-2">
-                  Please visit the venue ticket counter for ticket purchasing and gate entry.
+                  {event.externalBookingUrl
+                    ? 'Use the external Ticket Khidakee booking page for ticket selection and payment.'
+                    : 'Please visit the venue ticket counter for ticket purchasing and gate entry.'}
                 </p>
               </div>
             ) : (

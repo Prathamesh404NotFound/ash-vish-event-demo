@@ -129,11 +129,12 @@ export interface EventItem {
   presentedBy?: string;
   /**
    * When true, this event is advertised on the public portal for viewing,
-   * but online booking/checkout is disabled. Tickets can only be purchased
-   * in-person at physical booking counters. The event detail page replaces
-   * the checkout panel with a "Where to Book" counter listing.
+   * but local online checkout is disabled. If externalBookingUrl is present,
+   * the public event page sends guests to that external booking provider.
    */
   isAdvertiseOnly?: boolean;
+  /** External booking destination used by advertisement-only event listings. */
+  externalBookingUrl?: string;
   /** Optional ticket counter location details */
   counterLocation?: string;
   counterTimingText?: string;

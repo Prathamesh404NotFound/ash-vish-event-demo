@@ -3419,6 +3419,14 @@ export async function createApp() {
       if (event.isAdvertiseOnly !== undefined && typeof event.isAdvertiseOnly !== 'boolean') {
         return res.status(400).json({ success: false, error: "isAdvertiseOnly must be a boolean." });
       }
+      if (event.externalBookingUrl !== undefined && event.externalBookingUrl !== null && event.externalBookingUrl !== '') {
+        try {
+          const parsedBookingUrl = new URL(String(event.externalBookingUrl));
+          if (!['http:', 'https:'].includes(parsedBookingUrl.protocol)) throw new Error('Unsupported protocol');
+        } catch {
+          return res.status(400).json({ success: false, error: "externalBookingUrl must be a valid http:// or https:// URL." });
+        }
+      }
       if (Array.isArray(event.ticketTiers)) {
         for (const tier of event.ticketTiers) {
           if (tier) {
@@ -3451,6 +3459,7 @@ export async function createApp() {
         coverUrl: event.coverUrl || normalizedPoster,
         title: (event.title || "Untitled Event").trim() || "Untitled Event",
         isAdvertiseOnly: typeof event.isAdvertiseOnly === 'boolean' ? event.isAdvertiseOnly : false,
+        externalBookingUrl: event.externalBookingUrl ? String(event.externalBookingUrl).trim() : null,
         counterLocation: event.counterLocation ? String(event.counterLocation).trim() : null,
         counterTimingText: event.counterTimingText ? String(event.counterTimingText).trim() : null,
         counterContactPhone: event.counterContactPhone ? String(event.counterContactPhone).trim() : null,
@@ -3508,6 +3517,14 @@ export async function createApp() {
       }
       if (body.isAdvertiseOnly !== undefined && typeof body.isAdvertiseOnly !== 'boolean') {
         return res.status(400).json({ success: false, error: "isAdvertiseOnly must be a boolean." });
+      }
+      if (body.externalBookingUrl !== undefined && body.externalBookingUrl !== null && body.externalBookingUrl !== '') {
+        try {
+          const parsedBookingUrl = new URL(String(body.externalBookingUrl));
+          if (!['http:', 'https:'].includes(parsedBookingUrl.protocol)) throw new Error('Unsupported protocol');
+        } catch {
+          return res.status(400).json({ success: false, error: "externalBookingUrl must be a valid http:// or https:// URL." });
+        }
       }
       if (Array.isArray(body.ticketTiers)) {
         for (const tier of body.ticketTiers) {
@@ -3591,6 +3608,7 @@ export async function createApp() {
         usesSeatMap: typeof body.usesSeatMap === 'boolean' ? body.usesSeatMap : (existing.usesSeatMap !== false),
         cashOnCounterOnly: typeof body.cashOnCounterOnly === 'boolean' ? body.cashOnCounterOnly : Boolean(existing.cashOnCounterOnly),
         isAdvertiseOnly: typeof body.isAdvertiseOnly === 'boolean' ? body.isAdvertiseOnly : Boolean(existing.isAdvertiseOnly),
+        externalBookingUrl: body.externalBookingUrl === "" ? null : (body.externalBookingUrl !== undefined ? String(body.externalBookingUrl).trim() : (existing.externalBookingUrl ?? null)),
         counterLocation: body.counterLocation === "" ? null : (body.counterLocation !== undefined ? body.counterLocation : (existing.counterLocation ?? null)),
         counterTimingText: body.counterTimingText === "" ? null : (body.counterTimingText !== undefined ? body.counterTimingText : (existing.counterTimingText ?? null)),
         counterContactPhone: body.counterContactPhone === "" ? null : (body.counterContactPhone !== undefined ? body.counterContactPhone : (existing.counterContactPhone ?? null)),
