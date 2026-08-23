@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Shield, Info, AlertCircle, RefreshCcw, Lock, CreditCard } from 'lucide-react';
+import { Shield, Info, AlertCircle, RefreshCcw, Lock, CreditCard, Mail } from 'lucide-react';
 
 export const TermsPage: React.FC = () => {
   useEffect(() => {
