@@ -135,6 +135,8 @@ export interface EventItem {
   isAdvertiseOnly?: boolean;
   /** External booking destination used by advertisement-only event listings. */
   externalBookingUrl?: string;
+  /** Explicitly controls whether the external booking option is shown publicly. */
+  externalBookingEnabled?: boolean;
   /** Optional ticket counter location details */
   counterLocation?: string;
   counterTimingText?: string;

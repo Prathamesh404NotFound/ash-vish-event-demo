@@ -100,6 +100,7 @@ export const AdminEvents: React.FC = () => {
   const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
   const [mapsUrl, setMapsUrl] = useState('');
   const [externalBookingUrl, setExternalBookingUrl] = useState('');
+  const [externalBookingEnabled, setExternalBookingEnabled] = useState(false);
   const [presentedBy, setPresentedBy] = useState('');
   const [isFeatured, setIsFeatured] = useState(false);
   const [isTrending, setIsTrending] = useState(false);
@@ -266,6 +267,7 @@ export const AdminEvents: React.FC = () => {
     setGalleryUrls([]);
     setMapsUrl('');
     setExternalBookingUrl('');
+    setExternalBookingEnabled(false);
     setPresentedBy('');
     setIsFeatured(false);
     setIsTrending(false);
@@ -309,7 +311,10 @@ export const AdminEvents: React.FC = () => {
     setPerksText((evt.perks || []).join(', '));
     setArtistsText((evt.artists || []).map((a) => `${a.name}${a.role ? ` | ${a.role}` : ''}`).join('\n'));
     setMapsUrl(evt.mapsUrl || '');
-    setExternalBookingUrl(evt.externalBookingUrl || '');
+    const legacyBookingUrl = typeof evt.externalBookingUrl === 'string' ? evt.externalBookingUrl.trim() : '';
+    const cleanLegacyBookingUrl = ['null', 'undefined'].includes(legacyBookingUrl.toLowerCase()) ? '' : legacyBookingUrl;
+    setExternalBookingUrl(cleanLegacyBookingUrl);
+    setExternalBookingEnabled(evt.externalBookingEnabled !== false && Boolean(cleanLegacyBookingUrl));
     setPresentedBy(evt.presentedBy || '');
     setIsFeatured(!!evt.isFeatured);
     setIsTrending(!!evt.isTrending);
@@ -489,10 +494,18 @@ export const AdminEvents: React.FC = () => {
       return;
     }
 
-    // 3. Validation: External booking URL
-    if (externalBookingUrl.trim()) {
+    // 3. Validation: External booking option
+    const cleanExternalBookingUrl = (() => {
+      const value = externalBookingUrl.trim();
+      return ['null', 'undefined'].includes(value.toLowerCase()) ? '' : value;
+    })();
+    if (externalBookingEnabled && !cleanExternalBookingUrl) {
+      setFormError('Add a valid external booking URL or turn External Booking off.');
+      return;
+    }
+    if (externalBookingEnabled && cleanExternalBookingUrl) {
       try {
-        const parsedBookingUrl = new URL(externalBookingUrl.trim());
+        const parsedBookingUrl = new URL(cleanExternalBookingUrl);
         if (!['http:', 'https:'].includes(parsedBookingUrl.protocol)) throw new Error('Unsupported protocol');
       } catch {
         setFormError('External booking URL must be a valid http:// or https:// link.');
@@ -501,7 +514,7 @@ export const AdminEvents: React.FC = () => {
     }
 
     // 4. Validation: Pricing Tiers
-    const isExternalOnlyListing = isAdvertiseOnly && Boolean(externalBookingUrl.trim());
+    const isExternalOnlyListing = isAdvertiseOnly && externalBookingEnabled && Boolean(cleanExternalBookingUrl);
     if (tiers.length === 0 && !isExternalOnlyListing) {
       setFormError('At least one ticket pricing tier is required unless this is an advertisement-only event with an external booking URL.');
       return;
@@ -614,7 +627,8 @@ export const AdminEvents: React.FC = () => {
       faqs: formattedFaqs,
       schedule: formattedSchedule,
       mapsUrl: mapsUrl.trim() || null,
-      externalBookingUrl: externalBookingUrl.trim() || null,
+      externalBookingEnabled,
+      externalBookingUrl: externalBookingEnabled ? (cleanExternalBookingUrl || null) : null,
       presentedBy: presentedBy.trim() || null,
       isFeatured,
       isTrending,
@@ -1207,16 +1221,41 @@ export const AdminEvents: React.FC = () => {
                     />
                     <p className="text-[11px] text-gray-500 mt-1">Optional. Overrides the default address-based map link.</p>
                   </div>
-                  <div>
-                    <label className="text-gray-300 font-bold block mb-1">External Booking URL</label>
-                    <input
-                      type="url"
-                      value={externalBookingUrl}
-                      onChange={(e) => setExternalBookingUrl(e.target.value)}
-                      placeholder="e.g. https://ticketkhidakee.com/..."
-                      className="w-full bg-[#1C1C1C] border border-white/10 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-[#D4AF37]"
-                    />
-                    <p className="text-[11px] text-gray-500 mt-1">Optional. Used as the booking button destination for an advertisement-only event.</p>
+                  <div className="p-4 rounded-xl bg-[#1C1C1C] border border-white/10 space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <label className="text-gray-300 font-bold block mb-0.5">External Booking Website</label>
+                        <p className="text-[11px] text-gray-500">Turn on to show the external booking option on the public event page.</p>
+                      </div>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={externalBookingEnabled}
+                        onClick={() => setExternalBookingEnabled((enabled) => !enabled)}
+                        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors cursor-pointer ${
+                          externalBookingEnabled ? 'bg-[#D4AF37]' : 'bg-gray-600'
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                            externalBookingEnabled ? 'translate-x-6' : 'translate-x-1'
+                          }`}
+                        />
+                      </button>
+                    </div>
+                    {externalBookingEnabled && (
+                      <div className="pt-3 border-t border-white/10 animate-in fade-in">
+                        <label className="text-gray-300 font-bold block mb-1">External Booking URL</label>
+                        <input
+                          type="url"
+                          value={externalBookingUrl}
+                          onChange={(e) => setExternalBookingUrl(e.target.value)}
+                          placeholder="e.g. https://ticketkhidakee.com/..."
+                          className="w-full bg-[#121212] border border-white/10 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-[#D4AF37]"
+                        />
+                        <p className="text-[11px] text-gray-500 mt-1">Only a valid http:// or https:// link will be shown to visitors.</p>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -1709,7 +1748,7 @@ export const AdminEvents: React.FC = () => {
                     4. Ticket Categories & Pricing Tiers
                   </h4>
                   <p className="text-[11px] text-gray-500 mt-1">
-                    {isAdvertiseOnly && externalBookingUrl.trim()
+                    {isAdvertiseOnly && externalBookingEnabled && externalBookingUrl.trim()
                       ? 'External booking is enabled — leave this section empty because Ticket Khidakee handles ticket sales and capacity.'
                       : 'Add at least one local tier for Ash-vish ticket sales, or enable external booking for an advertisement-only listing.'}
                   </p>

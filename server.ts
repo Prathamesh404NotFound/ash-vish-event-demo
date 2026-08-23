@@ -3419,6 +3419,12 @@ export async function createApp() {
       if (event.isAdvertiseOnly !== undefined && typeof event.isAdvertiseOnly !== 'boolean') {
         return res.status(400).json({ success: false, error: "isAdvertiseOnly must be a boolean." });
       }
+      if (event.externalBookingEnabled !== undefined && typeof event.externalBookingEnabled !== 'boolean') {
+        return res.status(400).json({ success: false, error: "externalBookingEnabled must be a boolean." });
+      }
+      if (event.externalBookingEnabled === true && (typeof event.externalBookingUrl !== 'string' || !event.externalBookingUrl.trim())) {
+        return res.status(400).json({ success: false, error: "An external booking URL is required when external booking is enabled." });
+      }
       if (event.externalBookingUrl !== undefined && event.externalBookingUrl !== null && event.externalBookingUrl !== '') {
         try {
           const parsedBookingUrl = new URL(String(event.externalBookingUrl));
@@ -3450,6 +3456,12 @@ export async function createApp() {
       const defaultPoster =
         "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&q=80&w=800";
       const normalizedPoster = event.posterUrl || defaultPoster;
+      const cleanExternalBookingUrl = typeof event.externalBookingUrl === 'string' && !['null', 'undefined'].includes(event.externalBookingUrl.trim().toLowerCase())
+        ? event.externalBookingUrl.trim()
+        : '';
+      const createdExternalBookingEnabled = typeof event.externalBookingEnabled === 'boolean'
+        ? event.externalBookingEnabled
+        : Boolean(cleanExternalBookingUrl);
       const createdEvent = {
         ...event,
         id: eventId,
@@ -3459,7 +3471,8 @@ export async function createApp() {
         coverUrl: event.coverUrl || normalizedPoster,
         title: (event.title || "Untitled Event").trim() || "Untitled Event",
         isAdvertiseOnly: typeof event.isAdvertiseOnly === 'boolean' ? event.isAdvertiseOnly : false,
-        externalBookingUrl: event.externalBookingUrl ? String(event.externalBookingUrl).trim() : null,
+        externalBookingEnabled: createdExternalBookingEnabled,
+        externalBookingUrl: createdExternalBookingEnabled ? (cleanExternalBookingUrl || null) : null,
         counterLocation: event.counterLocation ? String(event.counterLocation).trim() : null,
         counterTimingText: event.counterTimingText ? String(event.counterTimingText).trim() : null,
         counterContactPhone: event.counterContactPhone ? String(event.counterContactPhone).trim() : null,
@@ -3518,6 +3531,12 @@ export async function createApp() {
       if (body.isAdvertiseOnly !== undefined && typeof body.isAdvertiseOnly !== 'boolean') {
         return res.status(400).json({ success: false, error: "isAdvertiseOnly must be a boolean." });
       }
+      if (body.externalBookingEnabled !== undefined && typeof body.externalBookingEnabled !== 'boolean') {
+        return res.status(400).json({ success: false, error: "externalBookingEnabled must be a boolean." });
+      }
+      if (body.externalBookingEnabled === true && (typeof body.externalBookingUrl !== 'string' || !body.externalBookingUrl.trim())) {
+        return res.status(400).json({ success: false, error: "An external booking URL is required when external booking is enabled." });
+      }
       if (body.externalBookingUrl !== undefined && body.externalBookingUrl !== null && body.externalBookingUrl !== '') {
         try {
           const parsedBookingUrl = new URL(String(body.externalBookingUrl));
@@ -3541,6 +3560,20 @@ export async function createApp() {
       }
 
       const existing = (await rtdbGet(`events/${eventId}`, adminToken)).data || {};
+      const existingExternalBookingUrl = typeof existing.externalBookingUrl === 'string' && !['null', 'undefined'].includes(existing.externalBookingUrl.trim().toLowerCase())
+        ? existing.externalBookingUrl.trim()
+        : '';
+      const requestedExternalBookingUrl = typeof body.externalBookingUrl === 'string' && !['null', 'undefined'].includes(body.externalBookingUrl.trim().toLowerCase())
+        ? body.externalBookingUrl.trim()
+        : '';
+      const resolvedExternalBookingEnabled = typeof body.externalBookingEnabled === 'boolean'
+        ? body.externalBookingEnabled
+        : body.externalBookingUrl !== undefined
+          ? Boolean(requestedExternalBookingUrl)
+          : existing.externalBookingEnabled !== false && Boolean(existingExternalBookingUrl);
+      const resolvedExternalBookingUrl = resolvedExternalBookingEnabled
+        ? (body.externalBookingUrl !== undefined ? requestedExternalBookingUrl : existingExternalBookingUrl)
+        : '';
       const defaultPoster =
         "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&q=80&w=800";
       const normalizedPoster = body.posterUrl || existing.posterUrl || defaultPoster;
@@ -3608,7 +3641,8 @@ export async function createApp() {
         usesSeatMap: typeof body.usesSeatMap === 'boolean' ? body.usesSeatMap : (existing.usesSeatMap !== false),
         cashOnCounterOnly: typeof body.cashOnCounterOnly === 'boolean' ? body.cashOnCounterOnly : Boolean(existing.cashOnCounterOnly),
         isAdvertiseOnly: typeof body.isAdvertiseOnly === 'boolean' ? body.isAdvertiseOnly : Boolean(existing.isAdvertiseOnly),
-        externalBookingUrl: body.externalBookingUrl === "" ? null : (body.externalBookingUrl !== undefined ? String(body.externalBookingUrl).trim() : (existing.externalBookingUrl ?? null)),
+        externalBookingEnabled: resolvedExternalBookingEnabled,
+        externalBookingUrl: resolvedExternalBookingUrl || null,
         counterLocation: body.counterLocation === "" ? null : (body.counterLocation !== undefined ? body.counterLocation : (existing.counterLocation ?? null)),
         counterTimingText: body.counterTimingText === "" ? null : (body.counterTimingText !== undefined ? body.counterTimingText : (existing.counterTimingText ?? null)),
         counterContactPhone: body.counterContactPhone === "" ? null : (body.counterContactPhone !== undefined ? body.counterContactPhone : (existing.counterContactPhone ?? null)),

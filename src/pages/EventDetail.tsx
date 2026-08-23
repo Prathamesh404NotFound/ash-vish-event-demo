@@ -45,6 +45,12 @@ export const EventDetail: React.FC<EventDetailProps> = ({
 }) => {
   const { events, favorites, toggleFavorite } = useBooking();
   const isFav = favorites.includes(event.id);
+  const normalizedExternalBookingUrl = typeof event.externalBookingUrl === 'string'
+    ? event.externalBookingUrl.trim()
+    : '';
+  const hasExternalBooking = event.externalBookingEnabled !== false &&
+    /^https?:\/\//i.test(normalizedExternalBookingUrl) &&
+    !['null', 'undefined'].includes(normalizedExternalBookingUrl.toLowerCase());
 
   const eventSchema = generateEventSchema(event);
   useSEO({
@@ -341,7 +347,7 @@ export const EventDetail: React.FC<EventDetailProps> = ({
           )}
 
           {/* Ticket information or external booking CTA */}
-          {event.isAdvertiseOnly && event.externalBookingUrl ? (
+          {event.isAdvertiseOnly && hasExternalBooking ? (
             <div className="p-5 rounded-2xl bg-[#141414] border border-[#D4AF37]/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div className="flex items-start gap-3">
                 <div className="p-2.5 rounded-xl bg-[#D4AF37]/10 text-[#D4AF37] border border-[#D4AF37]/20 shrink-0">
@@ -360,7 +366,7 @@ export const EventDetail: React.FC<EventDetailProps> = ({
                 </div>
               </div>
               <a
-                href={event.externalBookingUrl}
+                href={normalizedExternalBookingUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-[#D4AF37] hover:bg-[#F3E5AB] text-black font-bold text-xs transition-colors whitespace-nowrap"
@@ -499,21 +505,21 @@ export const EventDetail: React.FC<EventDetailProps> = ({
                 <div className="border-b border-white/10 pb-4">
                   <span className="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-white/10 text-amber-300 border border-white/15 inline-flex items-center gap-1.5 mb-2.5">
                     <Building2 className="w-3.5 h-3.5 text-[#D4AF37]" />
-                    {event.externalBookingUrl ? 'External Booking' : 'Walk-In Ticket Sales'}
+                    {hasExternalBooking ? 'External Booking' : 'Walk-In Ticket Sales'}
                   </span>
                   <h3 className="font-heading font-extrabold text-xl text-white">
                     Event Information & Entry
                   </h3>
                   <p className="text-xs text-gray-400 mt-1 leading-relaxed">
-                    {event.externalBookingUrl
+                    {hasExternalBooking
                       ? 'Book tickets through Ticket Khidakee. Ash-vish Events is displaying this listing only and does not collect payment here.'
                       : 'Tickets and admission for this event are available directly at venue ticket counters.'}
                   </p>
                 </div>
 
-                {event.externalBookingUrl && (
+                {hasExternalBooking && (
                   <a
-                    href={event.externalBookingUrl}
+                    href={normalizedExternalBookingUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-[#D4AF37] hover:bg-[#F3E5AB] text-black font-bold text-sm transition-colors"
@@ -622,7 +628,7 @@ export const EventDetail: React.FC<EventDetailProps> = ({
                 </div>
 
                 <p className="text-[11px] text-gray-400 text-center leading-relaxed px-2">
-                  {event.externalBookingUrl
+                  {hasExternalBooking
                     ? 'Use the external Ticket Khidakee booking page for ticket selection and payment.'
                     : 'Please visit the venue ticket counter for ticket purchasing and gate entry.'}
                 </p>
