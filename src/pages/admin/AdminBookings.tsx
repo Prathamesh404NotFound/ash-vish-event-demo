@@ -107,6 +107,10 @@ function normalizeText(value: unknown): string {
   return String(value).trim();
 }
 
+function isPhysicalSeatId(value: unknown): value is string {
+  return typeof value === 'string' && /^R\d+-C\d+$/i.test(value.trim());
+}
+
 function isMeaningfulPersonLabel(value: unknown): boolean {
   const text = normalizeText(value);
   if (!text) return false;
@@ -549,7 +553,9 @@ export const AdminBookings: React.FC = () => {
     setEdEventId(o.eventId || '');
     setEdTierId(o.tierId || '');
     setEdQuantity(Number(o.quantity || 1));
-    setEdSeats((o.seatLabels || o.seatNumbers || o.seatIds || []).join(', '));
+    // Only physical seat IDs belong in the editable seat field. General-admission
+    // access labels such as "General Entry" must never be posted as seat IDs.
+    setEdSeats((o.seatIds || []).join(', '));
     setEdDiscount(Number(o.discountAmount ?? o.discount ?? 0));
     setEdCouponCode(o.couponCode || '');
     setEdPaymentMethod(o.paymentMethod || o.paymentMethodLabel || '');
@@ -576,7 +582,9 @@ export const AdminBookings: React.FC = () => {
         eventId: edEventId || undefined,
         tierId: edTierId || undefined,
         quantity: Math.max(1, Number(edQuantity) || 1),
-        selectedSeats: edSeats.trim() ? edSeats.split(',').map((seat) => seat.trim()).filter(Boolean) : [],
+        selectedSeats: edSeats.trim()
+          ? edSeats.split(',').map((seat) => seat.trim()).filter(isPhysicalSeatId).map((seat) => seat.toUpperCase())
+          : [],
         discount: Math.max(0, Number(edDiscount) || 0),
         couponCode: edCouponCode.trim(),
         paymentMethod: edPaymentMethod.trim(),

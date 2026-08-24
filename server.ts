@@ -329,8 +329,13 @@ interface ReservationRecord {
   attendee?: { name: string; email: string; phone: string };
 }
 
+function isPhysicalSeatId(value: unknown): value is string {
+  return typeof value === "string" && /^R\d+-C\d+$/i.test(value.trim());
+}
+
 function seatIdLabel(seatId: string): string {
-  const parts = seatId.split("-");
+  const normalized = isPhysicalSeatId(seatId) ? seatId.trim().toUpperCase() : "UNKNOWN-SEAT";
+  const parts = normalized.split("-");
   const r = String.fromCharCode(64 + parseInt(parts[0].replace("R", ""), 10));
   const c = parts[1].replace("C", "");
   return `${r}-${c}`;
@@ -682,7 +687,11 @@ async function claimSeatsAtomically(
   reservationId: string,
   ownerId: string
 ): Promise<{ committed: boolean; error?: string }> {
-  for (const seatId of seatIds) {
+  for (const rawSeatId of seatIds) {
+    if (!isPhysicalSeatId(rawSeatId)) {
+      return { committed: false, error: "Invalid physical seat ID." };
+    }
+    const seatId = rawSeatId.trim().toUpperCase();
     const path = `seats/${eventId}/${seatId}`;
     let lastStatus: string | undefined;
     const res = await rtdbTransaction(path, (seat: any) => {
@@ -4606,6 +4615,7 @@ export async function createApp() {
             channel: linkedOrder?.channel || (paymentMethod.toLowerCase().startsWith("walkin") ? "counter" : "online"),
             shiftId: linkedOrder?.shiftId || ticket.shiftId || ticket.staffShiftId || null,
             counterId: linkedOrder?.counterId || ticket.counterId || null,
+            seatIds: linkedOrder?.seatIds || ticket.seatIds || [],
             createdAt: linkedOrder?.createdAt || ticket.purchasedAt || ticket.createdAt || null,
             counterName: linkedOrder?.counterName || ticket.counterName || null,
             issuedBySubUserName: linkedOrder?.issuedBySubUserName || ticket.issuedBySubUserName || null,
@@ -4924,8 +4934,11 @@ export async function createApp() {
       if (requestedIssuer !== undefined) updates.issuedBySubUserName = String(requestedIssuer || "").trim().slice(0, 80) || null;
 
       if (selectedSeats !== undefined && Array.isArray(selectedSeats)) {
-        const oldSeats: string[] = order.seatIds || [];
-        const newSeats: string[] = selectedSeats;
+        const oldSeats: string[] = (Array.isArray(order.seatIds) ? order.seatIds : []).filter(isPhysicalSeatId).map((seat) => seat.trim().toUpperCase());
+        // Older general-admission records may contain display labels such as
+        // "General Entry" in selectedSeats. Ignore those labels; only true
+        // physical seat IDs may enter the seat-locking path.
+        const newSeats: string[] = selectedSeats.filter(isPhysicalSeatId).map((seat: string) => seat.trim().toUpperCase());
         if (JSON.stringify([...oldSeats].sort()) !== JSON.stringify([...newSeats].sort())) {
           // Release seats no longer held by this order (all-or-nothing claim first)
           const toAdd = newSeats.filter((s: string) => !oldSeats.includes(s));
