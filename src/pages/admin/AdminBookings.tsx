@@ -447,6 +447,18 @@ export const AdminBookings: React.FC = () => {
   const [edIssuer, setEdIssuer] = useState('');
   const [edErrorMessage, setEdErrorMessage] = useState('');
   const [edSubmitting, setEdSubmitting] = useState(false);
+  const issuerOptions = useMemo(() => {
+    const values = [
+      ...orders.flatMap((order) => [order.issuedBySubUserName, order.issuedBy]),
+      ...fallbackOrders.flatMap((order) => [order.issuedBySubUserName, order.issuedBy]),
+      ...allTickets.flatMap((ticket) => [ticket.issuedBySubUserName, ticket.createdByStaffId, ticket.scannedByStaffId]),
+      edIssuer,
+    ];
+    return Array.from(new Set(values
+      .map((value) => typeof value === 'string' ? value.trim() : value == null ? '' : String(value).trim())
+      .filter(Boolean)))
+      .sort((a, b) => a.localeCompare(b));
+  }, [orders, fallbackOrders, allTickets, edIssuer]);
 
   const openEditModal = (o: AdminOrder) => {
     setEditOrderTarget(o);
@@ -461,7 +473,8 @@ export const AdminBookings: React.FC = () => {
     setEdCouponCode(o.couponCode || '');
     setEdPaymentMethod(o.paymentMethod || o.paymentMethodLabel || '');
     setEdCounterName(o.counterName || '');
-    setEdIssuer(o.issuedBySubUserName || o.issuedBy || '');
+    const issuer = o.issuedBySubUserName ?? o.issuedBy ?? '';
+    setEdIssuer(typeof issuer === 'string' ? issuer : String(issuer));
     setEdErrorMessage('');
   };
 
@@ -1204,7 +1217,15 @@ export const AdminBookings: React.FC = () => {
                 </div>
                 <div>
                   <label className="font-bold text-gray-300 block mb-1">Issued By</label>
-                  <input type="text" value={edIssuer} onChange={(e) => setEdIssuer(e.target.value)} placeholder="Staff or sub-user" className="w-full bg-[#141414] border border-white/10 rounded-xl px-3.5 py-3 text-white focus:outline-none focus:border-[#D4AF37]" />
+                  <select
+                    value={edIssuer}
+                    onChange={(e) => setEdIssuer(e.target.value)}
+                    className="w-full bg-[#141414] border border-white/10 rounded-xl px-3.5 py-3 text-white focus:outline-none focus:border-[#D4AF37]"
+                  >
+                    <option value="">Main staff / not recorded</option>
+                    {issuerOptions.map((issuer) => <option key={issuer} value={issuer}>{issuer}</option>)}
+                  </select>
+                  <p className="text-[10px] text-gray-500 mt-1">Select the staff member or counter user who issued this ticket.</p>
                 </div>
               </div>
 
