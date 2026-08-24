@@ -14,6 +14,24 @@ import {
   MoreVertical,
 } from 'lucide-react';
 import { useBooking } from '../../contexts/BookingContext';
+import { safeFetch } from '../../lib/api';
+import { authenticatedApiHeaders } from '../../lib/authHeaders';
+
+interface AdminCounterOption {
+  id: string;
+  name?: string;
+  assignedStaffIds?: string[];
+  subUsers?: Record<string, { id?: string; name?: string; status?: string }>;
+}
+
+interface AdminStaffOption {
+  id?: string;
+  uid?: string;
+  email?: string;
+  name?: string;
+  displayName?: string;
+  status?: string;
+}
 
 interface AdminOrder {
   id: string;
@@ -83,6 +101,22 @@ function formatOrderDate(value?: string): string {
 }
 
 /** Minimal client-side tier normalizer (server-side version is authoritative). */
+function normalizeText(value: unknown): string {
+  if (typeof value === 'string') return value.trim();
+  if (value === null || value === undefined) return '';
+  return String(value).trim();
+}
+
+function isMeaningfulPersonLabel(value: unknown): boolean {
+  const text = normalizeText(value);
+  if (!text) return false;
+  const lower = text.toLowerCase();
+  if (['system', 'main staff', 'not recorded', 'main staff / not recorded'].includes(lower)) return false;
+  // Exclude Firebase/Auth-style identifiers from human-facing dropdowns.
+  if (!/\s/.test(text) && /^[A-Za-z0-9_-]{16,}$/.test(text)) return false;
+  return true;
+}
+
 function normalizeTiers(ticketTiers: any): { id?: string | null; name?: string; price?: number }[] {
   if (!ticketTiers) return [];
   if (Array.isArray(ticketTiers)) {
@@ -114,6 +148,28 @@ export const AdminBookings: React.FC = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
   const [summary, setSummary] = useState({ totalRevenue: 0, totalDiscount: 0, totalTickets: 0, totalOrders: 0 });
+  const [counterOptions, setCounterOptions] = useState<AdminCounterOption[]>([]);
+  const [staffOptions, setStaffOptions] = useState<AdminStaffOption[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadAssignmentOptions = async () => {
+      try {
+        const headers = await authenticatedApiHeaders();
+        const [counterRes, staffRes] = await Promise.all([
+          safeFetch<{ success: boolean; counters?: AdminCounterOption[] }>('/api/counter/list', { headers }),
+          safeFetch<{ success: boolean; staff?: AdminStaffOption[] }>('/api/staff', { headers }),
+        ]);
+        if (cancelled) return;
+        if (counterRes.ok && counterRes.data?.success) setCounterOptions(counterRes.data.counters || []);
+        if (staffRes.ok && staffRes.data?.success) setStaffOptions(staffRes.data.staff || []);
+      } catch {
+        // Existing order data still supplies a safe legacy fallback list.
+      }
+    };
+    void loadAssignmentOptions();
+    return () => { cancelled = true; };
+  }, []);
 
   // Filters
   const [search, setSearch] = useState('');
@@ -447,18 +503,43 @@ export const AdminBookings: React.FC = () => {
   const [edIssuer, setEdIssuer] = useState('');
   const [edErrorMessage, setEdErrorMessage] = useState('');
   const [edSubmitting, setEdSubmitting] = useState(false);
+  const counterNameOptions = useMemo(() => {
+    const names: string[] = counterOptions
+      .map((counter) => normalizeText(counter.name))
+      .filter((name): name is string => Boolean(name));
+    const currentCounter = normalizeText(edCounterName);
+    if (currentCounter && !names.includes(currentCounter) && !/^[A-Za-z0-9_-]{16,}$/.test(currentCounter)) {
+      names.push(currentCounter);
+    }
+    return Array.from(new Set(names)).sort((a, b) => a.localeCompare(b));
+  }, [counterOptions, edCounterName]);
+
   const issuerOptions = useMemo(() => {
-    const values = [
-      ...orders.flatMap((order) => [order.issuedBySubUserName, order.issuedBy]),
-      ...fallbackOrders.flatMap((order) => [order.issuedBySubUserName, order.issuedBy]),
-      ...allTickets.flatMap((ticket) => [ticket.issuedBySubUserName, ticket.createdByStaffId, ticket.scannedByStaffId]),
-      edIssuer,
-    ];
-    return Array.from(new Set(values
-      .map((value) => typeof value === 'string' ? value.trim() : value == null ? '' : String(value).trim())
-      .filter(Boolean)))
-      .sort((a, b) => a.localeCompare(b));
-  }, [orders, fallbackOrders, allTickets, edIssuer]);
+    const values: string[] = ['Main staff'];
+    const selectedCounter = counterOptions.find((counter) => normalizeText(counter.name) === normalizeText(edCounterName));
+
+    const assignedSubUsers = Object.values(selectedCounter?.subUsers || {}) as Array<{ id?: string; name?: string; status?: string }>;
+    assignedSubUsers.forEach((subUser) => {
+      const name = normalizeText(subUser?.name);
+      if (isMeaningfulPersonLabel(name) && subUser?.status !== 'inactive') values.push(name);
+    });
+
+    (selectedCounter?.assignedStaffIds || []).forEach((staffId) => {
+      const staff = staffOptions.find((member) => normalizeText(member.id || member.uid) === normalizeText(staffId));
+      const name = normalizeText(staff?.name || staff?.displayName || staff?.email);
+      if (isMeaningfulPersonLabel(name) && staff?.status !== 'suspended') values.push(name);
+    });
+
+    const existingIssuer = normalizeText(edIssuer);
+    if (isMeaningfulPersonLabel(existingIssuer)) values.push(existingIssuer);
+
+    const uniqueValues = [...new Set<string>(values)];
+    return uniqueValues.sort((a, b) => {
+      if (a === 'Main staff') return -1;
+      if (b === 'Main staff') return 1;
+      return a.localeCompare(b);
+    });
+  }, [counterOptions, staffOptions, edCounterName, edIssuer]);
 
   const openEditModal = (o: AdminOrder) => {
     setEditOrderTarget(o);
@@ -472,9 +553,9 @@ export const AdminBookings: React.FC = () => {
     setEdDiscount(Number(o.discountAmount ?? o.discount ?? 0));
     setEdCouponCode(o.couponCode || '');
     setEdPaymentMethod(o.paymentMethod || o.paymentMethodLabel || '');
-    setEdCounterName(o.counterName || '');
-    const issuer = o.issuedBySubUserName ?? o.issuedBy ?? '';
-    setEdIssuer(typeof issuer === 'string' ? issuer : String(issuer));
+    setEdCounterName(normalizeText(o.counterName));
+    const issuer = normalizeText(o.issuedBySubUserName ?? o.issuedBy);
+    setEdIssuer(isMeaningfulPersonLabel(issuer) ? issuer : 'Main staff');
     setEdErrorMessage('');
   };
 
@@ -1213,7 +1294,18 @@ export const AdminBookings: React.FC = () => {
                 </div>
                 <div>
                   <label className="font-bold text-gray-300 block mb-1">Counter</label>
-                  <input type="text" value={edCounterName} onChange={(e) => setEdCounterName(e.target.value)} placeholder="Counter name" className="w-full bg-[#141414] border border-white/10 rounded-xl px-3.5 py-3 text-white focus:outline-none focus:border-[#D4AF37]" />
+                  <select
+                    value={edCounterName}
+                    onChange={(e) => {
+                      setEdCounterName(e.target.value);
+                      setEdIssuer('Main staff');
+                    }}
+                    className="w-full bg-[#141414] border border-white/10 rounded-xl px-3.5 py-3 text-white focus:outline-none focus:border-[#D4AF37]"
+                  >
+                    <option value="">Not recorded</option>
+                    {counterNameOptions.map((counterName) => <option key={counterName} value={counterName}>{counterName}</option>)}
+                  </select>
+                  <p className="text-[10px] text-gray-500 mt-1">Only active counters are listed.</p>
                 </div>
                 <div>
                   <label className="font-bold text-gray-300 block mb-1">Issued By</label>
@@ -1222,7 +1314,6 @@ export const AdminBookings: React.FC = () => {
                     onChange={(e) => setEdIssuer(e.target.value)}
                     className="w-full bg-[#141414] border border-white/10 rounded-xl px-3.5 py-3 text-white focus:outline-none focus:border-[#D4AF37]"
                   >
-                    <option value="">Main staff / not recorded</option>
                     {issuerOptions.map((issuer) => <option key={issuer} value={issuer}>{issuer}</option>)}
                   </select>
                   <p className="text-[10px] text-gray-500 mt-1">Select the staff member or counter user who issued this ticket.</p>
