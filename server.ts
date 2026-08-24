@@ -6331,10 +6331,9 @@ async function computeShiftCashTotals(
       const existing = await fetchCounterShifts(adminToken, staffUid);
       const openShifts = Object.values(existing).filter((s: any) => s.status === "open");
       
-      const duplicateCounterShift = openShifts.find((s: any) => s.counterId === counterId);
-      if (duplicateCounterShift) {
-        return res.status(409).json({ success: false, error: "This counter already has an open shift. End it before starting another one." });
-      }
+      // Several assigned sub-users may work at the same physical counter at
+      // the same time. Only the selected sub-user must be unique; a counter
+      // itself is not a shift lock.
       const duplicateSubUserShift = openShifts.find((s: any) => s.subUserId === subUserId);
       if (duplicateSubUserShift) {
         return res.status(409).json({ success: false, error: "This sub-user already has an open shift. End it before starting a new one." });
