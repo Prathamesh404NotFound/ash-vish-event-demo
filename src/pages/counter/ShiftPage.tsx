@@ -105,9 +105,13 @@ export const ShiftPage: React.FC = () => {
         const visibleCounters = all.filter((counter) =>
           counter.assignedStaffIds?.includes(currentStaffId) || (user as any)?.rbacRole === 'super_admin'
         );
-        // Keep all assigned counters available; the operator selects the physical counter.
-        setCounters(visibleCounters);
-        if (!selectedCounterId || !visibleCounters.some((counter) => counter.id === selectedCounterId)) {
+        // On a returning device, stay on the counter selected during sign-in
+        // instead of exposing every counter assigned to the shared account.
+        const scopedCounters = selectedCounterId
+          ? visibleCounters.filter((counter) => counter.id === selectedCounterId)
+          : visibleCounters;
+        setCounters(scopedCounters);
+        if (!selectedCounterId || scopedCounters.length === 0) {
           setSelectedCounterId(visibleCounters[0]?.id || '');
         }
       }

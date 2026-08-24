@@ -33,7 +33,7 @@ import { useNavigate } from 'react-router-dom';
 import { useBooking } from '../../contexts/BookingContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { Ticket as TicketType } from '../../types';
-import { clearStoredActiveShift, readStoredActiveShift, writeStoredActiveShift } from '../../lib/counterSession';
+import { clearStoredActiveShift, readActiveCounterId, readStoredActiveShift, writeStoredActiveShift } from '../../lib/counterSession';
 import { SeatMap } from '../../components/SeatMap';
 import { sendTicketToWhatsApp } from '../../utils/whatsapp';
 import { passUrl } from '../../utils/passLink';
@@ -123,9 +123,10 @@ export const WalkInPage: React.FC = () => {
   const [counters, setCounters] = useState<WalkInCounter[]>([]);
   const [selectedCounterId, setSelectedCounterId] = useState<string>(() => {
     try {
-      return localStorage.getItem(COUNTER_MEMORY_KEY) || '';
+      // Prefer the counter recorded by PIN sign-in over the older POS memory.
+      return readActiveCounterId() || localStorage.getItem(COUNTER_MEMORY_KEY) || '';
     } catch {
-      return '';
+      return readActiveCounterId();
     }
   });
 
@@ -247,12 +248,16 @@ export const WalkInPage: React.FC = () => {
           if (isApprover) return true;
           return c.assignedStaffIds.includes(user?.uid || '');
         });
-        setCounters(visible);
-        // If the persisted choice is no longer available, stay on whatever is
-        // first rather than silently resetting mid-session.
+        const signedInCounterId = readActiveCounterId() || selectedCounterId;
+        const scopedVisible = signedInCounterId
+          ? visible.filter((c: WalkInCounter) => c.id === signedInCounterId)
+          : [];
+        setCounters(scopedVisible);
+        // A Walk-In terminal is bound to the counter selected during PIN sign-in.
+        // Never silently switch it to another assigned counter.
         setSelectedCounterId((prev) => {
-          if (prev && visible.some((c: WalkInCounter) => c.id === prev)) return prev;
-          if (visible.length > 0) return visible[0].id;
+          if (signedInCounterId && scopedVisible.some((c: WalkInCounter) => c.id === signedInCounterId)) return signedInCounterId;
+          if (prev && scopedVisible.some((c: WalkInCounter) => c.id === prev)) return prev;
           return '';
         });
       }
@@ -381,17 +386,17 @@ export const WalkInPage: React.FC = () => {
         const openShifts = (res.data?.shifts || []).filter((s: any) =>
           s.status === 'open' && (!currentCounterId || s.counterId === currentCounterId)
         );
-        let openShift = openShifts.find((s: any) => s.shiftId === localShift?.shiftId);
-        if (!openShift && currentCounterId) {
-          openShift = openShifts.find((s: any) => !s.staffId || s.staffId === user?.uid);
-        }
+        // Never adopt another operator's shift. The device-local record is
+        // the complete Counter + Sub-user identity selected at sign-in.
+        const openShift = openShifts.find((s: any) => s.shiftId === localShift?.shiftId)
+          || (localShift?.status === 'open' ? localShift : null);
         if (openShift) writeStoredActiveShift(openShift);
         else if (currentCounterId) clearStoredActiveShift(currentCounterId);
 
 
         setActiveShiftId(openShift ? openShift.shiftId : null);
         if (openShift && openShift.subUserId) {
-          setActiveSubUser({ id: openShift.subUserId, name: openShift.subUserName || '' });
+          setActiveSubUser({ id: openShift.subUserId, name: openShift.subUserName || openShift.staffName || '' });
         } else {
           setActiveSubUser(null);
         }
@@ -843,6 +848,29 @@ export const WalkInPage: React.FC = () => {
             {connection === 'online' ? 'Connected' : 'Offline Mode'}
           </span>
         </div>
+      </div>
+
+      {/* Active operator identity */}
+      <div className={`p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+        activeShiftId
+          ? 'bg-emerald-500/10 border-emerald-500/30'
+          : 'bg-amber-500/10 border-amber-500/30'
+      }`}>
+        <div className="flex items-center gap-3">
+          <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${activeShiftId ? 'bg-emerald-500/15 text-emerald-400' : 'bg-amber-500/15 text-amber-300'}`}>
+            <User className="w-5 h-5" />
+          </div>
+          <div>
+            <p className="text-[10px] uppercase tracking-wider font-bold text-gray-400">Current ticket operator</p>
+            <p className="text-base font-extrabold text-white">{activeSubUser?.name || 'No operator signed in'}</p>
+            <p className="text-xs text-gray-400">Counter: <span className="text-[#D4AF37] font-semibold">{selectedCounter?.name || 'Not selected'}</span></p>
+          </div>
+        </div>
+        <span className={`self-start sm:self-auto px-3 py-1.5 rounded-xl border text-[10px] font-bold uppercase tracking-wider ${
+          activeShiftId ? 'text-emerald-300 border-emerald-500/30 bg-emerald-500/10' : 'text-amber-300 border-amber-500/30 bg-amber-500/10'
+        }`}>
+          {activeShiftId ? 'Shift active' : 'Sign-in required'}
+        </span>
       </div>
 
       {/* Offline Toast Notification */}
