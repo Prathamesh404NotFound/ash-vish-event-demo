@@ -12,6 +12,7 @@ import {
 import { ref, get, update, onValue } from 'firebase/database';
 import { auth, rtdb, googleProvider } from '../lib/firebase';
 import { UserProfile, UserRole } from '../types';
+import { clearAllStoredActiveShifts } from '../lib/counterSession';
 
 const DEMO_ACCOUNT_EMAILS = new Set([
   'alex.rivera@example.com',
@@ -48,7 +49,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // after refresh. Firebase is now the sole session authority.
   useEffect(() => {
     localStorage.removeItem('ash_vish_user_session');
-    localStorage.removeItem('ashvish_active_shift');
+    clearAllStoredActiveShifts();
   }, []);
 
   // Sync profile from Realtime Database users/$uid and staff/$uid
@@ -207,7 +208,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setFirebaseUser(null);
         setUser(null);
         localStorage.removeItem('ash_vish_user_session');
-        localStorage.removeItem('ashvish_active_shift');
+        clearAllStoredActiveShifts();
       }
       setIsLoading(false);
     });
@@ -357,7 +358,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(null);
     setFirebaseUser(null);
     localStorage.removeItem('ash_vish_user_session');
-    localStorage.removeItem('ashvish_active_shift');
+    clearAllStoredActiveShifts();
   };
 
   const acceptTerms = async () => {

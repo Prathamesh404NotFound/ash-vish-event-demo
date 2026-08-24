@@ -74,16 +74,10 @@ import { WalkInPage } from './pages/counter/WalkInPage';
 import { ShiftPage } from './pages/counter/ShiftPage';
 import { CounterOrders } from './pages/counter/CounterOrders';
 import { MySalesPage } from './pages/counter/MySalesPage';
+import { readPreferredStoredActiveShift } from './lib/counterSession';
 
 function CounterEntryPage() {
-  const [hasActiveShift] = React.useState(() => {
-    try {
-      const stored = localStorage.getItem('ashvish_active_shift');
-      return Boolean(stored && JSON.parse(stored)?.status === 'open');
-    } catch {
-      return false;
-    }
-  });
+  const [hasActiveShift] = React.useState(() => readPreferredStoredActiveShift()?.status === 'open');
 
   return hasActiveShift ? <CounterOverview /> : <Navigate to="shift" replace />;
 }

@@ -4552,6 +4552,8 @@ export async function createApp() {
       const eventId = typeof q.eventId === "string" ? q.eventId : undefined;
       const status = typeof q.status === "string" ? q.status : undefined;
       const channel = typeof q.channel === "string" ? q.channel : undefined;
+      const shiftId = typeof q.shiftId === "string" ? q.shiftId : undefined;
+      const counterId = typeof q.counterId === "string" ? q.counterId : undefined;
       const dateFrom = typeof q.dateFrom === "string" ? q.dateFrom : undefined;
       const dateTo = typeof q.dateTo === "string" ? q.dateTo : undefined;
       const search = typeof q.search === "string" ? q.search.trim().toLowerCase() : undefined;
@@ -4602,6 +4604,8 @@ export async function createApp() {
             paymentStatus: linkedOrder?.paymentStatus || ticket.paymentStatus || (ticket.status === "valid" ? "paid" : null),
             status: linkedOrder?.status || (ticket.status === "valid" ? "confirmed" : ticket.status),
             channel: linkedOrder?.channel || (paymentMethod.toLowerCase().startsWith("walkin") ? "counter" : "online"),
+            shiftId: linkedOrder?.shiftId || ticket.shiftId || ticket.staffShiftId || null,
+            counterId: linkedOrder?.counterId || ticket.counterId || null,
             createdAt: linkedOrder?.createdAt || ticket.purchasedAt || ticket.createdAt || null,
             counterName: linkedOrder?.counterName || ticket.counterName || null,
             issuedBySubUserName: linkedOrder?.issuedBySubUserName || ticket.issuedBySubUserName || null,
@@ -4641,6 +4645,8 @@ export async function createApp() {
       if (eventId) orders = orders.filter((o: any) => o.eventId === eventId);
       if (status) orders = orders.filter((o: any) => o.status === status || o.paymentStatus === status);
       if (channel) orders = orders.filter((o: any) => o.channel === channel);
+      if (shiftId) orders = orders.filter((o: any) => o.shiftId === shiftId);
+      if (counterId) orders = orders.filter((o: any) => o.counterId === counterId);
       if (q.counterName) {
         const counterFilter = String(q.counterName).trim().toLowerCase();
         orders = orders.filter((o: any) => String(o.counterName || "").toLowerCase().includes(counterFilter));
@@ -6312,6 +6318,10 @@ async function computeShiftCashTotals(
       const existing = await fetchCounterShifts(adminToken, staffUid);
       const openShifts = Object.values(existing).filter((s: any) => s.status === "open");
       
+      const duplicateCounterShift = openShifts.find((s: any) => s.counterId === counterId);
+      if (duplicateCounterShift) {
+        return res.status(409).json({ success: false, error: "This counter already has an open shift. End it before starting another one." });
+      }
       const duplicateSubUserShift = openShifts.find((s: any) => s.subUserId === subUserId);
       if (duplicateSubUserShift) {
         return res.status(409).json({ success: false, error: "This sub-user already has an open shift. End it before starting a new one." });
@@ -6743,9 +6753,11 @@ app.get("/api/counter/my-sales", requireRole(["counter_staff", "event_manager", 
 
     // If the request is from a sub-user session, we should filter by their subUserId
     // to ensure they only see their own sales on their device.
-    const subUserId = typeof q.subUserId === "string" ? q.subUserId : undefined;
-
+        const subUserId = typeof q.subUserId === "string" ? q.subUserId : undefined;
+    const shiftId = typeof q.shiftId === "string" ? q.shiftId : undefined;
+    const counterId = typeof q.counterId === "string" ? q.counterId : undefined;
     let filtered = tickets.filter((t: any) => {
+
       const scannedBy = String(t.scannedByStaffId || "").toLowerCase();
       const createdBy = String(t.createdByStaffId || "").toLowerCase();
       const issuedBySubId = String(t.issuedBySubUserId || "").toLowerCase();
@@ -6755,6 +6767,8 @@ app.get("/api/counter/my-sales", requireRole(["counter_staff", "event_manager", 
       const orderCreatedBy = order ? String(order.createdBy || "").toLowerCase() : "";
       const orderSubUserId = order ? String(order.issuedBySubUserId || "").toLowerCase() : "";
 
+      if (shiftId && t.shiftId !== shiftId && order?.shiftId !== shiftId) return false;
+      if (counterId && t.counterId !== counterId && order?.counterId !== counterId) return false;
       // If a specific sub-user filter is provided (from the frontend session), it MUST match.
       if (subUserId) {
         const subIdLower = subUserId.toLowerCase();

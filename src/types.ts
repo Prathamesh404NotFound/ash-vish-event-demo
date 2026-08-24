@@ -137,6 +137,8 @@ export interface EventItem {
   externalBookingUrl?: string;
   /** Explicitly controls whether the external booking option is shown publicly. */
   externalBookingEnabled?: boolean;
+  /** Controls whether external-event ticket prices, tiers, and availability are shown publicly. */
+  externalBookingShowTicketInfo?: boolean;
   /** Optional ticket counter location details */
   counterLocation?: string;
   counterTimingText?: string;

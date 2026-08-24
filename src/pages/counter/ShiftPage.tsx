@@ -22,6 +22,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { safeFetch } from '../../lib/api';
 import { authenticatedApiHeaders } from '../../lib/authHeaders';
+import { clearStoredActiveShift, readActiveCounterId, readStoredActiveShift, writeStoredActiveShift } from '../../lib/counterSession';
 
 interface ShiftLiveTotals {
   expectedCash: number;
@@ -81,7 +82,7 @@ export const ShiftPage: React.FC = () => {
 
   // Start shift form
   const [counters, setCounters] = useState<Counter[]>([]);
-  const [assignedCounter, setAssignedCounter] = useState<Counter | null>(null);
+  const [selectedCounterId, setSelectedCounterId] = useState<string>(() => readActiveCounterId());
   const [selectedSubUserId, setSelectedSubUserId] = useState<string>('');
   const [pin, setPin] = useState<string>('');
 
@@ -100,15 +101,14 @@ export const ShiftPage: React.FC = () => {
 
       if (counterRes.ok && counterRes.data?.success) {
         const all = counterRes.data.counters || [];
-        setCounters(all);
-        
-        // Auto-resolve assigned counter for current staff
-        const assigned = all.find(c => 
-          c.assignedStaffIds && 
-          c.assignedStaffIds.includes(user?.uid || user?.id || '')
+        const currentStaffId = user?.uid || user?.id || '';
+        const visibleCounters = all.filter((counter) =>
+          counter.assignedStaffIds?.includes(currentStaffId) || (user as any)?.rbacRole === 'super_admin'
         );
-        if (assigned) {
-          setAssignedCounter(assigned);
+        // Keep all assigned counters available; the operator selects the physical counter.
+        setCounters(visibleCounters);
+        if (!selectedCounterId || !visibleCounters.some((counter) => counter.id === selectedCounterId)) {
+          setSelectedCounterId(visibleCounters[0]?.id || '');
         }
       }
 
@@ -118,18 +118,23 @@ export const ShiftPage: React.FC = () => {
         list.sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
         setShifts(list);
 
-        // Find open shift for current user
-        // Priority: 1. Locally persisted shift (this device's session) 2. Any open shift from backend
-        const localShiftStr = localStorage.getItem('ashvish_active_shift');
-        const localShift = localShiftStr ? JSON.parse(localShiftStr) : null;
-        
-        let open = list.find((s) => s.status === 'open' && s.shiftId === localShift?.shiftId);
-        if (!open) {
-          open = list.find((s) => s.status === 'open' && (!s.staffId || s.staffId === (user?.id || (user as any)?.uid) || (user as any)?.rbacRole === 'super_admin'));
-          if (open) localStorage.setItem('ashvish_active_shift', JSON.stringify(open));
-          else localStorage.removeItem('ashvish_active_shift');
+        const currentCounterId = selectedCounterId || '';
+        const currentStaffId = user?.uid || (user as any)?.id || '';
+        const localShift = currentCounterId ? readStoredActiveShift(currentCounterId) : null;
+        const sameCounter = (shift: CounterShift) => Boolean(currentCounterId && shift.counterId === currentCounterId);
+        const belongsToCurrentStaff = (shift: CounterShift) =>
+          !shift.staffId || shift.staffId === currentStaffId || (user as any)?.rbacRole === 'super_admin';
+
+        // Never adopt another counter's session. Each counter has its own storage key.
+        let open = currentCounterId
+          ? list.find((s) => s.status === 'open' && sameCounter(s) && s.shiftId === localShift?.shiftId)
+          : undefined;
+        if (!open && currentCounterId) {
+          open = list.find((s) => s.status === 'open' && sameCounter(s) && belongsToCurrentStaff(s));
         }
-        
+        if (open) writeStoredActiveShift(open);
+        else if (currentCounterId) clearStoredActiveShift(currentCounterId);
+
         setActiveShift(open || null);
       } else {
         setErrorBanner(shiftRes.data?.error || shiftRes.error || 'Failed to load shifts.');
@@ -139,7 +144,7 @@ export const ShiftPage: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [user?.uid]);
+  }, [selectedCounterId, user?.uid]);
 
   useEffect(() => {
     loadShifts();
@@ -149,6 +154,10 @@ export const ShiftPage: React.FC = () => {
   const handleStartShift = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorBanner('');
+    if (!assignedCounter) {
+      setErrorBanner('Select an assigned counter before signing in.');
+      return;
+    }
     setSuccessBanner('');
 
     try {
@@ -170,7 +179,7 @@ export const ShiftPage: React.FC = () => {
       if (res.ok && res.data?.success && res.data.shift) {
         setSuccessBanner('Signed in successfully! Ticket issuance is now ready.');
         // Persist shift to localStorage so other pages (My Sales, Walk-in) know the current sub-user session.
-        localStorage.setItem('ashvish_active_shift', JSON.stringify(res.data.shift));
+        writeStoredActiveShift(res.data.shift);
         setSelectedSubUserId('');
         setPin('');
         await loadShifts();
@@ -208,7 +217,7 @@ export const ShiftPage: React.FC = () => {
       if (res.ok && res.data?.success && res.data.shift) {
         setRecentEndedShift(res.data.shift);
         setSuccessBanner('Shift closed and reconciled successfully.');
-        localStorage.removeItem('ashvish_active_shift');
+        clearStoredActiveShift(activeShift);
         await loadShifts();
       } else {
         setErrorBanner(res.data?.error || res.error || 'Could not end shift.');
@@ -228,6 +237,8 @@ export const ShiftPage: React.FC = () => {
     byMethod: {},
   };
   const expectedTotalCashInDrawer = (activeShift?.startingCash || 0) + liveTotals.expectedCash;
+  const assignedCounter = counters.find((counter) => counter.id === selectedCounterId) || null;
+  const assignedCounters = counters;
   const assignedSubUsers: CounterSubUser[] = assignedCounter
     ? (Object.values(assignedCounter.subUsers || {}) as CounterSubUser[]).filter((subUser) => subUser.status !== 'inactive')
     : [];
@@ -434,7 +445,38 @@ export const ShiftPage: React.FC = () => {
               </p>
             ) : (
               <>
-                <p className="text-xs text-gray-400">Choose one of the users assigned to this counter:</p>
+                <p className="text-xs text-gray-400">Choose the physical counter first:</p>
+                {assignedCounters.length > 0 && (
+                  <div className="grid grid-cols-1 min-[420px]:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {assignedCounters.map((counter) => {
+                      const isSelected = selectedCounterId === counter.id;
+                      const openForCounter = shifts.find((shift) => shift.status === 'open' && shift.counterId === counter.id);
+                      return (
+                        <button
+                          key={counter.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedCounterId(counter.id);
+                            setSelectedSubUserId('');
+                            setPin('');
+                            setErrorBanner('');
+                          }}
+                          className={`min-h-20 p-4 rounded-2xl border text-left transition-all cursor-pointer ${
+                            isSelected
+                              ? 'bg-[#D4AF37]/15 border-[#D4AF37] shadow-lg shadow-[#D4AF37]/10'
+                              : 'bg-[#1A1A1A] border-white/10 hover:border-[#D4AF37]/50'
+                          }`}
+                        >
+                          <span className="block text-sm font-extrabold text-white">{counter.name}</span>
+                          <span className={`block text-[10px] mt-1 ${openForCounter ? 'text-emerald-400' : 'text-gray-400'}`}>
+                            {openForCounter ? `Active • ${openForCounter.subUserName || openForCounter.staffName}` : 'No active shift'}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                {assignedCounter && <p className="text-xs text-gray-400">Choose one of the users assigned to <span className="text-[#D4AF37] font-semibold">{assignedCounter.name}</span>:</p>}
                 {assignedSubUsers.length === 0 ? (
                   <p className="p-4 rounded-xl bg-[#1A1A1A] border border-amber-500/30 text-xs text-amber-300">
                     No active counter users are configured yet. Ask an administrator to add a counter user and PIN.

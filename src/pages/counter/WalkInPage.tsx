@@ -33,6 +33,7 @@ import { useNavigate } from 'react-router-dom';
 import { useBooking } from '../../contexts/BookingContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { Ticket as TicketType } from '../../types';
+import { clearStoredActiveShift, readStoredActiveShift, writeStoredActiveShift } from '../../lib/counterSession';
 import { SeatMap } from '../../components/SeatMap';
 import { sendTicketToWhatsApp } from '../../utils/whatsapp';
 import { passUrl } from '../../utils/passLink';
@@ -375,18 +376,18 @@ export const WalkInPage: React.FC = () => {
         const res = await safeFetch<any>('/api/counter/shifts', { headers: await authenticatedApiHeaders() });
         if (cancelled || !res.ok) return;
         
-        // Priority: 1. Locally persisted shift (this device's session) 2. Any open shift from backend
-        const localShiftStr = localStorage.getItem('ashvish_active_shift');
-        const localShift = localShiftStr ? JSON.parse(localShiftStr) : null;
-        
-        const openShifts = (res.data?.shifts || []).filter((s: any) => s.status === 'open');
+                const currentCounterId = selectedCounterId || '';
+        const localShift = currentCounterId ? readStoredActiveShift(currentCounterId) : null;
+        const openShifts = (res.data?.shifts || []).filter((s: any) =>
+          s.status === 'open' && (!currentCounterId || s.counterId === currentCounterId)
+        );
         let openShift = openShifts.find((s: any) => s.shiftId === localShift?.shiftId);
-        
-        if (!openShift) {
+        if (!openShift && currentCounterId) {
           openShift = openShifts.find((s: any) => !s.staffId || s.staffId === user?.uid);
-          if (openShift) localStorage.setItem('ashvish_active_shift', JSON.stringify(openShift));
-          else localStorage.removeItem('ashvish_active_shift');
         }
+        if (openShift) writeStoredActiveShift(openShift);
+        else if (currentCounterId) clearStoredActiveShift(currentCounterId);
+
 
         setActiveShiftId(openShift ? openShift.shiftId : null);
         if (openShift && openShift.subUserId) {
@@ -400,9 +401,9 @@ export const WalkInPage: React.FC = () => {
     };
     loadShifts();
     return () => { cancelled = true; };
-  }, [user?.uid]);
-
+    }, [user?.uid, selectedCounterId]);
   // ---------- Totals ----------
+
   const seatCount = selectedSeats.length;
   const unitCount = isSeatBasedEvent(selectedEvent) ? seatCount : quantity;
   const grossTotal = (selectedTier?.price || 0) * unitCount;

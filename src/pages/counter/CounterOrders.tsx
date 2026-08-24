@@ -25,6 +25,7 @@ import { useBooking } from '../../contexts/BookingContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { safeFetch } from '../../lib/api';
 import { authenticatedApiHeaders } from '../../lib/authHeaders';
+import { readPreferredStoredActiveShift } from '../../lib/counterSession';
 import { SeatMap } from '../../components/SeatMap';
 
 interface OrderItem {
@@ -93,6 +94,9 @@ export const CounterOrders: React.FC = () => {
       setIsLoading(true);
       setActionError('');
       const params = new URLSearchParams();
+      const activeShift = readPreferredStoredActiveShift();
+      if (activeShift?.shiftId) params.set('shiftId', String(activeShift.shiftId));
+      if (activeShift?.counterId) params.set('counterId', String(activeShift.counterId));
       if (searchQuery.trim()) params.set('search', searchQuery.trim());
       if (selectedEventId !== 'all') params.set('eventId', selectedEventId);
       if (selectedStatus !== 'all') params.set('status', selectedStatus);

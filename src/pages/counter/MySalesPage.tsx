@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useBooking } from '../../contexts/BookingContext';
+import { readPreferredStoredActiveShift } from '../../lib/counterSession';
 
 interface Ticket {
   id: string;
@@ -84,9 +85,10 @@ export const MySalesPage: React.FC = () => {
       const idToken = await firebaseUser?.getIdToken();
       if (!idToken) throw new Error("No authentication token found.");
 
-      // Check for active shift in local storage to filter by sub-user session
-      const activeShiftStr = localStorage.getItem('ashvish_active_shift');
-      const activeShift = activeShiftStr ? JSON.parse(activeShiftStr) : null;
+      // Filter sales to the active counter session on this device.
+      const activeShift = readPreferredStoredActiveShift();
+      const shiftId = activeShift?.shiftId;
+      const counterId = activeShift?.counterId;
       const subUserId = activeShift?.subUserId;
 
       const params = new URLSearchParams({
@@ -98,7 +100,9 @@ export const MySalesPage: React.FC = () => {
       if (selectedEventId) params.append('eventId', selectedEventId);
       if (selectedStatus) params.append('status', selectedStatus);
       if (searchQuery.trim()) params.append('search', searchQuery.trim());
-      if (subUserId) params.append('subUserId', subUserId);
+      if (subUserId) params.append('subUserId', String(subUserId));
+      if (shiftId) params.append('shiftId', String(shiftId));
+      if (counterId) params.append('counterId', String(counterId));
 
       const res = await fetch(`/api/counter/my-sales?${params.toString()}`, {
         headers: { 'Authorization': `Bearer ${idToken}` }
