@@ -238,7 +238,7 @@ export const WalkInPage: React.FC = () => {
   // terminal stays open all shift, so a stale snapshot must be refreshed.
   const loadCounters = useCallback(async () => {
     try {
-      const res = await safeFetch<any>('/api/admin/counters', { headers: await authenticatedApiHeaders() });
+      const res = await safeFetch<any>('/api/counter/list', { headers: await authenticatedApiHeaders() });
       if (res.ok && res.data?.success) {
         const all: WalkInCounter[] = res.data.counters || [];
         // Counter staff see only the counters they are assigned to and that
@@ -248,18 +248,23 @@ export const WalkInPage: React.FC = () => {
           if (isApprover) return true;
           return c.assignedStaffIds.includes(user?.uid || '');
         });
-        const signedInCounterId = readActiveCounterId() || selectedCounterId;
-        const scopedVisible = signedInCounterId
-          ? visible.filter((c: WalkInCounter) => c.id === signedInCounterId)
-          : [];
+        const preferredCounterId = readActiveCounterId() || selectedCounterId;
+        const assignedCounter = preferredCounterId
+          ? visible.find((c: WalkInCounter) => c.id === preferredCounterId)
+          : undefined;
+        // Keep a valid PIN-selected counter when present; otherwise start from
+        // the first counter actually assigned to this login, never a stale
+        // counter from another operator/device.
+        const scopedVisible = assignedCounter ? [assignedCounter] : visible;
         setCounters(scopedVisible);
-        // A Walk-In terminal is bound to the counter selected during PIN sign-in.
-        // Never silently switch it to another assigned counter.
         setSelectedCounterId((prev) => {
-          if (signedInCounterId && scopedVisible.some((c: WalkInCounter) => c.id === signedInCounterId)) return signedInCounterId;
-          if (prev && scopedVisible.some((c: WalkInCounter) => c.id === prev)) return prev;
-          return '';
+          if (assignedCounter) return assignedCounter.id;
+          if (prev && visible.some((c: WalkInCounter) => c.id === prev)) return prev;
+          return visible[0]?.id || '';
         });
+        if (!assignedCounter && preferredCounterId && !visible.some((c: WalkInCounter) => c.id === preferredCounterId)) {
+          try { localStorage.removeItem(COUNTER_MEMORY_KEY); } catch { /* best effort */ }
+        }
       }
     } catch {
       /* best-effort; walk-in sales still work without a counter */

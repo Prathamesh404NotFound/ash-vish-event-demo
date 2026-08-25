@@ -7349,6 +7349,7 @@ app.get("/api/counter/list", requireRole(["counter_staff", "event_manager", "sup
         name: c.name || "Box Office Counter",
         venue: c.venue || "",
         status: c.status || "active",
+        merchantUpi: { vpa: String(c?.merchantUpi?.vpa || ""), name: String(c?.merchantUpi?.name || "") },
         subUsers: Object.fromEntries(
           Object.entries(c.subUsers || {}).map(([key, u]: [string, any]) => [key, {
             id: String(u?.id || key),
@@ -7360,10 +7361,10 @@ app.get("/api/counter/list", requireRole(["counter_staff", "event_manager", "sup
         assignedStaffIds: Array.isArray(c.assignedStaffIds) ? c.assignedStaffIds : []
       }))
       .filter((c) => c.status === "active")
-      .filter((c) => {
-        const elevated = ["event_manager", "super_admin"].includes(String(req.user.rbacRole || ""));
-        return elevated || c.assignedStaffIds.includes(req.user.uid);
-      });
+      // Counter-facing screens are always scoped to the logged-in account.
+      // Elevated roles use /api/admin/counters for administration; they must
+      // not inherit every counter on the operational ticket dashboard.
+      .filter((c) => c.assignedStaffIds.includes(req.user.uid));
     return res.status(200).json({ success: true, counters });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message || "Could not fetch counter list." });
