@@ -250,6 +250,37 @@ export interface UserProfile {
   organizerDescription?: string;
 }
 
+export interface CounterShiftLiveTotals {
+  expectedCash: number;
+  cashSalesCount: number;
+  totalSales: number;
+  byMethod: Record<string, number>;
+}
+
+export interface CounterShiftRecord {
+  shiftId: string;
+  staffId: string;
+  staffName: string;
+  staffRole?: string;
+  counterId?: string;
+  counterName?: string;
+  subUserId?: string;
+  subUserName?: string;
+  startTime: string;
+  endTime?: string | null;
+  startingCash: number;
+  countedCash?: number | null;
+  expectedCash?: number | null;
+  discrepancy?: number | null;
+  cashSalesCount?: number;
+  totalSales?: number;
+  byMethod?: Record<string, number>;
+  autoReconciled?: boolean;
+  status: 'open' | 'closed';
+  closedBy?: string;
+  liveTotals?: CounterShiftLiveTotals;
+}
+
 export interface FilterOptions {
   searchQuery: string;
   category: EventCategory | 'all';

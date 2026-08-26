@@ -16,9 +16,13 @@ import {
   X,
   ExternalLink,
   ChevronRight,
-  ArrowRight
+  ArrowRight,
+  Pencil,
+  Trash2,
+  Save
 } from 'lucide-react';
 import { safeFetch } from '../../lib/api';
+import type { CounterShiftRecord } from '../../types';
 import { authenticatedApiHeaders } from '../../lib/authHeaders';
 
 interface ShiftLiveTotals {
@@ -28,28 +32,18 @@ interface ShiftLiveTotals {
   byMethod: Record<string, number>;
 }
 
-interface CounterShift {
-  shiftId: string;
-  staffId: string;
+type CounterShift = CounterShiftRecord;
+
+type ShiftEditForm = {
   staffName: string;
-  staffRole?: string;
-  counterId?: string;
-  counterName?: string;
-  subUserId?: string;
-  subUserName?: string;
+  subUserName: string;
+  counterName: string;
   startTime: string;
-  endTime?: string;
-  startingCash: number;
-  countedCash?: number;
-  expectedCash?: number;
-  discrepancy?: number;
-  cashSalesCount?: number;
-  totalSales?: number;
-  byMethod?: Record<string, number>;
+  endTime: string;
+  startingCash: string;
+  countedCash: string;
   status: 'open' | 'closed';
-  closedBy?: string;
-  liveTotals?: ShiftLiveTotals;
-}
+};
 
 export const AdminShiftPage: React.FC = () => {
   const [shifts, setShifts] = useState<CounterShift[]>([]);
@@ -60,6 +54,11 @@ export const AdminShiftPage: React.FC = () => {
   const [selectedShift, setSelectedShift] = useState<CounterShift | null>(null);
   const [isClosingShift, setIsClosingShift] = useState(false);
   const [closeCountedCash, setCloseCountedCash] = useState<number | ''>('');
+  const [editingShift, setEditingShift] = useState<CounterShift | null>(null);
+  const [editForm, setEditForm] = useState<ShiftEditForm | null>(null);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [isDeletingShift, setIsDeletingShift] = useState(false);
 
   const loadShifts = useCallback(async () => {
     try {
@@ -135,6 +134,97 @@ export const AdminShiftPage: React.FC = () => {
       alert(err.message || 'Error ending shift.');
     } finally {
       setIsClosingShift(false);
+    }
+  };
+
+  const toDateTimeLocal = (value?: string | null): string => {
+    if (!value) return '';
+    const date = new Date(value);
+    if (!Number.isFinite(date.getTime())) return '';
+    const offset = date.getTimezoneOffset();
+    return new Date(date.getTime() - offset * 60_000).toISOString().slice(0, 16);
+  };
+
+  const openEditModal = (shift: CounterShift) => {
+    setEditingShift(shift);
+    setEditForm({
+      staffName: shift.staffName || '',
+      subUserName: shift.subUserName || '',
+      counterName: shift.counterName || '',
+      startTime: toDateTimeLocal(shift.startTime),
+      endTime: toDateTimeLocal(shift.endTime),
+      startingCash: String(shift.startingCash ?? 0),
+      countedCash: shift.countedCash === null || shift.countedCash === undefined ? '' : String(shift.countedCash),
+      status: shift.status,
+    });
+    setDeleteConfirmId(null);
+  };
+
+  const closeEditModal = () => {
+    if (isSavingEdit) return;
+    setEditingShift(null);
+    setEditForm(null);
+  };
+
+  const handleSaveEdit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!editingShift || !editForm) return;
+    try {
+      setIsSavingEdit(true);
+      const headers = await authenticatedApiHeaders();
+      const body: Record<string, unknown> = {
+        staffName: editForm.staffName,
+        subUserName: editForm.subUserName,
+        counterName: editForm.counterName,
+        startTime: editForm.startTime,
+        endTime: editForm.endTime || undefined,
+        startingCash: Number(editForm.startingCash),
+        status: editForm.status,
+      };
+      if (editForm.countedCash !== '') body.countedCash = Number(editForm.countedCash);
+      const res = await safeFetch<{ success: boolean; shift?: CounterShift; error?: string }>(
+        `/api/admin/shifts/${editingShift.shiftId}`,
+        { method: 'PUT', headers, body: JSON.stringify(body) }
+      );
+      if (!res.ok || !res.data?.success) {
+        alert(res.data?.error || res.error || 'Could not update shift.');
+        return;
+      }
+      setEditingShift(null);
+      setEditForm(null);
+      setSelectedShift(res.data.shift || null);
+      await loadShifts();
+    } catch (err: any) {
+      alert(err.message || 'Could not update shift.');
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
+
+  const handleDeleteShift = async (shiftId: string) => {
+    if (deleteConfirmId !== shiftId) {
+      setDeleteConfirmId(shiftId);
+      return;
+    }
+    try {
+      setIsDeletingShift(true);
+      const headers = await authenticatedApiHeaders();
+      const res = await safeFetch<{ success: boolean; error?: string }>(
+        `/api/admin/shifts/${shiftId}`,
+        { method: 'DELETE', headers }
+      );
+      if (!res.ok || !res.data?.success) {
+        alert(res.data?.error || res.error || 'Could not delete shift.');
+        return;
+      }
+      if (selectedShift?.shiftId === shiftId) setSelectedShift(null);
+      if (editingShift?.shiftId === shiftId) closeEditModal();
+      setDeleteConfirmId(null);
+      await loadShifts();
+    } catch (err: any) {
+      alert(err.message || 'Could not delete shift.');
+    } finally {
+      setIsDeletingShift(false);
     }
   };
 
@@ -319,13 +409,38 @@ export const AdminShiftPage: React.FC = () => {
                       )}
                     </td>
                     <td className="px-6 py-4 text-center">
-                      <button
-                        onClick={() => setSelectedShift(s)}
-                        className="p-2 rounded-xl bg-white/5 text-gray-400 hover:text-[#D4AF37] hover:bg-[#D4AF37]/10 transition-all"
-                        title="View Details"
-                      >
-                        <ExternalLink className="w-4 h-4" />
-                      </button>
+                      <div className="flex items-center justify-center gap-1.5">
+                        <button
+                          onClick={() => setSelectedShift(s)}
+                          className="p-2 rounded-xl bg-white/5 text-gray-400 hover:text-[#D4AF37] hover:bg-[#D4AF37]/10 transition-all"
+                          title="View Details"
+                        >
+                          <ExternalLink className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => openEditModal(s)}
+                          className="p-2 rounded-xl bg-white/5 text-gray-400 hover:text-blue-300 hover:bg-blue-500/10 transition-all"
+                          title="Edit shift"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => void handleDeleteShift(s.shiftId)}
+                          disabled={isDeletingShift}
+                          className={`p-2 rounded-xl transition-all disabled:opacity-50 ${deleteConfirmId === s.shiftId ? 'bg-red-500 text-white hover:bg-red-600' : 'bg-white/5 text-gray-400 hover:text-red-300 hover:bg-red-500/10'}`}
+                          title={deleteConfirmId === s.shiftId ? 'Click again to confirm deletion' : 'Delete shift'}
+                        >
+                          {deleteConfirmId === s.shiftId ? <span className="text-[9px] font-extrabold px-0.5">Confirm</span> : <Trash2 className="w-4 h-4" />}
+                        </button>
+                      </div>
+                      {deleteConfirmId === s.shiftId && (
+                        <button
+                          onClick={() => setDeleteConfirmId(null)}
+                          className="mt-1 text-[9px] text-gray-500 hover:text-white"
+                        >
+                          Cancel
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))
@@ -343,6 +458,116 @@ export const AdminShiftPage: React.FC = () => {
           </table>
         </div>
       </div>
+
+      {/* Shift Edit Modal */}
+      {editingShift && editForm && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <form onSubmit={handleSaveEdit} className="w-full max-w-2xl bg-[#121212] border border-white/10 rounded-[28px] shadow-2xl overflow-hidden">
+            <div className="p-6 border-b border-white/10 flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-heading font-bold text-white">Edit Shift</h3>
+                <p className="text-[10px] text-gray-500 font-mono mt-1">{editingShift.shiftId}</p>
+              </div>
+              <button type="button" onClick={closeEditModal} className="p-2 rounded-xl hover:bg-white/10 text-gray-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-4 max-h-[70vh] overflow-y-auto">
+              <label className="space-y-1.5">
+                <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Staff Name</span>
+                <input
+                  required
+                  value={editForm.staffName}
+                  onChange={(e) => setEditForm((current) => current ? { ...current, staffName: e.target.value } : current)}
+                  className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-[#D4AF37]/50"
+                />
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Sub-User Name</span>
+                <input
+                  value={editForm.subUserName}
+                  onChange={(e) => setEditForm((current) => current ? { ...current, subUserName: e.target.value } : current)}
+                  className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-[#D4AF37]/50"
+                />
+              </label>
+              <label className="space-y-1.5 sm:col-span-2">
+                <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Counter Name</span>
+                <input
+                  required
+                  value={editForm.counterName}
+                  onChange={(e) => setEditForm((current) => current ? { ...current, counterName: e.target.value } : current)}
+                  className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-[#D4AF37]/50"
+                />
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Start Time</span>
+                <input
+                  required
+                  type="datetime-local"
+                  value={editForm.startTime}
+                  onChange={(e) => setEditForm((current) => current ? { ...current, startTime: e.target.value } : current)}
+                  className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-[#D4AF37]/50"
+                />
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">End Time</span>
+                <input
+                  type="datetime-local"
+                  value={editForm.endTime}
+                  onChange={(e) => setEditForm((current) => current ? { ...current, endTime: e.target.value } : current)}
+                  className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-[#D4AF37]/50"
+                />
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Starting Float (₹)</span>
+                <input
+                  required
+                  min="0"
+                  step="0.01"
+                  type="number"
+                  value={editForm.startingCash}
+                  onChange={(e) => setEditForm((current) => current ? { ...current, startingCash: e.target.value } : current)}
+                  className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-[#D4AF37]/50"
+                />
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Counted Cash (₹)</span>
+                <input
+                  min="0"
+                  step="0.01"
+                  type="number"
+                  placeholder="Leave blank to auto-reconcile"
+                  value={editForm.countedCash}
+                  onChange={(e) => setEditForm((current) => current ? { ...current, countedCash: e.target.value } : current)}
+                  className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-[#D4AF37]/50"
+                />
+              </label>
+              <label className="space-y-1.5 sm:col-span-2">
+                <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Status</span>
+                <select
+                  value={editForm.status}
+                  onChange={(e) => setEditForm((current) => current ? { ...current, status: e.target.value as 'open' | 'closed' } : current)}
+                  className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-[#D4AF37]/50"
+                >
+                  <option value="open">Open</option>
+                  <option value="closed">Closed</option>
+                </select>
+              </label>
+            </div>
+
+            <div className="p-6 border-t border-white/10 flex justify-end gap-3">
+              <button type="button" onClick={closeEditModal} disabled={isSavingEdit} className="px-5 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 font-bold text-xs">
+                Cancel
+              </button>
+              <button type="submit" disabled={isSavingEdit} className="px-5 py-2.5 rounded-xl bg-[#D4AF37] hover:bg-[#E2C45D] disabled:opacity-50 text-black font-bold text-xs flex items-center gap-2">
+                {isSavingEdit ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                Save Changes
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {/* Shift Details / Control Modal */}
       {selectedShift && (

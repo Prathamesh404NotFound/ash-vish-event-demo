@@ -6429,6 +6429,166 @@ app.get("/api/counter/shifts", requireRole(["counter_staff", "auditor", "event_m
   }
 });
 
+// Admin shift edit: correct attribution, timing, cash, or status without
+// deleting the underlying ticket/order history.
+app.put("/api/admin/shifts/:shiftId", requireRole(["event_manager", "super_admin"]), async (req: any, res) => {
+  try {
+    const { shiftId } = req.params;
+    const adminToken = (await getAdminAuthToken()) || req.user.idToken;
+    if (!adminToken) return res.status(503).json({ success: false, error: "Server authentication unavailable." });
+
+    const existingSnap = await rtdbGet(`counter_shifts/${shiftId}`, adminToken);
+    const existing = existingSnap.data as any;
+    if (!existing) return res.status(404).json({ success: false, error: "Shift not found." });
+
+    const body = req.body || {};
+    const updates: Record<string, any> = {};
+    const textFields = ["staffName", "subUserName", "counterName"] as const;
+    for (const field of textFields) {
+      if (body[field] !== undefined) {
+        const value = String(body[field] || "").trim();
+        if (value.length > 120) return res.status(400).json({ success: false, error: `${field} is too long.` });
+        updates[field] = value;
+      }
+    }
+
+    const startTime = body.startTime !== undefined ? String(body.startTime || "") : existing.startTime;
+    const endTimeInput = body.endTime !== undefined ? body.endTime : existing.endTime;
+    const startMs = new Date(startTime).getTime();
+    if (!Number.isFinite(startMs)) return res.status(400).json({ success: false, error: "Start time is invalid." });
+    updates.startTime = new Date(startTime).toISOString();
+
+    const requestedStatus = body.status !== undefined ? String(body.status) : String(existing.status || "open");
+    if (requestedStatus !== "open" && requestedStatus !== "closed") {
+      return res.status(400).json({ success: false, error: "Status must be open or closed." });
+    }
+    updates.status = requestedStatus;
+
+    const endTime = requestedStatus === "closed"
+      ? (endTimeInput ? new Date(String(endTimeInput)) : new Date())
+      : null;
+    if (endTime && !Number.isFinite(endTime.getTime())) {
+      return res.status(400).json({ success: false, error: "End time is invalid." });
+    }
+    if (endTime && endTime.getTime() < startMs) {
+      return res.status(400).json({ success: false, error: "End time cannot be before start time." });
+    }
+    updates.endTime = endTime ? endTime.toISOString() : null;
+
+    const cashFields = ["startingCash", "countedCash"] as const;
+    for (const field of cashFields) {
+      if (body[field] === undefined || body[field] === "") continue;
+      const value = Number(body[field]);
+      if (!Number.isFinite(value) || value < 0) {
+        return res.status(400).json({ success: false, error: `${field} must be a non-negative number.` });
+      }
+      updates[field] = value;
+    }
+    if (requestedStatus === "open" && body.countedCash === undefined) {
+      updates.countedCash = null;
+      updates.expectedCash = null;
+      updates.discrepancy = null;
+      updates.autoReconciled = false;
+    }
+
+    const mergedShift = { ...existing, ...updates, shiftId };
+    if (requestedStatus === "closed") {
+      const totals = await computeShiftCashTotals(adminToken, mergedShift);
+      const expectedDrawer = Number(mergedShift.startingCash || 0) + totals.expectedCash;
+      const hasCountedCash = body.countedCash !== undefined && body.countedCash !== ""
+        ? true
+        : existing.countedCash !== undefined && existing.countedCash !== null;
+      const countedCash = hasCountedCash ? Number(updates.countedCash ?? existing.countedCash) : expectedDrawer;
+      if (!Number.isFinite(countedCash) || countedCash < 0) {
+        return res.status(400).json({ success: false, error: "Counted cash must be a non-negative number." });
+      }
+      updates.expectedCash = totals.expectedCash;
+      updates.cashSalesCount = totals.cashSalesCount;
+      updates.totalSales = totals.totalSales;
+      updates.byMethod = totals.byMethod;
+      updates.countedCash = countedCash;
+      updates.discrepancy = Math.round((countedCash - expectedDrawer) * 100) / 100;
+      updates.autoReconciled = !hasCountedCash;
+      updates.closedBy = req.user.uid;
+    }
+
+    await rtdbUpdate(`counter_shifts/${shiftId}`, updates, adminToken);
+    const updated = { ...existing, ...updates, shiftId };
+    console.info("[ADMIN_SHIFT_EDIT]", {
+      adminEmail: req.user.email || "unknown",
+      shiftId,
+      before: existing,
+      after: updated,
+    });
+    await writeAuditEntry({
+      actorId: req.user.uid,
+      actorRole: req.user.rbacRole || "super_admin",
+      action: "shift.admin_edited",
+      entityType: "shift",
+      entityId: shiftId,
+      beforeState: existing,
+      afterState: updated,
+    });
+    return res.status(200).json({ success: true, shift: updated });
+  } catch (err: any) {
+    console.error("[ADMIN_SHIFT_EDIT] Failed:", err?.message || err);
+    return res.status(500).json({ success: false, error: err.message || "Could not update shift." });
+  }
+});
+
+// Admin shift delete: remove only the shift record and its shift-specific
+// attribution from related orders. Tickets and order records remain intact.
+app.delete("/api/admin/shifts/:shiftId", requireRole(["event_manager", "super_admin"]), async (req: any, res) => {
+  try {
+    const { shiftId } = req.params;
+    const adminToken = (await getAdminAuthToken()) || req.user.idToken;
+    if (!adminToken) return res.status(503).json({ success: false, error: "Server authentication unavailable." });
+
+    const existingSnap = await rtdbGet(`counter_shifts/${shiftId}`, adminToken);
+    const existing = existingSnap.data as any;
+    if (!existing) return res.status(404).json({ success: false, error: "Shift not found." });
+
+    const stripShiftAttribution = async (collection: string) => {
+      const snap = await rtdbGet(collection, adminToken).catch(() => ({ data: null }));
+      const records = (snap.data || {}) as Record<string, any>;
+      for (const [recordId, record] of Object.entries(records)) {
+        const item = (record || {}) as any;
+        if (item.shiftId !== shiftId && item.staffShiftId !== shiftId) continue;
+        await rtdbUpdate(`${collection}/${recordId}`, {
+          shiftId: null,
+          staffShiftId: null,
+          issuedBySubUserId: null,
+          issuedBySubUserName: null,
+        }, adminToken);
+      }
+    };
+
+    await stripShiftAttribution("orders");
+    await stripShiftAttribution("processed_orders");
+    await stripShiftAttribution("pending_orders");
+    await rtdbDelete(`counter_shifts/${shiftId}`, adminToken);
+
+    console.info("[ADMIN_SHIFT_DELETE]", {
+      adminEmail: req.user.email || "unknown",
+      shiftId,
+      before: existing,
+    });
+    await writeAuditEntry({
+      actorId: req.user.uid,
+      actorRole: req.user.rbacRole || "super_admin",
+      action: "shift.admin_deleted",
+      entityType: "shift",
+      entityId: shiftId,
+      beforeState: existing,
+      afterState: { deleted: true, salesHistoryPreserved: true },
+    });
+    return res.status(200).json({ success: true, deletedShiftId: shiftId, salesHistoryPreserved: true });
+  } catch (err: any) {
+    console.error("[ADMIN_SHIFT_DELETE] Failed:", err?.message || err);
+    return res.status(500).json({ success: false, error: err.message || "Could not delete shift." });
+  }
+});
+
 // Reprint ticket — reason field is mandatory; audited with reason in after_state.
 app.post("/api/counter/tickets/:ticketId/reprint", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
   try {
