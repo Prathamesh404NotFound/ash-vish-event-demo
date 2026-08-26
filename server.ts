@@ -6622,6 +6622,7 @@ const normalizeShiftTicket = (ticket: any, order: any, ticketId: string) => ({
   counterName: order?.counterName || ticket?.counterName || null,
   amount: Number(order?.amount ?? ticket?.totalPaid ?? 0) || 0,
   createdAt: order?.createdAt || ticket?.purchasedAt || ticket?.createdAt || null,
+  status: ticket?.status || order?.status || null,
 });
 
 async function refreshAdminShiftMetrics(adminToken: string, shift: any): Promise<any> {
@@ -6660,8 +6661,6 @@ app.get("/api/admin/shifts/:shiftId/reassignment-candidates", requireRole(["even
     const tickets = (ticketsSnap.data || {}) as Record<string, any>;
     const orders = (ordersSnap.data || {}) as Record<string, any>;
     const search = String(req.query?.search || "").trim().toLowerCase();
-    const startMs = new Date(target.startTime).getTime();
-    const endMs = target.endTime ? new Date(target.endTime).getTime() : Date.now();
     const candidates = Object.entries(tickets)
       .map(([key, ticket]) => {
         const ticketId = String(ticket?.id || key);
@@ -6669,15 +6668,13 @@ app.get("/api/admin/shifts/:shiftId/reassignment-candidates", requireRole(["even
         return normalizeShiftTicket(ticket, order, ticketId);
       })
       .filter((candidate: any) => {
-        const createdMs = new Date(candidate.createdAt || 0).getTime();
-        if (!candidate.shiftId || candidate.shiftId === shiftId) return false;
-        if (!Number.isFinite(createdMs) || createdMs < startMs || createdMs > endMs) return false;
+        if (String(candidate.status || '').toLowerCase() === 'deleted') return false;
+        if (candidate.shiftId === shiftId) return false;
         if (search && ![candidate.ticketNumber, candidate.attendeeName, candidate.issuedBy, candidate.counterName]
           .map(String).join(" ").toLowerCase().includes(search)) return false;
         return true;
       })
-      .sort((a: any, b: any) => String(b.createdAt).localeCompare(String(a.createdAt)))
-      .slice(0, 100);
+      .sort((a: any, b: any) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
 
     return res.status(200).json({ success: true, candidates });
   } catch (err: any) {
@@ -6733,8 +6730,8 @@ app.put("/api/admin/shifts/:shiftId/reassign-tickets", requireRole(["event_manag
       const [ticketKey, ticket] = ticketEntry as [string, any];
       const linkedOrder = ticket?.orderId ? orders[String(ticket.orderId)] : ordersByTicketId.get(ticketId)?.value;
       const oldShiftId = String(linkedOrder?.shiftId || linkedOrder?.staffShiftId || ticket?.shiftId || ticket?.staffShiftId || "");
-      if (!oldShiftId || oldShiftId === shiftId || (sourceShiftId && oldShiftId !== sourceShiftId)) continue;
-      sourceShiftIds.add(oldShiftId);
+      if (oldShiftId === shiftId || (sourceShiftId && oldShiftId !== sourceShiftId)) continue;
+      if (oldShiftId) sourceShiftIds.add(oldShiftId);
 
       const attribution = {
         shiftId,
