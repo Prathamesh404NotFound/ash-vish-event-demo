@@ -247,6 +247,11 @@ export const WalkInPage: React.FC = () => {
   // restore; counter names change server-side when admins rename them and the
   // terminal stays open all shift, so a stale snapshot must be refreshed.
   const loadCounters = useCallback(async () => {
+    // Do not run the assignment filter until AuthContext has restored the
+    // Firebase profile. An early empty-user response used to clear the selected
+    // counter and make the shift effect report "No operator signed in".
+    const currentUserId = user?.uid || user?.id || '';
+    if (!currentUserId) return;
     try {
       const res = await safeFetch<any>('/api/counter/list', { headers: await authenticatedApiHeaders() });
       if (res.ok && res.data?.success) {
@@ -256,7 +261,7 @@ export const WalkInPage: React.FC = () => {
         const visible = all.filter((c: WalkInCounter) => {
           if (c.status !== 'active') return false;
           if (isApprover) return true;
-          return c.assignedStaffIds.includes(user?.uid || '');
+          return c.assignedStaffIds.includes(currentUserId);
         });
         const preferredCounterId = readActiveCounterId() || selectedCounterId;
         const assignedCounter = preferredCounterId
@@ -279,7 +284,7 @@ export const WalkInPage: React.FC = () => {
     } catch {
       /* best-effort; walk-in sales still work without a counter */
     }
-  }, [isApprover, user?.uid]);
+  }, [isApprover, user?.uid, user?.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -308,8 +313,7 @@ export const WalkInPage: React.FC = () => {
       window.clearInterval(interval);
       document.removeEventListener('visibilitychange', onVisible);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [loadCounters]);
 
   // Persist the chosen counter for fast repeat issuance on this device.
   useEffect(() => {
@@ -424,7 +428,7 @@ export const WalkInPage: React.FC = () => {
     };
     loadShifts();
     return () => { cancelled = true; };
-    }, [user?.uid, selectedCounterId]);
+    }, [user?.uid, user?.id, selectedCounterId]);
   // ---------- Totals ----------
 
   const seatCount = selectedSeats.length;
@@ -1168,7 +1172,7 @@ export const WalkInPage: React.FC = () => {
                   requiredQuantity={quantity}
                   selectedSeatIds={selectedSeats}
                   onSeatsSelected={(seatIds) => setSelectedSeats(seatIds)}
-                  currentUserId={`counter_${user?.uid || 'staff'}`}
+                  currentUserId={`counter_${user?.uid || user?.id || 'staff'}`}
                   ticketTiers={selectedEventTiers}
                   eventDate={selectedEvent.date}
                   eventTime={selectedEvent.time}
