@@ -169,6 +169,7 @@ export const TermsPage: React.FC = () => {
             </p>
             <ul className="list-none space-y-2">
               <li><strong>Email:</strong> hello@ashvishevents.com</li>
+              <li><strong>Phone:</strong> <a href="tel:+917745998497" className="text-[#D4AF37] hover:underline">+91 77459 98497</a></li>
               <li><strong>Support Hours:</strong> Monday to Saturday, 10:00 AM - 7:00 PM</li>
               <li><strong>Office:</strong> The Sayaji, Kolhapur, Maharashtra, India</li>
             </ul>

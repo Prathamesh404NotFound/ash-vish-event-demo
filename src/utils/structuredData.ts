@@ -55,7 +55,7 @@ export function generateOrganizationSchema() {
         },
         "contactPoint": {
           "@type": "ContactPoint",
-          "telephone": "+91-9657333033",
+          "telephone": "+91-7745998497",
           "contactType": "customer service",
           "areaServed": ["IN", "Maharashtra", "Kolhapur"],
           "availableLanguage": ["English", "Hindi", "Marathi"]
@@ -82,7 +82,7 @@ export function generateOrganizationSchema() {
           "postalCode": "416001",
           "addressCountry": "IN"
         },
-        "telephone": "+91-9657333033",
+        "telephone": "+91-7745998497",
         "priceRange": "₹₹",
         "areaServed": {
           "@type": "GeoCircle",

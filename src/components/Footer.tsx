@@ -53,8 +53,8 @@ export const Footer: React.FC<FooterProps> = ({ setActiveTab }) => {
               <a href="mailto:hello@ashvishevents.com" className="hover:text-[#D4AF37] transition-colors flex items-center gap-1.5">
                 <Mail className="w-3.5 h-3.5 text-[#D4AF37]" /> hello@ashvishevents.com
               </a>
-              <a href="tel:+91" className="hover:text-[#D4AF37] transition-colors flex items-center gap-1.5">
-                <Phone className="w-3.5 h-3.5 text-[#D4AF37]" /> Booking & Support Enquiries
+              <a href="tel:+917745998497" className="hover:text-[#D4AF37] transition-colors flex items-center gap-1.5">
+                <Phone className="w-3.5 h-3.5 text-[#D4AF37]" /> +91 77459 98497 — Booking & Support Enquiries
               </a>
             </div>
           </div>
@@ -143,6 +143,7 @@ export const Footer: React.FC<FooterProps> = ({ setActiveTab }) => {
             <button onClick={() => setActiveTab('terms')} className="hover:text-[#D4AF37] transition-colors">Terms & Conditions</button>
             <a href="mailto:hello@ashvishevents.com" className="hover:text-[#D4AF37] transition-colors">Support</a>
             <a href="mailto:hello@ashvishevents.com" className="hover:text-[#D4AF37] transition-colors">Booking Enquiries</a>
+            <a href="tel:+917745998497" className="hover:text-[#D4AF37] transition-colors">+91 77459 98497</a>
           </div>
         </div>
 
