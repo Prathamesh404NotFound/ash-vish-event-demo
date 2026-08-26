@@ -1820,71 +1820,42 @@ export async function createApp() {
     };
   };
 
-  // POST /api/auth/claims — mints Firebase custom claims for signed-in staff.
-  // The client calls this right after login so the user's ID token carries
-  // { admin: true, role } and the RTDB security rules (which inspect
-  // auth.token.admin / auth.token.role) accept staff RTDB reads.
+  // POST /api/auth/claims — verifies the signed-in user and resolves the
+  // current role. Server-side RBAC reads the staff record directly, so this
+  // endpoint must not depend on an optional firebase-admin runtime setup.
   app.post("/api/auth/claims", async (req: any, res) => {
     try {
       const authHeader: string = (req.headers && req.headers.authorization) || "";
       const bearer = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
       if (!bearer) {
-        res.status(401).json({ success: false, error: "Missing authorization token." });
-        return;
+        return res.status(401).json({ success: false, error: "Missing authorization token." });
       }
+
       const verified = await verifyFirebaseToken(bearer);
       if (!verified) {
-        res.status(401).json({ success: false, error: "Invalid authorization token." });
-        return;
+        return res.status(401).json({ success: false, error: "Invalid authorization token." });
       }
+
+      // The verified caller token is sufficient for staff role reads. Use the
+      // server identity when configured, but do not make claims resolution
+      // depend on optional admin credentials.
+      const adminToken = (await getAdminAuthToken()) || bearer;
       const uid: string = verified.uid;
-      // Resolve role from staff/$uid (primary) or users/$uid/role.
       let role = verified.role || "customer";
-      const staffSnap = await rtdbGet(`staff/${uid}`, await getAdminAuthToken());
-      if (staffSnap && staffSnap.data && staffSnap.data.role) {
+      const staffSnap = await rtdbGet(`staff/${uid}`, adminToken);
+      if (staffSnap?.data?.role) {
         role = staffSnap.data.role;
       } else if (!role || role === "customer") {
-        const userSnap = await rtdbGet(`users/${uid}`, await getAdminAuthToken());
-        if (userSnap && userSnap.data && userSnap.data.role) {
-          role = userSnap.data.role;
-        }
+        const userSnap = await rtdbGet(`users/${uid}`, adminToken);
+        if (userSnap?.data?.role) role = userSnap.data.role;
       }
+
       const STAFF_ROLES = ["admin", "super_admin", "event_manager", "ticket_counter", "counter_staff", "auditor"];
       const isStaff = STAFF_ROLES.includes(role);
-      try {
-        // firebase-admin is a server-only dependency (loaded dynamically so
-        // the client bundle stays small).
-        const adminSdk: any = await import("firebase-admin");
-        try {
-          adminSdk.app();
-        } catch {
-          const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || "{}");
-          if (serviceAccount.private_key) {
-            adminSdk.initializeApp({
-              credential: adminSdk.credential.cert(serviceAccount),
-              databaseURL: process.env.FIREBASE_DATABASE_URL || "https://ashevents-aa490-default-rtdb.asia-southeast1.firebasedatabase.app",
-            });
-          } else {
-            adminSdk.initializeApp();
-          }
-        }
-        if (isStaff) {
-          await adminSdk.auth().setCustomUserClaims(uid, {
-            admin: role === "admin" || role === "super_admin",
-            role,
-          });
-        } else {
-          // Clear stale claims for demoted users.
-          await adminSdk.auth().setCustomUserClaims(uid, {});
-        }
-        res.json({ success: true, role, isStaff });
-      } catch (sdkErr: any) {
-        console.error("[CLAIMS] firebase-admin claims write failed:", sdkErr?.message || sdkErr);
-        res.status(500).json({ success: false, error: "Claims service unavailable." });
-      }
+      return res.json({ success: true, role, isStaff });
     } catch (err: any) {
-      console.error("[CLAIMS] Unexpected error:", err?.message || err);
-      res.status(500).json({ success: false, error: "Internal server error." });
+      console.error("[CLAIMS] Role resolution failed:", err?.message || err);
+      return res.status(500).json({ success: false, error: "Authentication service unavailable." });
     }
   });
 
@@ -6290,7 +6261,13 @@ async function computeShiftCashTotals(
         return res.status(400).json({ success: false, error: "Sub-user selection and PIN are required." });
       }
 
-      const adminToken = await getAdminAuthToken();
+      // Counter staff are allowed to read counters and write counter_shifts
+      // under database.rules.json. Fall back to the verified caller token so
+      // sign-in still works when the optional server admin identity is absent.
+      const adminToken = (await getAdminAuthToken()) || req.user.idToken;
+      if (!adminToken) {
+        return res.status(503).json({ success: false, error: "Counter authentication service unavailable." });
+      }
 
       // Auto-resolve counterId if not provided
       if (!counterId) {
@@ -6435,7 +6412,7 @@ app.get("/api/counter/shifts", requireRole(["counter_staff", "auditor", "event_m
   try {
     const rbacRole = (req.user.rbacRole as string) || "counter_staff";
     const isAdmin = rbacRole === "super_admin" || rbacRole === "event_manager";
-    const adminToken = await getAdminAuthToken();
+    const adminToken = (await getAdminAuthToken()) || req.user.idToken;
     const shifts = await fetchCounterShifts(adminToken, req.user.uid, isAdmin);
     const shiftList = await Promise.all(
       Object.values(shifts).map(async (s: any) => {
@@ -7341,7 +7318,8 @@ app.get("/api/counters", async (req, res) => {
 // Staff-only counter list for shift selection
 app.get("/api/counter/list", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
   try {
-    const snap = await rtdbGet("counters", await getAdminAuthToken());
+    const authToken = (await getAdminAuthToken()) || req.user.idToken;
+    const snap = await rtdbGet("counters", authToken);
     const nodes = (snap.data || {}) as Record<string, any>;
     const counters = Object.entries(nodes)
       .map(([id, c]) => ({
