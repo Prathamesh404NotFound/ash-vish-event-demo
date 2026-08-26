@@ -26,7 +26,7 @@ export class TokenVerificationError extends Error {
  */
 export async function verifyFirebaseIdToken(
   idToken: string,
-  projectId: string = process.env.FIREBASE_PROJECT_ID || 'ashevents-aa490'
+  projectId: string = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID || 'ashevents-aa490'
 ): Promise<VerifiedFirebaseToken> {
   if (!idToken || typeof idToken !== 'string') {
     throw new TokenVerificationError('ID token must be a non-empty string.', 'INVALID_ARGUMENT');

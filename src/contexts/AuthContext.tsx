@@ -121,6 +121,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return userProfile;
   };
 
+  const refreshStaffClaims = async (fbUser: FirebaseUser, profile: UserProfile): Promise<void> => {
+    if (profile.role === 'customer') return;
+    try {
+      const idToken = await fbUser.getIdToken();
+      const claimsRes = await fetch('/api/auth/claims', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${idToken}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      if (claimsRes.ok) {
+        await fbUser.getIdToken(true);
+      } else {
+        console.warn('[AuthContext] Claims endpoint returned', claimsRes.status);
+      }
+    } catch (err) {
+      console.warn('[AuthContext] Claims refresh failed:', err);
+    }
+  };
+
   useEffect(() => {
     let unsubStaff: (() => void) | null = null;
     let unsubUser: (() => void) | null = null;
@@ -146,6 +167,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
         setFirebaseUser(fbUser);
         const profile = await fetchAndSyncUserProfile(fbUser);
+        await refreshStaffClaims(fbUser, profile);
         setUser(profile);
 
         // Real-time listener for user profile/role details
@@ -227,24 +249,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const userCredential = await signInWithEmailAndPassword(auth, email, pass);
       const profile = await fetchAndSyncUserProfile(userCredential.user);
       
-      // If user is staff, mint custom claims and force token refresh
-      if (profile.role !== 'customer') {
-        try {
-          const idToken = await userCredential.user.getIdToken();
-          const claimsRes = await fetch('/api/auth/claims', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${idToken}`,
-              'Content-Type': 'application/json'
-            }
-          });
-          if (claimsRes.ok) {
-            await userCredential.user.getIdToken(true); // Force refresh to get new claims
-          }
-        } catch (e) {
-          console.warn('[AuthContext] Claims minting failed:', e);
-        }
-      }
+      // Refresh staff claims after email sign-in so counter endpoints receive
+      // a current token even when the previous browser token was stale.
+      await refreshStaffClaims(userCredential.user, profile);
 
       setUser(profile);
       setIsLoading(false);
@@ -310,24 +317,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const result = await signInWithPopup(auth, googleProvider);
       const profile = await fetchAndSyncUserProfile(result.user);
       
-      // If user is staff, mint custom claims and force token refresh
-      if (profile.role !== 'customer') {
-        try {
-          const idToken = await result.user.getIdToken();
-          const claimsRes = await fetch('/api/auth/claims', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${idToken}`,
-              'Content-Type': 'application/json'
-            }
-          });
-          if (claimsRes.ok) {
-            await result.user.getIdToken(true); // Force refresh to get new claims
-          }
-        } catch (e) {
-          console.warn('[AuthContext] Claims minting failed:', e);
-        }
-      }
+      // Refresh staff claims after Google sign-in as well.
+      await refreshStaffClaims(result.user, profile);
 
       setUser(profile);
       setIsLoading(false);
