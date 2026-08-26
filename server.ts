@@ -5396,11 +5396,29 @@ export async function createApp() {
       const totalOrders = confirmed.length;
       const totalTickets = confirmed.reduce((sum: number, o: any) => sum + (Number(o.quantity) || 1), 0);
 
-      const bySubUser = confirmed.reduce((acc: Record<string, number>, o: any) => {
-        if (o.channel === 'counter' || String(o.paymentMethod || '').startsWith('walkin')) {
-          const sub = o.issuedBySubUserName || 'Main Staff';
-          acc[sub] = (acc[sub] || 0) + (Number(o.amount) || 0);
-        }
+      // Counter Operator Performance is based on live attendee ticket records,
+      // not shift rows. Orders are joined only for payment/quantity fallback.
+      const ordersByTicketId = new Map<string, any>();
+      for (const order of confirmed) {
+        if (order.ticketId) ordersByTicketId.set(String(order.ticketId), order);
+      }
+      const bySubUser = tickets.reduce((acc: Record<string, { tickets: number; amount: number }>, ticket: any) => {
+        if (String(ticket?.status || '').toLowerCase() === 'deleted') return acc;
+        const ticketDate = String(ticket?.purchasedAt || ticket?.createdAt || '');
+        if (from && ticketDate < String(from)) return acc;
+        if (to && ticketDate > String(to)) return acc;
+        const order = ticket?.orderId ? confirmed.find((candidate: any) => candidate.orderId === ticket.orderId) : ordersByTicketId.get(String(ticket?.id || ''));
+        const isCounterTicket = Boolean(
+          ticket?.counterId || ticket?.counterName || ticket?.issuedBySubUserName ||
+          order?.channel === 'counter' || String(order?.paymentMethod || '').startsWith('walkin')
+        );
+        if (!isCounterTicket) return acc;
+        const operator = String(ticket?.issuedBySubUserName || order?.issuedBySubUserName || 'Main Staff');
+        const quantity = Math.max(1, Number(order?.quantity ?? ticket?.quantity ?? 1) || 1);
+        const amount = Number(order?.amountPaid ?? order?.amount ?? ticket?.totalPaid ?? ((ticket?.price || 0) * quantity)) || 0;
+        if (!acc[operator]) acc[operator] = { tickets: 0, amount: 0 };
+        acc[operator].tickets += quantity;
+        acc[operator].amount += amount;
         return acc;
       }, {});
 

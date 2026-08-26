@@ -9,7 +9,7 @@ interface ReportData {
   revenueByDate: { date: string; revenue: number; orders: number }[];
   attendanceVsCapacity: { eventId: string; title: string; capacity: number; sold: number; checkedIn: number }[];
   channels: Record<string, number>;
-  bySubUser?: Record<string, number>;
+  bySubUser?: Record<string, { tickets: number; amount: number }>;
 }
 
 export const AdminDashboard: React.FC = () => {
@@ -215,22 +215,40 @@ export const AdminDashboard: React.FC = () => {
       </div>
 
       {/* Sub-User Breakdown */}
-      {report?.bySubUser && Object.keys(report.bySubUser).length > 0 && (
-        <div className="p-6 rounded-3xl bg-[#141414] border border-white/10 space-y-4">
+      <div className="p-6 rounded-3xl bg-[#141414] border border-white/10 space-y-4">
+        <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <Users className="w-5 h-5 text-[#D4AF37]" />
-            <h2 className="font-heading font-extrabold text-lg text-white">Counter Operator Performance</h2>
+            <div>
+              <h2 className="font-heading font-extrabold text-lg text-white">Counter Operator Performance</h2>
+              <p className="text-[10px] text-gray-500">Calculated from attendee ticket records, not shift totals.</p>
+            </div>
           </div>
+          <button
+            type="button"
+            onClick={loadData}
+            disabled={loading}
+            className="px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-gray-300 hover:text-white hover:bg-white/10 disabled:opacity-50 transition-all flex items-center gap-2 text-xs font-bold"
+            title="Refresh operator performance"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        </div>
+        {report?.bySubUser && Object.keys(report.bySubUser).length > 0 ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {Object.entries(report.bySubUser).map(([name, amount]) => (
+            {Object.entries(report.bySubUser).map(([name, metrics]) => (
               <div key={name} className="p-4 rounded-2xl bg-[#1C1C1C] border border-white/5 space-y-1">
                 <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{name}</p>
-                <p className="text-xl font-black text-[#D4AF37]">₹{amount.toLocaleString()}</p>
+                <p className="text-xl font-black text-[#D4AF37]">{metrics.tickets} ticket{metrics.tickets === 1 ? '' : 's'}</p>
+                <p className="text-xs text-gray-300">Sales: ₹{metrics.amount.toLocaleString()}</p>
               </div>
             ))}
           </div>
-        </div>
-      )}
+        ) : (
+          <p className="text-xs text-gray-500 text-center py-6">No counter-issued attendee tickets found.</p>
+        )}
+      </div>
 
       {/* Quick Event Summary Table */}
       <div className="p-6 rounded-3xl bg-[#141414] border border-white/10 space-y-4">

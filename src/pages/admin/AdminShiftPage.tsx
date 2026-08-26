@@ -1,14 +1,11 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { 
   Clock, 
-  DollarSign, 
-  ShieldCheck, 
   AlertCircle, 
   CheckCircle2, 
   RefreshCw, 
   History, 
   TrendingUp, 
-  AlertTriangle, 
   Armchair,
   Users,
   Search,
@@ -23,14 +20,6 @@ import {
 import { safeFetch } from '../../lib/api';
 import type { CounterShiftRecord } from '../../types';
 import { authenticatedApiHeaders } from '../../lib/authHeaders';
-
-interface ShiftLiveTotals {
-  expectedCash: number;
-  cashSalesCount: number;
-  totalSales: number;
-  byMethod: Record<string, number>;
-  ticketsSold?: number;
-}
 
 type CounterShift = CounterShiftRecord;
 
@@ -48,9 +37,6 @@ type ShiftEditForm = {
   counterName: string;
   startTime: string;
   endTime: string;
-  startingCash: string;
-  countedCash: string;
-  ticketsSold: string;
   status: 'open' | 'closed';
 };
 
@@ -61,8 +47,6 @@ export const AdminShiftPage: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'open' | 'closed'>('all');
   const [selectedShift, setSelectedShift] = useState<CounterShift | null>(null);
-  const [isClosingShift, setIsClosingShift] = useState(false);
-  const [closeCountedCash, setCloseCountedCash] = useState<number | ''>('');
   const [editingShift, setEditingShift] = useState<CounterShift | null>(null);
   const [editForm, setEditForm] = useState<ShiftEditForm | null>(null);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
@@ -120,9 +104,7 @@ export const AdminShiftPage: React.FC = () => {
     return () => { cancelled = true; };
   }, []);
 
-  // Keep active terminal totals current while the admin panel is open. The
-  // selected detail view is synchronized in loadShifts so force-close actions
-  // and sales made on another terminal are reflected without reopening it.
+  // Keep the shift list current while the admin panel is open.
   useEffect(() => {
     const refreshIfVisible = () => {
       if (document.visibilityState === 'visible' && navigator.onLine) {
@@ -136,35 +118,6 @@ export const AdminShiftPage: React.FC = () => {
       document.removeEventListener('visibilitychange', refreshIfVisible);
     };
   }, [loadShifts]);
-
-  const handleEndShift = async () => {
-    if (!selectedShift || closeCountedCash === '') return;
-    
-    try {
-      setIsClosingShift(true);
-      const headers = await authenticatedApiHeaders();
-      const res = await safeFetch<{ success: boolean; error?: string }>(
-        `/api/counter/shifts/${selectedShift.shiftId}/end`,
-        {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ countedCash: Number(closeCountedCash) }),
-        }
-      );
-
-      if (res.ok && res.data?.success) {
-        setSelectedShift(null);
-        setCloseCountedCash('');
-        await loadShifts();
-      } else {
-        alert(res.data?.error || 'Could not end shift.');
-      }
-    } catch (err: any) {
-      alert(err.message || 'Error ending shift.');
-    } finally {
-      setIsClosingShift(false);
-    }
-  };
 
   const toDateTimeLocal = (value?: string | null): string => {
     if (!value) return '';
@@ -183,9 +136,6 @@ export const AdminShiftPage: React.FC = () => {
       counterName: shift.counterName || '',
       startTime: toDateTimeLocal(shift.startTime),
       endTime: toDateTimeLocal(shift.endTime),
-      startingCash: String(shift.startingCash ?? 0),
-      countedCash: shift.countedCash === null || shift.countedCash === undefined ? '' : String(shift.countedCash),
-      ticketsSold: String(shift.ticketsSold ?? shift.liveTotals?.ticketsSold ?? 0),
       status: shift.status,
     });
     setDeleteConfirmId(null);
@@ -212,11 +162,8 @@ export const AdminShiftPage: React.FC = () => {
         counterName: editForm.counterName,
         startTime: editForm.startTime,
         endTime: editForm.endTime || undefined,
-        startingCash: Number(editForm.startingCash),
-        ticketsSold: Number(editForm.ticketsSold),
         status: editForm.status,
       };
-      if (editForm.countedCash !== '') body.countedCash = Number(editForm.countedCash);
       const res = await safeFetch<{ success: boolean; shift?: CounterShift; error?: string }>(
         `/api/admin/shifts/${editingShift.shiftId}`,
         { method: 'PUT', headers, body: JSON.stringify(body) }
@@ -275,7 +222,6 @@ export const AdminShiftPage: React.FC = () => {
   });
 
   const openShifts = shifts.filter(s => s.status === 'open');
-  const totalOpenCash = openShifts.reduce((sum, s) => sum + (s.liveTotals?.expectedCash || 0) + s.startingCash, 0);
   const operatorOptions = counterOptions.flatMap((counter) =>
     (Object.entries(counter.subUsers || {}) as Array<[string, { id?: string; name?: string; status?: string }]>).filter(([, subUser]) => subUser.status !== 'inactive')
       .map(([key, subUser]) => ({
@@ -299,7 +245,7 @@ export const AdminShiftPage: React.FC = () => {
             <span>Counter Shift Management</span>
           </h1>
           <p className="text-gray-400 text-xs md:text-sm mt-1">
-            Monitor active terminals, reconcile cash drawers, and audit staff shift history.
+            Monitor active terminals and audit staff shift history.
           </p>
         </div>
 
@@ -312,39 +258,15 @@ export const AdminShiftPage: React.FC = () => {
         </button>
       </div>
 
-      {/* KPI Overview */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-        <div className="p-6 rounded-3xl bg-[#141414] border border-white/10 space-y-2">
-          <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block text-center">Active Terminals</span>
-          <span className="font-heading font-extrabold text-4xl text-[#D4AF37] block text-center">
-            {openShifts.length}
-          </span>
-          <div className="flex justify-center">
-            <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 text-[10px] font-bold flex items-center gap-1">
-              <TrendingUp className="w-3 h-3" /> Live Sessions
-            </span>
-          </div>
+      {/* Simple session overview */}
+      <div className="p-6 rounded-3xl bg-[#141414] border border-white/10 flex items-center justify-between">
+        <div>
+          <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block">Active Terminals</span>
+          <span className="font-heading font-extrabold text-4xl text-[#D4AF37] block mt-1">{openShifts.length}</span>
         </div>
-
-        <div className="p-6 rounded-3xl bg-[#141414] border border-white/10 space-y-2">
-          <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block text-center">Est. Cash in Drawers</span>
-          <span className="font-heading font-extrabold text-4xl text-white block text-center">
-            ₹{totalOpenCash.toLocaleString()}
-          </span>
-          <div className="flex justify-center">
-            <span className="text-xs text-gray-400 font-medium">Aggregate float + cash sales</span>
-          </div>
-        </div>
-
-        <div className="p-6 rounded-3xl bg-[#141414] border border-white/10 space-y-2">
-          <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block text-center">Shift Discrepancy</span>
-          <span className={`font-heading font-extrabold text-4xl block text-center ${shifts.some(s => (s.discrepancy || 0) !== 0) ? 'text-red-500' : 'text-emerald-500'}`}>
-            ₹{shifts.reduce((sum, s) => sum + (s.discrepancy || 0), 0).toLocaleString()}
-          </span>
-          <div className="flex justify-center">
-            <span className="text-xs text-gray-400 font-medium">Net over/short for all history</span>
-          </div>
-        </div>
+        <span className="px-3 py-1.5 rounded-full bg-emerald-500/10 text-emerald-400 text-[10px] font-bold flex items-center gap-1 border border-emerald-500/20">
+          <TrendingUp className="w-3 h-3" /> Live sessions
+        </span>
       </div>
 
       {/* Search & Filters */}
@@ -376,7 +298,7 @@ export const AdminShiftPage: React.FC = () => {
             onClick={() => setStatusFilter('closed')}
             className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${statusFilter === 'closed' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white'}`}
           >
-            Reconciled
+            Closed
           </button>
         </div>
       </div>
@@ -389,8 +311,6 @@ export const AdminShiftPage: React.FC = () => {
               <tr className="bg-white/5 border-b border-white/10">
                 <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Operator & Counter</th>
                 <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Duration</th>
-                <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest text-right">Float/Sales</th>
-                <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest text-right">Discrepancy</th>
                 <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Status</th>
                 <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest text-center">Actions</th>
               </tr>
@@ -424,21 +344,6 @@ export const AdminShiftPage: React.FC = () => {
                           {s.endTime ? ` — ${new Date(s.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ' (Active)'}
                         </p>
                       </div>
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="space-y-0.5">
-                        <p className="text-xs text-white font-bold">₹{(s.status === 'open' ? (s.liveTotals?.totalSales || 0) : (s.totalSales || 0)).toLocaleString()}</p>
-                        <p className="text-[10px] text-gray-500">Float: ₹{s.startingCash}</p>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      {s.status === 'closed' ? (
-                        <span className={`text-xs font-bold ${(s.discrepancy || 0) === 0 ? 'text-emerald-500' : (s.discrepancy || 0) > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                          {(s.discrepancy || 0) > 0 ? '+' : ''}{s.discrepancy?.toLocaleString()}
-                        </span>
-                      ) : (
-                        <span className="text-[10px] text-gray-500 italic">Unreconciled</span>
-                      )}
                     </td>
                     <td className="px-6 py-4">
                       {s.status === 'open' ? (
@@ -489,7 +394,7 @@ export const AdminShiftPage: React.FC = () => {
                 ))
               ) : (
                 <tr>
-                  <td colSpan={6} className="px-6 py-20 text-center">
+                  <td colSpan={4} className="px-6 py-20 text-center">
                     <div className="flex flex-col items-center gap-3 text-gray-500">
                       <History className="w-12 h-12 opacity-20" />
                       <p className="text-sm">No shift records match your search.</p>
@@ -589,42 +494,6 @@ export const AdminShiftPage: React.FC = () => {
                 />
               </label>
               <label className="space-y-1.5">
-                <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Starting Float (₹)</span>
-                <input
-                  required
-                  min="0"
-                  step="0.01"
-                  type="number"
-                  value={editForm.startingCash}
-                  onChange={(e) => setEditForm((current) => current ? { ...current, startingCash: e.target.value } : current)}
-                  className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-[#D4AF37]/50"
-                />
-              </label>
-              <label className="space-y-1.5">
-                <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Counted Cash (₹)</span>
-                <input
-                  min="0"
-                  step="0.01"
-                  type="number"
-                  placeholder="Leave blank to auto-reconcile"
-                  value={editForm.countedCash}
-                  onChange={(e) => setEditForm((current) => current ? { ...current, countedCash: e.target.value } : current)}
-                  className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-[#D4AF37]/50"
-                />
-              </label>
-              <label className="space-y-1.5">
-                <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Tickets Sold</span>
-                <input
-                  required
-                  min="0"
-                  step="1"
-                  type="number"
-                  value={editForm.ticketsSold}
-                  onChange={(e) => setEditForm((current) => current ? { ...current, ticketsSold: e.target.value } : current)}
-                  className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-[#D4AF37]/50"
-                />
-              </label>
-              <label className="space-y-1.5">
                 <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Status</span>
                 <select
                   value={editForm.status}
@@ -635,27 +504,6 @@ export const AdminShiftPage: React.FC = () => {
                   <option value="closed">Closed</option>
                 </select>
               </label>
-            </div>
-
-            <div className="mx-6 mb-6 grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="p-4 rounded-2xl bg-[#D4AF37]/10 border border-[#D4AF37]/20 flex items-center justify-between">
-                <div>
-                  <p className="text-[10px] font-bold text-[#D4AF37] uppercase tracking-widest">Tickets Sold</p>
-                  <p className="text-2xl font-heading font-extrabold text-white mt-1">
-                    {editingShift.ticketsSold ?? editingShift.liveTotals?.ticketsSold ?? 0}
-                  </p>
-                </div>
-                <Armchair className="w-6 h-6 text-[#D4AF37]" />
-              </div>
-              <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-between">
-                <div>
-                  <p className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest">Sales Amount</p>
-                  <p className="text-2xl font-heading font-extrabold text-white mt-1">
-                    ₹{(editingShift.status === 'open' ? (editingShift.liveTotals?.totalSales || 0) : (editingShift.totalSales || 0)).toLocaleString('en-IN')}
-                  </p>
-                </div>
-                <DollarSign className="w-6 h-6 text-emerald-400" />
-              </div>
             </div>
 
             <div className="p-6 border-t border-white/10 flex justify-end gap-3">
@@ -704,7 +552,7 @@ export const AdminShiftPage: React.FC = () => {
                   </div>
                   <div className="flex-1">
                     <p className="text-xs font-bold text-emerald-400">Active Session</p>
-                    <p className="text-[10px] text-emerald-400/70">This terminal is currently issuing tickets. Metrics are real-time.</p>
+                    <p className="text-[10px] text-emerald-400/70">This terminal is currently active.</p>
                   </div>
                 </div>
               ) : (
@@ -713,7 +561,7 @@ export const AdminShiftPage: React.FC = () => {
                     <CheckCircle2 className="w-5 h-5" />
                   </div>
                   <div className="flex-1">
-                    <p className="text-xs font-bold text-gray-300">Reconciled Session</p>
+                    <p className="text-xs font-bold text-gray-300">Closed Session</p>
                     <p className="text-[10px] text-gray-500">This shift was closed and audited on {new Date(selectedShift.endTime!).toLocaleString()}.</p>
                   </div>
                 </div>
@@ -733,105 +581,6 @@ export const AdminShiftPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* Financial Breakdown */}
-              <div className="space-y-4">
-                <h4 className="text-xs font-bold text-white uppercase tracking-widest flex items-center gap-2">
-                  <DollarSign className="w-4 h-4 text-[#D4AF37]" /> Financial Reconciliation
-                </h4>
-                
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                  {/* Left Column: Input/Expected */}
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-center p-3 rounded-xl bg-white/[0.02] border border-white/5">
-                      <span className="text-xs text-gray-400">Starting Float</span>
-                      <span className="text-sm font-bold text-white">₹{selectedShift.startingCash.toLocaleString()}</span>
-                    </div>
-                    <div className="flex justify-between items-center p-3 rounded-xl bg-white/[0.02] border border-white/5">
-                      <span className="text-xs text-gray-400">Cash Sales</span>
-                      <span className="text-sm font-bold text-emerald-400">
-                        +₹{(selectedShift.status === 'open' ? (selectedShift.liveTotals?.expectedCash || 0) : (selectedShift.expectedCash || 0)).toLocaleString()}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center p-3 rounded-xl bg-white/5 border border-white/10">
-                      <span className="text-xs font-bold text-white">Expected Total</span>
-                      <span className="text-sm font-black text-white">
-                        ₹{(selectedShift.startingCash + (selectedShift.status === 'open' ? (selectedShift.liveTotals?.expectedCash || 0) : (selectedShift.expectedCash || 0))).toLocaleString()}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Right Column: Actual/Result */}
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-center p-3 rounded-xl bg-white/[0.02] border border-white/5">
-                      <span className="text-xs text-gray-400">Counted Cash</span>
-                      <span className="text-sm font-bold text-white">
-                        {selectedShift.status === 'open' ? '—' : `₹${selectedShift.countedCash?.toLocaleString()}`}
-                      </span>
-                    </div>
-                    <div className={`flex justify-between items-center p-3 rounded-xl border ${selectedShift.status === 'open' ? 'bg-white/[0.02] border-white/5' : (selectedShift.discrepancy || 0) === 0 ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-red-500/5 border-red-500/20'}`}>
-                      <span className="text-xs text-gray-400">Discrepancy</span>
-                      <span className={`text-sm font-black ${selectedShift.status === 'open' ? 'text-gray-500' : (selectedShift.discrepancy || 0) === 0 ? 'text-emerald-500' : 'text-red-500'}`}>
-                        {selectedShift.status === 'open' ? 'Pending' : `${(selectedShift.discrepancy || 0) > 0 ? '+' : ''}${selectedShift.discrepancy?.toLocaleString()}`}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Payment Methods Breakdown */}
-              <div className="space-y-4">
-                <h4 className="text-xs font-bold text-white uppercase tracking-widest flex items-center gap-2">
-                  <TrendingUp className="w-4 h-4 text-purple-400" /> Revenue by Channel
-                </h4>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  {Object.entries(selectedShift.status === 'open' ? (selectedShift.liveTotals?.byMethod || {}) : (selectedShift.byMethod || {})).map(([method, amount]) => (
-                    <div key={method} className="p-3 rounded-2xl bg-white/5 border border-white/5 text-center">
-                      <span className="text-[9px] font-bold text-gray-500 uppercase tracking-widest block">{method}</span>
-                      <span className="text-sm font-bold text-white">₹{amount.toLocaleString()}</span>
-                    </div>
-                  ))}
-                  {Object.keys(selectedShift.status === 'open' ? (selectedShift.liveTotals?.byMethod || {}) : (selectedShift.byMethod || {})).length === 0 && (
-                    <div className="col-span-full p-4 text-center text-[10px] text-gray-500 italic">
-                      No sales recorded for this shift yet.
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Admin Force-Close Control */}
-              {selectedShift.status === 'open' && (
-                <div className="pt-6 border-t border-white/10 space-y-4">
-                  <div className="flex items-center gap-2 text-amber-500">
-                    <AlertTriangle className="w-4 h-4" />
-                    <h4 className="text-xs font-bold uppercase tracking-widest">Administrative Control</h4>
-                  </div>
-                  <div className="p-6 rounded-[24px] bg-amber-500/5 border border-amber-500/20 space-y-4">
-                    <p className="text-xs text-gray-400 leading-relaxed">
-                      You are about to force-close this active terminal shift. This should only be done if the staff member forgot to end their shift or in case of terminal failure.
-                    </p>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest ml-1">Reconciled Cash Amount (₹)</label>
-                      <div className="flex gap-2">
-                        <input
-                          type="number"
-                          placeholder="Enter final cash count..."
-                          value={closeCountedCash}
-                          onChange={(e) => setCloseCountedCash(e.target.value === '' ? '' : Number(e.target.value))}
-                          className="flex-1 bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-amber-500/50"
-                        />
-                        <button
-                          onClick={handleEndShift}
-                          disabled={isClosingShift || closeCountedCash === ''}
-                          className="px-6 rounded-xl bg-amber-500 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed text-black font-bold text-xs transition-all flex items-center gap-2"
-                        >
-                          {isClosingShift ? <RefreshCw className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
-                          <span>Force Close</span>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
 
             {/* Modal Footer */}
