@@ -30,13 +30,34 @@ interface ShiftLiveTotals {
   cashSalesCount: number;
   totalSales: number;
   byMethod: Record<string, number>;
+  ticketsSold?: number;
 }
 
 type CounterShift = CounterShiftRecord;
 
+type AdminCounterOption = {
+  id: string;
+  name: string;
+  status: 'active' | 'inactive';
+  subUsers?: Record<string, { id?: string; name?: string; status?: string }>;
+};
+
+type ReassignmentCandidate = {
+  ticketId: string;
+  ticketNumber?: string | null;
+  attendeeName?: string;
+  quantity: number;
+  issuedBy?: string;
+  shiftId?: string | null;
+  counterName?: string | null;
+  amount: number;
+  createdAt?: string | null;
+};
+
 type ShiftEditForm = {
-  staffName: string;
+  subUserId: string;
   subUserName: string;
+  counterId: string;
   counterName: string;
   startTime: string;
   endTime: string;
@@ -59,6 +80,12 @@ export const AdminShiftPage: React.FC = () => {
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [isDeletingShift, setIsDeletingShift] = useState(false);
+  const [counterOptions, setCounterOptions] = useState<AdminCounterOption[]>([]);
+  const [reassignmentCandidates, setReassignmentCandidates] = useState<ReassignmentCandidate[]>([]);
+  const [candidateSearch, setCandidateSearch] = useState('');
+  const [selectedTicketIds, setSelectedTicketIds] = useState<string[]>([]);
+  const [isLoadingCandidates, setIsLoadingCandidates] = useState(false);
+  const [isReassigning, setIsReassigning] = useState(false);
 
   const loadShifts = useCallback(async () => {
     try {
@@ -90,6 +117,53 @@ export const AdminShiftPage: React.FC = () => {
   useEffect(() => {
     loadShifts();
   }, [loadShifts]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadCounterOptions = async () => {
+      try {
+        const res = await safeFetch<{ success: boolean; counters?: AdminCounterOption[]; error?: string }>(
+          '/api/admin/counters',
+          { headers: await authenticatedApiHeaders() }
+        );
+        if (!cancelled && res.ok && res.data?.success) {
+          setCounterOptions((res.data.counters || []).filter((counter) => counter.status === 'active'));
+        }
+      } catch {
+        // Dropdowns are best-effort; the existing shift values remain editable.
+      }
+    };
+    void loadCounterOptions();
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadCandidates = async () => {
+      if (!editingShift) {
+        setReassignmentCandidates([]);
+        setSelectedTicketIds([]);
+        return;
+      }
+      try {
+        setIsLoadingCandidates(true);
+        const query = candidateSearch.trim() ? `?search=${encodeURIComponent(candidateSearch.trim())}` : '';
+        const res = await safeFetch<{ success: boolean; candidates?: ReassignmentCandidate[]; error?: string }>(
+          `/api/admin/shifts/${editingShift.shiftId}/reassignment-candidates${query}`,
+          { headers: await authenticatedApiHeaders() }
+        );
+        if (!cancelled && res.ok && res.data?.success) {
+          setReassignmentCandidates(res.data.candidates || []);
+        }
+      } catch {
+        if (!cancelled) setReassignmentCandidates([]);
+      } finally {
+        if (!cancelled) setIsLoadingCandidates(false);
+      }
+    };
+    void loadCandidates();
+    return () => { cancelled = true; };
+  }, [editingShift?.shiftId, candidateSearch]);
 
   // Keep active terminal totals current while the admin panel is open. The
   // selected detail view is synchronized in loadShifts so force-close actions
@@ -148,8 +222,9 @@ export const AdminShiftPage: React.FC = () => {
   const openEditModal = (shift: CounterShift) => {
     setEditingShift(shift);
     setEditForm({
-      staffName: shift.staffName || '',
-      subUserName: shift.subUserName || '',
+      subUserId: shift.subUserId || '',
+      subUserName: shift.subUserName || shift.staffName || '',
+      counterId: shift.counterId || '',
       counterName: shift.counterName || '',
       startTime: toDateTimeLocal(shift.startTime),
       endTime: toDateTimeLocal(shift.endTime),
@@ -158,6 +233,8 @@ export const AdminShiftPage: React.FC = () => {
       status: shift.status,
     });
     setDeleteConfirmId(null);
+    setCandidateSearch('');
+    setSelectedTicketIds([]);
   };
 
   const closeEditModal = () => {
@@ -173,8 +250,11 @@ export const AdminShiftPage: React.FC = () => {
       setIsSavingEdit(true);
       const headers = await authenticatedApiHeaders();
       const body: Record<string, unknown> = {
-        staffName: editForm.staffName,
+        // Keep the primary staff identity aligned with the selected operator.
+        staffName: editForm.subUserName,
+        subUserId: editForm.subUserId,
         subUserName: editForm.subUserName,
+        counterId: editForm.counterId,
         counterName: editForm.counterName,
         startTime: editForm.startTime,
         endTime: editForm.endTime || undefined,
@@ -192,12 +272,42 @@ export const AdminShiftPage: React.FC = () => {
       }
       setEditingShift(null);
       setEditForm(null);
-      setSelectedShift(res.data.shift || null);
       await loadShifts();
     } catch (err: any) {
       alert(err.message || 'Could not update shift.');
     } finally {
       setIsSavingEdit(false);
+    }
+  };
+
+  const handleReassignTickets = async () => {
+    if (!editingShift || selectedTicketIds.length === 0) return;
+    try {
+      setIsReassigning(true);
+      const headers = await authenticatedApiHeaders();
+      const res = await safeFetch<{ success: boolean; movedCount?: number; shifts?: Record<string, CounterShift>; error?: string }>(
+        `/api/admin/shifts/${editingShift.shiftId}/reassign-tickets`,
+        {
+          method: 'PUT',
+          headers,
+          body: JSON.stringify({ ticketIds: selectedTicketIds }),
+        }
+      );
+      if (!res.ok || !res.data?.success) {
+        alert(res.data?.error || res.error || 'Could not reassign tickets.');
+        return;
+      }
+      const updated = res.data.shifts?.[editingShift.shiftId];
+      if (updated) {
+        setEditingShift(updated);
+        setSelectedShift((current) => current?.shiftId === updated.shiftId ? updated : current);
+      }
+      setSelectedTicketIds([]);
+      await loadShifts();
+    } catch (err: any) {
+      alert(err.message || 'Could not reassign tickets.');
+    } finally {
+      setIsReassigning(false);
     }
   };
 
@@ -242,6 +352,15 @@ export const AdminShiftPage: React.FC = () => {
 
   const openShifts = shifts.filter(s => s.status === 'open');
   const totalOpenCash = openShifts.reduce((sum, s) => sum + (s.liveTotals?.expectedCash || 0) + s.startingCash, 0);
+  const operatorOptions = counterOptions.flatMap((counter) =>
+    (Object.entries(counter.subUsers || {}) as Array<[string, { id?: string; name?: string; status?: string }]>).filter(([, subUser]) => subUser.status !== 'inactive')
+      .map(([key, subUser]) => ({
+        id: String(subUser.id || key),
+        name: String(subUser.name || 'Counter User'),
+        counterId: counter.id,
+        counterName: counter.name,
+      }))
+  );
 
   return (
     <div className="space-y-8 max-w-6xl mx-auto">
@@ -475,30 +594,56 @@ export const AdminShiftPage: React.FC = () => {
 
             <div className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-4 max-h-[70vh] overflow-y-auto">
               <label className="space-y-1.5">
-                <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Staff Name</span>
-                <input
+                <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Sub-User Operator</span>
+                <select
                   required
-                  value={editForm.staffName}
-                  onChange={(e) => setEditForm((current) => current ? { ...current, staffName: e.target.value } : current)}
+                  value={editForm.subUserId}
+                  onChange={(e) => {
+                    const selected = operatorOptions.find((option) => option.id === e.target.value);
+                    setEditForm((current) => current ? {
+                      ...current,
+                      subUserId: e.target.value,
+                      subUserName: selected?.name || current.subUserName,
+                      counterId: selected?.counterId || current.counterId,
+                      counterName: selected?.counterName || current.counterName,
+                    } : current);
+                  }}
                   className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-[#D4AF37]/50"
-                />
+                >
+                  <option value="">Select operator</option>
+                  {operatorOptions.map((option) => (
+                    <option key={`${option.counterId}-${option.id}`} value={option.id}>
+                      {option.name} — {option.counterName}
+                    </option>
+                  ))}
+                  {editForm.subUserId && !operatorOptions.some((option) => option.id === editForm.subUserId) && (
+                    <option value={editForm.subUserId}>{editForm.subUserName || 'Current operator'} — existing</option>
+                  )}
+                </select>
               </label>
               <label className="space-y-1.5">
-                <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Sub-User Name</span>
-                <input
-                  value={editForm.subUserName}
-                  onChange={(e) => setEditForm((current) => current ? { ...current, subUserName: e.target.value } : current)}
-                  className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-[#D4AF37]/50"
-                />
-              </label>
-              <label className="space-y-1.5 sm:col-span-2">
-                <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Counter Name</span>
-                <input
+                <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Counter</span>
+                <select
                   required
-                  value={editForm.counterName}
-                  onChange={(e) => setEditForm((current) => current ? { ...current, counterName: e.target.value } : current)}
+                  value={editForm.counterId}
+                  onChange={(e) => {
+                    const selected = counterOptions.find((counter) => counter.id === e.target.value);
+                    setEditForm((current) => current ? {
+                      ...current,
+                      counterId: e.target.value,
+                      counterName: selected?.name || current.counterName,
+                    } : current);
+                  }}
                   className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-[#D4AF37]/50"
-                />
+                >
+                  <option value="">Select counter</option>
+                  {counterOptions.map((counter) => (
+                    <option key={counter.id} value={counter.id}>{counter.name}</option>
+                  ))}
+                  {editForm.counterId && !counterOptions.some((counter) => counter.id === editForm.counterId) && (
+                    <option value={editForm.counterId}>{editForm.counterName || 'Current counter'} — existing</option>
+                  )}
+                </select>
               </label>
               <label className="space-y-1.5">
                 <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Start Time</span>
@@ -554,6 +699,68 @@ export const AdminShiftPage: React.FC = () => {
                   <option value="closed">Closed</option>
                 </select>
               </label>
+            </div>
+
+            <div className="mx-6 mb-6 p-4 rounded-2xl bg-[#D4AF37]/10 border border-[#D4AF37]/20 flex items-center justify-between">
+              <div>
+                <p className="text-[10px] font-bold text-[#D4AF37] uppercase tracking-widest">Tickets Sold</p>
+                <p className="text-2xl font-heading font-extrabold text-white mt-1">
+                  {editingShift.ticketsSold ?? editingShift.liveTotals?.ticketsSold ?? 0}
+                </p>
+              </div>
+              <Armchair className="w-6 h-6 text-[#D4AF37]" />
+            </div>
+
+            <div className="mx-6 mb-6 p-4 rounded-2xl bg-white/[0.03] border border-white/10 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h4 className="text-xs font-bold text-white uppercase tracking-widest">Re-assign Tickets</h4>
+                  <p className="text-[10px] text-gray-500 mt-1">Tickets from other shifts in this shift’s time window.</p>
+                </div>
+                <span className="text-[10px] text-gray-400">{selectedTicketIds.length} selected</span>
+              </div>
+              <input
+                type="search"
+                placeholder="Search ticket number, attendee, or operator..."
+                value={candidateSearch}
+                onChange={(e) => setCandidateSearch(e.target.value)}
+                className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-[#D4AF37]/50"
+              />
+              <div className="max-h-44 overflow-y-auto space-y-2 pr-1">
+                {isLoadingCandidates ? (
+                  <p className="text-[10px] text-gray-500 py-3 text-center">Loading candidate tickets...</p>
+                ) : reassignmentCandidates.length === 0 ? (
+                  <p className="text-[10px] text-gray-500 py-3 text-center">No other-shift tickets found in this time window.</p>
+                ) : reassignmentCandidates.map((candidate) => {
+                  const checked = selectedTicketIds.includes(candidate.ticketId);
+                  return (
+                    <label key={candidate.ticketId} className="flex items-center gap-3 p-2.5 rounded-xl bg-black/30 border border-white/5 hover:border-white/15 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => setSelectedTicketIds((current) => checked
+                          ? current.filter((id) => id !== candidate.ticketId)
+                          : [...current, candidate.ticketId]
+                        )}
+                        className="accent-[#D4AF37]"
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-xs font-bold text-white truncate">{candidate.ticketNumber || candidate.ticketId} · {candidate.attendeeName || 'Unnamed attendee'}</span>
+                        <span className="block text-[10px] text-gray-500 truncate">{candidate.issuedBy || 'Unknown'} · {candidate.quantity} ticket{candidate.quantity === 1 ? '' : 's'} · ₹{candidate.amount.toLocaleString()}</span>
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+              <button
+                type="button"
+                onClick={() => void handleReassignTickets()}
+                disabled={isReassigning || selectedTicketIds.length === 0}
+                className="w-full px-4 py-2.5 rounded-xl bg-blue-500 hover:bg-blue-400 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-xs flex items-center justify-center gap-2"
+              >
+                {isReassigning ? <RefreshCw className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />}
+                Assign to This Shift
+              </button>
             </div>
 
             <div className="p-6 border-t border-white/10 flex justify-end gap-3">

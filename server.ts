@@ -6193,11 +6193,12 @@ async function fetchCounterShifts(authToken: string | undefined, staffUid?: stri
 async function computeShiftCashTotals(
   authToken: string | undefined,
   shift: any
-): Promise<{ expectedCash: number; cashSalesCount: number; totalSales: number; byMethod: Record<string, number> }> {
+): Promise<{ expectedCash: number; cashSalesCount: number; totalSales: number; byMethod: Record<string, number>; ticketsSold: number }> {
   const byMethod: Record<string, number> = {};
   let expectedCash = 0;
   let cashSalesCount = 0;
   let totalSales = 0;
+  let ticketsSold = 0;
   const startMs = new Date(shift.startTime).getTime();
   const endMs = shift.endTime ? new Date(shift.endTime).getTime() : Date.now();
 
@@ -6221,7 +6222,11 @@ async function computeShiftCashTotals(
     for (const order of Object.values(ordersSnap.data as Record<string, any>)) {
       const o = (order || {}) as any;
       if (
-        (o.shiftId === shift.shiftId || o.staffShiftId === shift.shiftId || o.createdBy === shift.staffId || o.scannedByStaffId === shift.staffId) &&
+        // Explicit shift attribution wins. Only legacy orders without a
+        // shift ID fall back to the shared staff UID.
+        ((o.shiftId || o.staffShiftId)
+          ? (o.shiftId === shift.shiftId || o.staffShiftId === shift.shiftId)
+          : (o.createdBy === shift.staffId || o.scannedByStaffId === shift.staffId)) &&
         (o.channel === "counter" || String(o.paymentMethod || "").startsWith("walkin")) &&
         o.createdAt &&
         new Date(o.createdAt).getTime() >= startMs &&
@@ -6229,6 +6234,7 @@ async function computeShiftCashTotals(
         o.status === "confirmed"
       ) {
         addSale(o);
+        ticketsSold += Math.max(1, Number(o.quantity) || 1);
       }
     }
   }
@@ -6242,7 +6248,7 @@ async function computeShiftCashTotals(
       }
     }
   }
-  return { expectedCash, cashSalesCount, totalSales, byMethod };
+  return { expectedCash, cashSalesCount, totalSales, byMethod, ticketsSold };
 }
 
 // --- Counter endpoints ---
@@ -6384,6 +6390,7 @@ app.post("/api/counter/shifts/:shiftId/end", requireRole(["counter_staff", "even
       cashSalesCount: totals.cashSalesCount,
       totalSales: totals.totalSales,
       byMethod: totals.byMethod,
+      ticketsSold: totals.ticketsSold,
       closedBy: actorUid,
       autoReconciled: !hasManualCount,
     };
@@ -6418,7 +6425,7 @@ app.get("/api/counter/shifts", requireRole(["counter_staff", "auditor", "event_m
       Object.values(shifts).map(async (s: any) => {
         if (s.status === "open") {
           const liveTotals = await computeShiftCashTotals(adminToken, s).catch(() => null);
-          return { ...s, liveTotals };
+          return { ...s, liveTotals, ticketsSold: liveTotals?.ticketsSold ?? s.ticketsSold ?? 0 };
         }
         return s;
       })
@@ -6449,6 +6456,13 @@ app.put("/api/admin/shifts/:shiftId", requireRole(["event_manager", "super_admin
         const value = String(body[field] || "").trim();
         if (value.length > 120) return res.status(400).json({ success: false, error: `${field} is too long.` });
         updates[field] = value;
+      }
+    }
+    for (const field of ["subUserId", "counterId"] as const) {
+      if (body[field] !== undefined) {
+        const value = String(body[field] || "").trim();
+        if (value.length > 120) return res.status(400).json({ success: false, error: `${field} is too long.` });
+        updates[field] = value || null;
       }
     }
 
@@ -6506,10 +6520,19 @@ app.put("/api/admin/shifts/:shiftId", requireRole(["event_manager", "super_admin
       updates.cashSalesCount = totals.cashSalesCount;
       updates.totalSales = totals.totalSales;
       updates.byMethod = totals.byMethod;
+      updates.ticketsSold = totals.ticketsSold;
       updates.countedCash = countedCash;
       updates.discrepancy = Math.round((countedCash - expectedDrawer) * 100) / 100;
       updates.autoReconciled = !hasCountedCash;
       updates.closedBy = req.user.uid;
+    } else {
+      const totals = await computeShiftCashTotals(adminToken, mergedShift);
+      updates.expectedCash = totals.expectedCash;
+      updates.cashSalesCount = totals.cashSalesCount;
+      updates.totalSales = totals.totalSales;
+      updates.byMethod = totals.byMethod;
+      updates.ticketsSold = totals.ticketsSold;
+      updates.discrepancy = null;
     }
 
     await rtdbUpdate(`counter_shifts/${shiftId}`, updates, adminToken);
@@ -6589,8 +6612,181 @@ app.delete("/api/admin/shifts/:shiftId", requireRole(["event_manager", "super_ad
   }
 });
 
+const normalizeShiftTicket = (ticket: any, order: any, ticketId: string) => ({
+  ticketId,
+  ticketNumber: ticket?.ticketNumber || null,
+  attendeeName: ticket?.attendeeName || order?.customerDetails?.name || "",
+  quantity: Number(order?.quantity ?? ticket?.quantity ?? 1) || 1,
+  issuedBy: order?.issuedBySubUserName || ticket?.issuedBySubUserName || order?.createdBy || "Unknown",
+  shiftId: order?.shiftId || order?.staffShiftId || ticket?.shiftId || ticket?.staffShiftId || null,
+  counterName: order?.counterName || ticket?.counterName || null,
+  amount: Number(order?.amount ?? ticket?.totalPaid ?? 0) || 0,
+  createdAt: order?.createdAt || ticket?.purchasedAt || ticket?.createdAt || null,
+});
+
+async function refreshAdminShiftMetrics(adminToken: string, shift: any): Promise<any> {
+  const totals = await computeShiftCashTotals(adminToken, shift);
+  const expectedDrawer = Number(shift.startingCash || 0) + totals.expectedCash;
+  const countedCash = shift.countedCash === undefined || shift.countedCash === null
+    ? null
+    : Number(shift.countedCash);
+  const update = {
+    expectedCash: totals.expectedCash,
+    cashSalesCount: totals.cashSalesCount,
+    totalSales: totals.totalSales,
+    byMethod: totals.byMethod,
+    ticketsSold: totals.ticketsSold,
+    discrepancy: shift.status === "closed" && countedCash !== null
+      ? Math.round((countedCash - expectedDrawer) * 100) / 100
+      : null,
+  };
+  await rtdbUpdate(`counter_shifts/${shift.shiftId}`, update, adminToken);
+  return { ...shift, ...update };
+}
+
+// Admin ticket candidates for correcting attribution within the target shift’s
+// time window. Only tickets from other shifts are returned.
+app.get("/api/admin/shifts/:shiftId/reassignment-candidates", requireRole(["event_manager", "super_admin"]), async (req: any, res: any) => {
+  try {
+    const { shiftId } = req.params;
+    const adminToken = (await getAdminAuthToken()) || req.user.idToken;
+    const target = (await rtdbGet(`counter_shifts/${shiftId}`, adminToken)).data as any;
+    if (!target) return res.status(404).json({ success: false, error: "Target shift not found." });
+
+    const [ticketsSnap, ordersSnap] = await Promise.all([
+      rtdbGet("tickets", adminToken),
+      rtdbGet("orders", adminToken),
+    ]);
+    const tickets = (ticketsSnap.data || {}) as Record<string, any>;
+    const orders = (ordersSnap.data || {}) as Record<string, any>;
+    const search = String(req.query?.search || "").trim().toLowerCase();
+    const startMs = new Date(target.startTime).getTime();
+    const endMs = target.endTime ? new Date(target.endTime).getTime() : Date.now();
+    const candidates = Object.entries(tickets)
+      .map(([key, ticket]) => {
+        const ticketId = String(ticket?.id || key);
+        const order = ticket?.orderId ? orders[ticket.orderId] : Object.values(orders).find((item: any) => item?.ticketId === ticketId);
+        return normalizeShiftTicket(ticket, order, ticketId);
+      })
+      .filter((candidate: any) => {
+        const createdMs = new Date(candidate.createdAt || 0).getTime();
+        if (!candidate.shiftId || candidate.shiftId === shiftId) return false;
+        if (!Number.isFinite(createdMs) || createdMs < startMs || createdMs > endMs) return false;
+        if (search && ![candidate.ticketNumber, candidate.attendeeName, candidate.issuedBy, candidate.counterName]
+          .map(String).join(" ").toLowerCase().includes(search)) return false;
+        return true;
+      })
+      .sort((a: any, b: any) => String(b.createdAt).localeCompare(String(a.createdAt)))
+      .slice(0, 100);
+
+    return res.status(200).json({ success: true, candidates });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || "Could not load reassignment candidates." });
+  }
+});
+
+// Admin ticket reassignment. It updates ticket/order projections and both
+// source and target shift metrics while preserving the sales records.
+app.put("/api/admin/shifts/:shiftId/reassign-tickets", requireRole(["event_manager", "super_admin"]), async (req: any, res: any) => {
+  try {
+    const { shiftId } = req.params;
+    const adminToken = (await getAdminAuthToken()) || req.user.idToken;
+    const target = (await rtdbGet(`counter_shifts/${shiftId}`, adminToken)).data as any;
+    if (!target) return res.status(404).json({ success: false, error: "Target shift not found." });
+
+    const requestedIds: string[] = Array.isArray(req.body?.ticketIds)
+      ? Array.from(new Set<string>(req.body.ticketIds.map((ticketId: unknown) => String(ticketId)))).slice(0, 100)
+      : [];
+    const sourceShiftId = req.body?.sourceShiftId ? String(req.body.sourceShiftId) : "";
+    if (requestedIds.length === 0 && !sourceShiftId) {
+      return res.status(400).json({ success: false, error: "Select tickets or provide a source shift." });
+    }
+
+    const [ticketsSnap, ordersSnap, processedSnap, pendingSnap] = await Promise.all([
+      rtdbGet("tickets", adminToken),
+      rtdbGet("orders", adminToken),
+      rtdbGet("processed_orders", adminToken).catch(() => ({ data: null })),
+      rtdbGet("pending_orders", adminToken).catch(() => ({ data: null })),
+    ]);
+    const tickets = (ticketsSnap.data || {}) as Record<string, any>;
+    const orders = (ordersSnap.data || {}) as Record<string, any>;
+    const processedOrders = (processedSnap.data || {}) as Record<string, any>;
+    const pendingOrders = (pendingSnap.data || {}) as Record<string, any>;
+    const ordersByTicketId = new Map<string, { id: string; value: any }>();
+    for (const [id, order] of Object.entries(orders)) {
+      if (order?.ticketId) ordersByTicketId.set(String(order.ticketId), { id, value: order });
+    }
+
+    const selected: string[] = requestedIds.length > 0
+      ? requestedIds
+      : Object.entries(tickets).filter(([, ticket]) => {
+          const ticketId = String(ticket?.id || "");
+          const linked = ticket?.orderId ? orders[ticket.orderId] : ordersByTicketId.get(ticketId)?.value;
+          return (linked?.shiftId || linked?.staffShiftId || ticket?.shiftId || ticket?.staffShiftId) === sourceShiftId;
+        }).map(([key, ticket]) => String(ticket?.id || key)).slice(0, 100);
+
+    const moved: string[] = [];
+    const sourceShiftIds = new Set<string>();
+    for (const ticketId of selected) {
+      const ticketEntry = Object.entries(tickets).find(([key, value]) => String(value?.id || key) === ticketId);
+      if (!ticketEntry) continue;
+      const [ticketKey, ticket] = ticketEntry as [string, any];
+      const linkedOrder = ticket?.orderId ? orders[String(ticket.orderId)] : ordersByTicketId.get(ticketId)?.value;
+      const oldShiftId = String(linkedOrder?.shiftId || linkedOrder?.staffShiftId || ticket?.shiftId || ticket?.staffShiftId || "");
+      if (!oldShiftId || oldShiftId === shiftId || (sourceShiftId && oldShiftId !== sourceShiftId)) continue;
+      sourceShiftIds.add(oldShiftId);
+
+      const attribution = {
+        shiftId,
+        staffShiftId: shiftId,
+        counterId: target.counterId || null,
+        counterName: target.counterName || null,
+        issuedBySubUserId: target.subUserId || null,
+        issuedBySubUserName: target.subUserName || target.staffName || null,
+      };
+      await rtdbUpdate(`tickets/${ticketKey}`, attribution, adminToken);
+      if (linkedOrder) {
+        const orderEntry = Object.entries(orders).find(([, value]) => (value as any) === linkedOrder) || ordersByTicketId.get(ticketId);
+        if (orderEntry) await rtdbUpdate(`orders/${orderEntry[0]}`, attribution, adminToken);
+        const processedEntry = Object.entries(processedOrders).find(([, value]) => (value as any)?.orderId === linkedOrder.orderId);
+        if (processedEntry) await rtdbUpdate(`processed_orders/${processedEntry[0]}`, attribution, adminToken);
+        const pendingEntry = Object.entries(pendingOrders).find(([, value]) => (value as any)?.orderId === linkedOrder.orderId);
+        if (pendingEntry) await rtdbUpdate(`pending_orders/${pendingEntry[0]}`, attribution, adminToken);
+      }
+      console.info("[ADMIN_TICKET_REASSIGN]", {
+        adminEmail: req.user.email || "unknown",
+        ticketId,
+        oldShiftId,
+        newShiftId: shiftId,
+      });
+      await writeAuditEntry({
+        actorId: req.user.uid,
+        actorRole: req.user.rbacRole || "super_admin",
+        action: "ticket.admin_reassigned",
+        entityType: "ticket",
+        entityId: ticketId,
+        beforeState: { shiftId: oldShiftId },
+        afterState: { shiftId, counterId: target.counterId || null, subUserId: target.subUserId || null },
+      });
+      moved.push(ticketId);
+    }
+
+    const recalculated: Record<string, any> = {};
+    for (const affectedShiftId of [shiftId, ...Array.from(sourceShiftIds)]) {
+      const shift = affectedShiftId === shiftId
+        ? target
+        : (await rtdbGet(`counter_shifts/${affectedShiftId}`, adminToken).catch(() => ({ data: null }))).data as any;
+      if (shift) recalculated[affectedShiftId] = await refreshAdminShiftMetrics(adminToken, { ...shift, shiftId: affectedShiftId });
+    }
+    return res.status(200).json({ success: true, movedTicketIds: moved, movedCount: moved.length, shifts: recalculated });
+  } catch (err: any) {
+    console.error("[ADMIN_TICKET_REASSIGN] Failed:", err?.message || err);
+    return res.status(500).json({ success: false, error: err.message || "Could not reassign tickets." });
+  }
+});
+
 // Reprint ticket — reason field is mandatory; audited with reason in after_state.
-app.post("/api/counter/tickets/:ticketId/reprint", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
+app.post("/api/counter/tickets/:ticketId/reprint", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res: any) => {
   try {
     const { ticketId } = req.params;
     const { reason } = req.body || {};
@@ -7511,7 +7707,8 @@ app.get("/api/counter/list", requireRole(["counter_staff", "event_manager", "sup
 
 app.get("/api/admin/counters", requireRole(["event_manager", "super_admin"]), async (req: any, res) => {
   try {
-    const snap = await rtdbGet("counters", await getAdminAuthToken());
+    const authToken = (await getAdminAuthToken()) || req.user.idToken;
+    const snap = await rtdbGet("counters", authToken);
     const nodes = (snap.data || {}) as Record<string, any>;
     const counters = Object.entries(nodes).map(([id, c]) => ({
       id,

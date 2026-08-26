@@ -255,6 +255,7 @@ export interface CounterShiftLiveTotals {
   cashSalesCount: number;
   totalSales: number;
   byMethod: Record<string, number>;
+  ticketsSold?: number;
 }
 
 export interface CounterShiftRecord {
@@ -274,6 +275,7 @@ export interface CounterShiftRecord {
   discrepancy?: number | null;
   cashSalesCount?: number;
   totalSales?: number;
+  ticketsSold?: number;
   byMethod?: Record<string, number>;
   autoReconciled?: boolean;
   status: 'open' | 'closed';
