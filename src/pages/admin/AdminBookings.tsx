@@ -12,6 +12,7 @@ import {
   AlertCircle,
   CheckCircle2,
   MoreVertical,
+  Trash2,
 } from 'lucide-react';
 import { useBooking } from '../../contexts/BookingContext';
 import { safeFetch } from '../../lib/api';
@@ -161,7 +162,7 @@ export const AdminBookings: React.FC = () => {
       try {
         const headers = await authenticatedApiHeaders();
         const [counterRes, staffRes] = await Promise.all([
-          safeFetch<{ success: boolean; counters?: AdminCounterOption[] }>('/api/counter/list', { headers }),
+          safeFetch<{ success: boolean; counters?: AdminCounterOption[] }>('/api/admin/counters', { headers }),
           safeFetch<{ success: boolean; staff?: AdminStaffOption[] }>('/api/staff', { headers }),
         ]);
         if (cancelled) return;
@@ -201,6 +202,7 @@ export const AdminBookings: React.FC = () => {
   const [refundOrderTarget, setRefundOrderTarget] = useState<AdminOrder | null>(null);
   const [detailsOrder, setDetailsOrder] = useState<AdminOrder | null>(null);
   const [resendingTicketId, setResendingTicketId] = useState<string | null>(null);
+  const [deletingTicketId, setDeletingTicketId] = useState<string | null>(null);
 
   // Feedback
   const [banner, setBanner] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -520,18 +522,21 @@ export const AdminBookings: React.FC = () => {
 
   const issuerOptions = useMemo(() => {
     const values: string[] = ['Main staff'];
-    const selectedCounter = counterOptions.find((counter) => normalizeText(counter.name) === normalizeText(edCounterName));
 
-    const assignedSubUsers = Object.values(selectedCounter?.subUsers || {}) as Array<{ id?: string; name?: string; status?: string }>;
-    assignedSubUsers.forEach((subUser) => {
-      const name = normalizeText(subUser?.name);
-      if (isMeaningfulPersonLabel(name) && subUser?.status !== 'inactive') values.push(name);
-    });
+    // The issuer selector is intentionally independent of the selected counter:
+    // an admin may correct a ticket issued at any counter or by any sub-user.
+    counterOptions.forEach((counter) => {
+      const assignedSubUsers = Object.values(counter.subUsers || {}) as Array<{ id?: string; name?: string; status?: string }>;
+      assignedSubUsers.forEach((subUser) => {
+        const name = normalizeText(subUser?.name);
+        if (isMeaningfulPersonLabel(name) && subUser?.status !== 'inactive') values.push(name);
+      });
 
-    (selectedCounter?.assignedStaffIds || []).forEach((staffId) => {
-      const staff = staffOptions.find((member) => normalizeText(member.id || member.uid) === normalizeText(staffId));
-      const name = normalizeText(staff?.name || staff?.displayName || staff?.email);
-      if (isMeaningfulPersonLabel(name) && staff?.status !== 'suspended') values.push(name);
+      (counter.assignedStaffIds || []).forEach((staffId) => {
+        const staff = staffOptions.find((member) => normalizeText(member.id || member.uid) === normalizeText(staffId));
+        const name = normalizeText(staff?.name || staff?.displayName || staff?.email);
+        if (isMeaningfulPersonLabel(name) && staff?.status !== 'suspended') values.push(name);
+      });
     });
 
     const existingIssuer = normalizeText(edIssuer);
@@ -604,6 +609,38 @@ export const AdminBookings: React.FC = () => {
       setEdErrorMessage('Updating the order failed. Please try again.');
     } finally {
       setEdSubmitting(false);
+    }
+  };
+
+  const handleDeleteTicket = async (order: AdminOrder) => {
+    const ticketId = normalizeText(order.ticketId);
+    if (!ticketId) {
+      showBanner('error', 'This attendee record has no live ticket ID to delete.');
+      return;
+    }
+    if (!window.confirm(`Delete ticket ${order.ticketNumber || ticketId} from active ticket views? The order and payment history will be preserved.`)) return;
+    try {
+      setDeletingTicketId(ticketId);
+      const res = await safeFetch<{ success: boolean; error?: string }>(
+        `/api/admin/tickets/${encodeURIComponent(ticketId)}`,
+        { method: 'DELETE', headers: await authenticatedApiHeaders() }
+      );
+      if (!res.ok || !res.data?.success) {
+        showBanner('error', res.data?.error || res.error || 'Could not delete ticket.');
+        return;
+      }
+      showBanner('success', 'Ticket removed from active attendee views. Sales history was preserved.');
+      setDetailsOrder(null);
+      setSelectedIds((current) => {
+        const next = new Set(current);
+        next.delete(order.id);
+        return next;
+      });
+      await loadOrders();
+    } catch {
+      showBanner('error', 'Could not delete ticket. Please try again.');
+    } finally {
+      setDeletingTicketId(null);
     }
   };
 
@@ -1416,6 +1453,16 @@ export const AdminBookings: React.FC = () => {
             >
               {resendingTicketId === detailsOrder.ticketId ? 'Sending WhatsApp message…' : 'Resend WhatsApp message'}
             </button>
+
+            <button
+              type="button"
+              onClick={() => void handleDeleteTicket(detailsOrder)}
+              disabled={deletingTicketId === detailsOrder.ticketId}
+              className="w-full px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 font-bold text-xs hover:bg-red-500/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+            >
+              {deletingTicketId === detailsOrder.ticketId ? 'Deleting ticket…' : 'Delete ticket from active views'}
+            </button>
+            <p className="text-[10px] text-gray-500 text-center">Deleting hides the ticket from active attendee views; the order and payment history remain preserved.</p>
 
             <details className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-gray-400">
               <summary className="cursor-pointer text-gray-300 font-bold">System references</summary>

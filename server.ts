@@ -6498,6 +6498,15 @@ app.put("/api/admin/shifts/:shiftId", requireRole(["event_manager", "super_admin
       }
       updates[field] = value;
     }
+    let manualTicketsSold: number | undefined;
+    if (body.ticketsSold !== undefined && body.ticketsSold !== "") {
+      const value = Number(body.ticketsSold);
+      if (!Number.isInteger(value) || value < 0 || value > 1000000) {
+        return res.status(400).json({ success: false, error: "Tickets sold must be a whole number from 0 to 1,000,000." });
+      }
+      manualTicketsSold = value;
+      updates.ticketsSold = value;
+    }
     if (requestedStatus === "open" && body.countedCash === undefined) {
       updates.countedCash = null;
       updates.expectedCash = null;
@@ -6520,7 +6529,7 @@ app.put("/api/admin/shifts/:shiftId", requireRole(["event_manager", "super_admin
       updates.cashSalesCount = totals.cashSalesCount;
       updates.totalSales = totals.totalSales;
       updates.byMethod = totals.byMethod;
-      updates.ticketsSold = totals.ticketsSold;
+      updates.ticketsSold = manualTicketsSold ?? totals.ticketsSold;
       updates.countedCash = countedCash;
       updates.discrepancy = Math.round((countedCash - expectedDrawer) * 100) / 100;
       updates.autoReconciled = !hasCountedCash;
@@ -6531,7 +6540,7 @@ app.put("/api/admin/shifts/:shiftId", requireRole(["event_manager", "super_admin
       updates.cashSalesCount = totals.cashSalesCount;
       updates.totalSales = totals.totalSales;
       updates.byMethod = totals.byMethod;
-      updates.ticketsSold = totals.ticketsSold;
+      updates.ticketsSold = manualTicketsSold ?? totals.ticketsSold;
       updates.discrepancy = null;
     }
 
@@ -7019,6 +7028,51 @@ app.get("/api/counter/my-sales", requireRole(["counter_staff", "event_manager", 
     });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Admin attendee-panel deletion: hide the ticket from active views while
+// preserving the order, payment, and audit history for financial records.
+app.delete("/api/admin/tickets/:ticketId", requireRole(["event_manager", "super_admin"]), async (req: any, res) => {
+  try {
+    const { ticketId } = req.params;
+    const adminToken = (await getAdminAuthToken()) || req.user.idToken;
+    const ticketSnap = await rtdbGet(`tickets/${ticketId}`, adminToken);
+    const ticket = ticketSnap.data as any;
+    if (!ticket) return res.status(404).json({ success: false, error: "Ticket not found." });
+    if (String(ticket.status || '').toLowerCase() === 'deleted') {
+      return res.status(200).json({ success: true, alreadyDeleted: true });
+    }
+
+    const before = JSON.parse(JSON.stringify(ticket));
+    const deletedTicket = {
+      ...ticket,
+      status: 'deleted',
+      deletedAt: new Date().toISOString(),
+      deletedBy: req.user.uid,
+    };
+    await rtdbSet(`tickets/${ticketId}`, deletedTicket, adminToken);
+    if (ticket.ownerId) {
+      await rtdbSet(`users/${ticket.ownerId}/tickets/${ticketId}`, deletedTicket, adminToken).catch(() => {});
+    }
+    console.info('[ADMIN_TICKET_DELETE]', {
+      adminEmail: req.user.email || 'unknown',
+      ticketId,
+      before,
+    });
+    await writeAuditEntry({
+      actorId: req.user.uid,
+      actorRole: req.user.rbacRole || 'super_admin',
+      action: 'ticket.admin_deleted',
+      entityType: 'ticket',
+      entityId: ticketId,
+      beforeState: before,
+      afterState: { status: 'deleted', salesHistoryPreserved: true },
+    });
+    return res.status(200).json({ success: true, ticket: deletedTicket, salesHistoryPreserved: true });
+  } catch (err: any) {
+    console.error('[ADMIN_TICKET_DELETE] Failed:', err?.message || err);
+    return res.status(500).json({ success: false, error: err.message || 'Could not delete ticket.' });
   }
 });
 

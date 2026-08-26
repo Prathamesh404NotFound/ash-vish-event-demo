@@ -50,6 +50,7 @@ type ShiftEditForm = {
   endTime: string;
   startingCash: string;
   countedCash: string;
+  ticketsSold: string;
   status: 'open' | 'closed';
 };
 
@@ -184,6 +185,7 @@ export const AdminShiftPage: React.FC = () => {
       endTime: toDateTimeLocal(shift.endTime),
       startingCash: String(shift.startingCash ?? 0),
       countedCash: shift.countedCash === null || shift.countedCash === undefined ? '' : String(shift.countedCash),
+      ticketsSold: String(shift.ticketsSold ?? shift.liveTotals?.ticketsSold ?? 0),
       status: shift.status,
     });
     setDeleteConfirmId(null);
@@ -211,6 +213,7 @@ export const AdminShiftPage: React.FC = () => {
         startTime: editForm.startTime,
         endTime: editForm.endTime || undefined,
         startingCash: Number(editForm.startingCash),
+        ticketsSold: Number(editForm.ticketsSold),
         status: editForm.status,
       };
       if (editForm.countedCash !== '') body.countedCash = Number(editForm.countedCash);
@@ -609,7 +612,19 @@ export const AdminShiftPage: React.FC = () => {
                   className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-[#D4AF37]/50"
                 />
               </label>
-              <label className="space-y-1.5 sm:col-span-2">
+              <label className="space-y-1.5">
+                <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Tickets Sold</span>
+                <input
+                  required
+                  min="0"
+                  step="1"
+                  type="number"
+                  value={editForm.ticketsSold}
+                  onChange={(e) => setEditForm((current) => current ? { ...current, ticketsSold: e.target.value } : current)}
+                  className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-[#D4AF37]/50"
+                />
+              </label>
+              <label className="space-y-1.5">
                 <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Status</span>
                 <select
                   value={editForm.status}
@@ -622,14 +637,25 @@ export const AdminShiftPage: React.FC = () => {
               </label>
             </div>
 
-            <div className="mx-6 mb-6 p-4 rounded-2xl bg-[#D4AF37]/10 border border-[#D4AF37]/20 flex items-center justify-between">
-              <div>
-                <p className="text-[10px] font-bold text-[#D4AF37] uppercase tracking-widest">Tickets Sold</p>
-                <p className="text-2xl font-heading font-extrabold text-white mt-1">
-                  {editingShift.ticketsSold ?? editingShift.liveTotals?.ticketsSold ?? 0}
-                </p>
+            <div className="mx-6 mb-6 grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="p-4 rounded-2xl bg-[#D4AF37]/10 border border-[#D4AF37]/20 flex items-center justify-between">
+                <div>
+                  <p className="text-[10px] font-bold text-[#D4AF37] uppercase tracking-widest">Tickets Sold</p>
+                  <p className="text-2xl font-heading font-extrabold text-white mt-1">
+                    {editingShift.ticketsSold ?? editingShift.liveTotals?.ticketsSold ?? 0}
+                  </p>
+                </div>
+                <Armchair className="w-6 h-6 text-[#D4AF37]" />
               </div>
-              <Armchair className="w-6 h-6 text-[#D4AF37]" />
+              <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-between">
+                <div>
+                  <p className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest">Sales Amount</p>
+                  <p className="text-2xl font-heading font-extrabold text-white mt-1">
+                    ₹{(editingShift.status === 'open' ? (editingShift.liveTotals?.totalSales || 0) : (editingShift.totalSales || 0)).toLocaleString('en-IN')}
+                  </p>
+                </div>
+                <DollarSign className="w-6 h-6 text-emerald-400" />
+              </div>
             </div>
 
             <div className="p-6 border-t border-white/10 flex justify-end gap-3">
