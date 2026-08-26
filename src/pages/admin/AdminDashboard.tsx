@@ -9,7 +9,7 @@ interface ReportData {
   revenueByDate: { date: string; revenue: number; orders: number }[];
   attendanceVsCapacity: { eventId: string; title: string; capacity: number; sold: number; checkedIn: number }[];
   channels: Record<string, number>;
-  bySubUser?: Record<string, { tickets: number; amount: number }>;
+  bySubUser?: Record<string, { tickets: number; amount: number } | number>;
 }
 
 export const AdminDashboard: React.FC = () => {
@@ -237,13 +237,17 @@ export const AdminDashboard: React.FC = () => {
         </div>
         {report?.bySubUser && Object.keys(report.bySubUser).length > 0 ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {Object.entries(report.bySubUser).map(([name, metrics]) => (
-              <div key={name} className="p-4 rounded-2xl bg-[#1C1C1C] border border-white/5 space-y-1">
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{name}</p>
-                <p className="text-xl font-black text-[#D4AF37]">{metrics.tickets} ticket{metrics.tickets === 1 ? '' : 's'}</p>
-                <p className="text-xs text-gray-300">Sales: ₹{metrics.amount.toLocaleString()}</p>
-              </div>
-            ))}
+            {Object.entries(report.bySubUser as Record<string, { tickets: number; amount: number } | number>).map(([name, metrics]) => {
+              const ticketCount = typeof metrics === 'number' ? 0 : Number(metrics.tickets || 0);
+              const salesAmount = typeof metrics === 'number' ? metrics : Number(metrics.amount || 0);
+              return (
+                <div key={name} className="p-4 rounded-2xl bg-[#1C1C1C] border border-white/5 space-y-1">
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{name}</p>
+                  <p className="text-xl font-black text-[#D4AF37]">{ticketCount} ticket{ticketCount === 1 ? '' : 's'}</p>
+                  <p className="text-xs text-gray-300">Sales: ₹{salesAmount.toLocaleString()}</p>
+                </div>
+              );
+            })}
           </div>
         ) : (
           <p className="text-xs text-gray-500 text-center py-6">No counter-issued attendee tickets found.</p>
