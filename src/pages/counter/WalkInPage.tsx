@@ -33,7 +33,7 @@ import { useNavigate } from 'react-router-dom';
 import { useBooking } from '../../contexts/BookingContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { Ticket as TicketType } from '../../types';
-import { clearStoredActiveShift, readActiveCounterId, readStoredActiveShift, writeStoredActiveShift } from '../../lib/counterSession';
+import { clearStoredActiveShift, readActiveCounterId, readPreferredStoredActiveShift, writeStoredActiveShift } from '../../lib/counterSession';
 import { SeatMap } from '../../components/SeatMap';
 import { sendTicketToWhatsApp } from '../../utils/whatsapp';
 import { passUrl } from '../../utils/passLink';
@@ -171,9 +171,19 @@ export const WalkInPage: React.FC = () => {
   const userRbac: string = (user as any)?.rbacRole || '';
   const isApprover = userRole === 'admin' || ['super_admin', 'event_manager'].includes(userRbac);
 
-  // Active staff shift attribution.
-  const [activeShiftId, setActiveShiftId] = useState<string | null>(null);
-  const [activeSubUser, setActiveSubUser] = useState<{ id: string; name: string } | null>(null);
+  // Active staff shift attribution. Initialize from device storage immediately
+  // so the operator identity is visible on the first render after PIN sign-in.
+  const [activeShiftId, setActiveShiftId] = useState<string | null>(() => {
+    const shift = readPreferredStoredActiveShift(readActiveCounterId());
+    return shift?.shiftId || null;
+  });
+  const [activeSubUser, setActiveSubUser] = useState<{ id: string; name: string } | null>(() => {
+    const shift = readPreferredStoredActiveShift(readActiveCounterId());
+    if (shift?.subUserId) {
+      return { id: shift.subUserId, name: shift.subUserName || shift.staffName || '' };
+    }
+    return null;
+  });
 
   const seatSearchInputRef = useRef<HTMLInputElement>(null);
   const confirmButtonRef = useRef<HTMLButtonElement>(null);
@@ -387,7 +397,7 @@ export const WalkInPage: React.FC = () => {
         if (cancelled || !res.ok) return;
         
                 const currentCounterId = selectedCounterId || '';
-        const localShift = currentCounterId ? readStoredActiveShift(currentCounterId) : null;
+        const localShift = currentCounterId ? readPreferredStoredActiveShift(currentCounterId) : null;
         const openShift = localShift?.shiftId
           ? (res.data?.shifts || []).find((shift: any) =>
               shift.status === 'open' &&

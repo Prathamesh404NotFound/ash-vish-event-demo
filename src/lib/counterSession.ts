@@ -8,6 +8,7 @@ export interface StoredCounterShift {
   counterId?: string;
   subUserId?: string;
   subUserName?: string;
+  staffName?: string;
   staffId?: string;
   status?: string;
 }
@@ -28,7 +29,14 @@ export const activeShiftStorageKey = (counterId?: string | null, subUserId?: str
 const readJson = (key: string): StoredCounterShift | null => {
   try {
     const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) as StoredCounterShift : null;
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as StoredCounterShift;
+    if (!parsed || typeof parsed !== 'object') return null;
+    return {
+      ...parsed,
+      // Older sessions used staffName for the PIN-selected operator.
+      subUserName: parsed.subUserName || parsed.staffName || '',
+    };
   } catch {
     return null;
   }
