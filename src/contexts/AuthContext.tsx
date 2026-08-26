@@ -46,10 +46,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isLoading, setIsLoading] = useState(true);
 
   // Legacy builds persisted a local demo profile and treated it as authenticated
-  // after refresh. Firebase is now the sole session authority.
+  // after refresh. Firebase is now the sole session authority. Keep the active
+  // counter shift because counter pages restore it from device-local storage.
   useEffect(() => {
     localStorage.removeItem('ash_vish_user_session');
-    clearAllStoredActiveShifts();
   }, []);
 
   // Sync profile from Realtime Database users/$uid and staff/$uid

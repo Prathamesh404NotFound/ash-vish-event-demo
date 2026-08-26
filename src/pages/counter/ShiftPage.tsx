@@ -123,21 +123,20 @@ export const ShiftPage: React.FC = () => {
         setShifts(list);
 
         const currentCounterId = selectedCounterId || '';
-        const currentStaffId = user?.uid || (user as any)?.id || '';
         const localShift = currentCounterId ? readStoredActiveShift(currentCounterId) : null;
-        const sameCounter = (shift: CounterShift) => Boolean(currentCounterId && shift.counterId === currentCounterId);
-        const belongsToCurrentStaff = (shift: CounterShift) =>
-          !shift.staffId || shift.staffId === currentStaffId || (user as any)?.rbacRole === 'super_admin';
 
-        // Never adopt another counter's session. Each counter has its own storage key.
-        let open = currentCounterId
-          ? list.find((s) => s.status === 'open' && sameCounter(s) && s.shiftId === localShift?.shiftId)
+        // A shared Firebase staff account may have several open sub-user shifts.
+        // Only the shift stored on this device may become active here.
+        const open = localShift?.shiftId
+          ? list.find((shift) =>
+              shift.status === 'open' &&
+              shift.counterId === currentCounterId &&
+              shift.shiftId === localShift.shiftId &&
+              (!localShift.subUserId || shift.subUserId === localShift.subUserId)
+            )
           : undefined;
-        if (!open && currentCounterId) {
-          open = list.find((s) => s.status === 'open' && sameCounter(s) && belongsToCurrentStaff(s));
-        }
         if (open) writeStoredActiveShift(open);
-        else if (currentCounterId) clearStoredActiveShift(currentCounterId);
+        else if (localShift) clearStoredActiveShift(localShift);
 
         setActiveShift(open || null);
       } else {
@@ -423,7 +422,7 @@ export const ShiftPage: React.FC = () => {
               </span>
               <h2 className="font-heading font-extrabold text-xl text-white mt-1">Who is operating this counter?</h2>
               <p className="text-gray-400 text-xs">
-                Select your assigned name and enter your private PIN. The system starts and tracks your session automatically.
+                Choose your name, enter your PIN, and start your own ticket session on this device.
               </p>
             </div>
           </div>
@@ -454,7 +453,6 @@ export const ShiftPage: React.FC = () => {
                   <div className="grid grid-cols-1 min-[420px]:grid-cols-2 lg:grid-cols-3 gap-3">
                     {assignedCounters.map((counter) => {
                       const isSelected = selectedCounterId === counter.id;
-                      const openForCounter = shifts.find((shift) => shift.status === 'open' && shift.counterId === counter.id);
                       return (
                         <button
                           key={counter.id}
@@ -472,9 +470,7 @@ export const ShiftPage: React.FC = () => {
                           }`}
                         >
                           <span className="block text-sm font-extrabold text-white">{counter.name}</span>
-                          <span className={`block text-[10px] mt-1 ${openForCounter ? 'text-emerald-400' : 'text-gray-400'}`}>
-                            {openForCounter ? `Active • ${openForCounter.subUserName || openForCounter.staffName}` : 'No active shift'}
-                          </span>
+                          <span className="block text-[10px] mt-1 text-gray-400">Assigned counter</span>
                         </button>
                       );
                     })}

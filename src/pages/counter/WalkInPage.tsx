@@ -388,16 +388,19 @@ export const WalkInPage: React.FC = () => {
         
                 const currentCounterId = selectedCounterId || '';
         const localShift = currentCounterId ? readStoredActiveShift(currentCounterId) : null;
-        const openShifts = (res.data?.shifts || []).filter((s: any) =>
-          s.status === 'open' && (!currentCounterId || s.counterId === currentCounterId)
-        );
-        // Never adopt another operator's shift. The device-local record is
-        // the complete Counter + Sub-user identity selected at sign-in.
-        const openShift = openShifts.find((s: any) => s.shiftId === localShift?.shiftId)
-          || (localShift?.status === 'open' ? localShift : null);
-        if (openShift) writeStoredActiveShift(openShift);
-        else if (currentCounterId) clearStoredActiveShift(currentCounterId);
+        const openShift = localShift?.shiftId
+          ? (res.data?.shifts || []).find((shift: any) =>
+              shift.status === 'open' &&
+              shift.counterId === currentCounterId &&
+              shift.shiftId === localShift.shiftId &&
+              (!localShift.subUserId || shift.subUserId === localShift.subUserId)
+            )
+          : null;
 
+        // The local record is the complete counter + sub-user identity for
+        // this device. Never fall back to another open shift on the account.
+        if (openShift) writeStoredActiveShift(openShift);
+        else if (localShift) clearStoredActiveShift(localShift);
 
         setActiveShiftId(openShift ? openShift.shiftId : null);
         if (openShift && openShift.subUserId) {
@@ -866,7 +869,7 @@ export const WalkInPage: React.FC = () => {
             <User className="w-5 h-5" />
           </div>
           <div>
-            <p className="text-[10px] uppercase tracking-wider font-bold text-gray-400">Current ticket operator</p>
+            <p className="text-[10px] uppercase tracking-wider font-bold text-gray-400">Operator for this device</p>
             <p className="text-base font-extrabold text-white">{activeSubUser?.name || 'No operator signed in'}</p>
             <p className="text-xs text-gray-400">Counter: <span className="text-[#D4AF37] font-semibold">{selectedCounter?.name || 'Not selected'}</span></p>
           </div>
