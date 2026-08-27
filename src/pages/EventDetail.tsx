@@ -141,48 +141,51 @@ export const EventDetail: React.FC<EventDetailProps> = ({
         </div>
       </div>
 
-      {/* Hero Cover Image Header */}
-      <div className="relative aspect-[4/5] sm:aspect-[2.5/1] w-full rounded-3xl overflow-hidden border border-white/10 bg-[#1C1C1C] shadow-2xl">
+      {/* Event Summary — kept outside the artwork so text never overlaps the banner */}
+      <section className="rounded-3xl bg-[#141414] border border-white/10 p-5 sm:p-7 shadow-xl">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
+          <div className="space-y-3 min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black">
+                {event.category}
+              </span>
+              {event.isAdvertiseOnly && (
+                <span className="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest bg-amber-500/10 text-amber-300 border border-amber-500/30">
+                  Counter Only
+                </span>
+              )}
+            </div>
+            <h1 className="font-heading font-extrabold text-3xl sm:text-5xl text-white leading-tight break-words">
+              {event.title}
+            </h1>
+            {event.subtitle && (
+              <p className="text-gray-300 text-sm sm:text-base leading-relaxed max-w-3xl">
+                {event.subtitle}
+              </p>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 px-4 py-3 rounded-2xl bg-[#1C1C1C] border border-amber-400/25 text-white text-sm font-bold shadow-lg w-fit shrink-0">
+            <Star className="w-5 h-5 fill-amber-400 text-amber-400" />
+            <span className="text-lg">{event.rating}</span>
+            <span className="text-gray-400 font-medium text-xs">({event.reviewsCount} reviews)</span>
+          </div>
+        </div>
+      </section>
+
+      {/* Hero Cover Image — artwork only, with no overlaid text */}
+      <div className="aspect-[4/5] sm:aspect-[2.5/1] w-full rounded-3xl overflow-hidden border border-white/10 bg-[#1C1C1C] shadow-2xl">
         {event.coverUrl || event.posterUrl ? (
         <img
           src={event.coverUrl || event.posterUrl}
           alt={event.title}
-          className="aspect-ratio-fix w-full h-full object-cover object-top sm:object-center filter brightness-[0.85] contrast-[1.05]"
+          className="aspect-ratio-fix w-full h-full object-cover object-top sm:object-center filter brightness-[0.95] contrast-[1.05]"
         />
         ) : (
           <div className="w-full h-full flex items-center justify-center bg-[#262626]">
             <Ticket className="w-16 h-16 text-white/25" />
           </div>
         )}
-        {/* Stronger mobile gradient for text readability */}
-        <div className="absolute inset-0 bg-gradient-to-t from-[#070707] via-[#070707]/60 to-transparent sm:from-black/60 sm:via-transparent" />
-
-        <div className="absolute bottom-0 left-0 right-0 p-6 sm:p-8 flex flex-col sm:flex-row sm:items-end justify-between gap-4">
-          <div className="space-y-3 max-w-2xl">
-            <div className="flex items-center gap-2">
-              <span className="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black shadow-lg">
-                {event.category}
-              </span>
-              {event.isAdvertiseOnly && (
-                <span className="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest bg-black/80 text-amber-300 border border-amber-500/40 backdrop-blur-md">
-                  Counter Only
-                </span>
-              )}
-            </div>
-            <h1 className="font-heading font-extrabold text-3xl sm:text-5xl text-white drop-shadow-[0_4px_12px_rgba(0,0,0,0.8)] leading-tight">
-              {event.title}
-            </h1>
-            <p className="text-gray-100 text-sm sm:text-base font-medium drop-shadow-md line-clamp-2 max-w-xl">
-              {event.subtitle}
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-black/70 backdrop-blur-xl border border-white/20 text-white text-xs sm:text-sm font-bold shadow-xl w-fit">
-            <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
-            <span>{event.rating}</span>
-            <span className="text-gray-400 font-medium">({event.reviewsCount} reviews)</span>
-          </div>
-        </div>
       </div>
 
       {/* Main Grid */}
