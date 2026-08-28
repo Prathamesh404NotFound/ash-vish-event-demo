@@ -787,7 +787,7 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     _paymentMethod: string,
     _ownerId?: string
   ): Promise<Ticket> => {
-    throw new Error('The legacy client-side purchase flow is disabled. Complete payment through the Razorpay checkout.');
+    throw new Error('The legacy client-side purchase flow is disabled. Complete payment through the PhonePe checkout.');
   };
 
   const confirmServerPurchasedTicket = (ticket: any, booking: any): Ticket => {

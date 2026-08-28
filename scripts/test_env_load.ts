@@ -1,4 +1,4 @@
 import dotenv from "dotenv";
 dotenv.config();
-console.log("KEY_ID set:", !!process.env.RAZORPAY_KEY_ID, process.env.RAZORPAY_KEY_ID || "");
-console.log("KEY_SECRET set:", !!process.env.RAZORPAY_KEY_SECRET);
+console.log("PHONEPE_CLIENT_ID set:", !!process.env.PHONEPE_CLIENT_ID, process.env.PHONEPE_CLIENT_ID || "");
+console.log("PHONEPE_CLIENT_SECRET set:", !!process.env.PHONEPE_CLIENT_SECRET);

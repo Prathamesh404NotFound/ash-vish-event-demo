@@ -8,8 +8,8 @@ import { ref, get } from 'firebase/database';
 import { rtdb, auth } from '../lib/firebase';
 import { SeatMap } from '../components/SeatMap';
 import { PerksSection } from '../components/PerksSection';
-import { safeFetch, getApiUrl } from '../lib/api';
-import { useRazorpay } from '../hooks/useRazorpay';
+import { safeFetch } from '../lib/api';
+import { usePhonePe } from '../hooks/usePhonePe';
 import { isSeatBasedEvent } from '../lib/seatMap';
 
 interface CheckoutWizardProps {
@@ -22,7 +22,7 @@ interface CheckoutWizardProps {
  *  2 – Seats (only when event has a seat map)
  *  3 – Attendee details
  *  4 – Review (final summary before confirmation; requires explicit confirmation)
- *  5 – Confirm (instant server-side booking; no payment gateway)
+ *  5 – Confirm (PhonePe standard hosted checkout)
  */
 const FIRST_STEP = 1;
 
@@ -60,15 +60,12 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
   const [isProcessing, setIsProcessing] = useState(false);
   const [submitError, setSubmitError] = useState<string>('');
 
-  // Razorpay checkout (test mode): order creation + modal are handled by
-  // useRazorpay; finalization only after server-side payment verification.
+  // PhonePe checkout: order creation + hosted redirect are handled by
+  // usePhonePe; finalization only after server-side payment verification.
   const {
-    scriptReady: rzpScriptReady,
-    isProcessing: rzpIsProcessing,
-    session: rzpSession,
-    verifyPayment: rzpVerifyPayment,
-    pay: rzpPay,
-  } = useRazorpay();
+    isProcessing: phonepeIsProcessing,
+    pay: phonepePay,
+  } = usePhonePe();
 
   // Coupon state (local until payment; server quote is the payment authority)
   const [couponCodeInput, setCouponCodeInput] = useState('');
@@ -490,19 +487,19 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
       setSubmitError('Your seats have changed since the last review. Please review your selection again.');
       return;
     }
-    if (rzpIsProcessing) return;
+    if (phonepeIsProcessing) return;
+    setIsProcessing(true);
+    setSubmitError('');
 
-    // Razorpay flow (server-authoritative):
-    //  1. Server creates the Razorpay order (re-validates reservation + quote).
-    //  2. The Razorpay modal collects the payment.
-    //  3. On success, the server itself verifies the payment against Razorpay
-    //     and only then atomically finalizes the booking. Nothing local is trusted.
-    await rzpPay(
+    // PhonePe Standard Hosted Checkout flow (server-authoritative):
+    //  1. Server initiates PhonePe payment order (validating reservation + quote).
+    //  2. User is redirected to PhonePe payment gateway (UPI, Cards, NetBanking).
+    //  3. On return, /payment/phonepe/return verifies status and finalizes the booking.
+    await phonepePay(
       reservation.reservationId,
       identityHeaders,
       quoteAppliedCoupon?.code || null,
       {
-        reservationRef: { get current() { return reservation?.reservationId ?? null; } },
         getDisplayName: () => attendeeName || 'Tickets',
         getEventTitle: () => event.title || 'Event',
         getPrefill: () => ({
@@ -510,48 +507,13 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
           email: attendeeEmail,
           contact: attendeePhone,
         }),
-        onClose: () => {
-          setIsProcessing(false);
-          // Modal closed without payment — seats remain held; user may retry.
-        },
         onError: async (err: string) => {
           setIsProcessing(false);
           setSubmitError(err || 'Payment could not be completed. Your seats are still held — you may retry.');
         },
-        onSuccess: async (paymentId: string, orderId: string) => {
-          setIsProcessing(true);
-          setSubmitError('');
-          const result = await rzpVerifyPayment(paymentId, orderId, identityHeaders);
-          if (!result.success) {
-            setIsProcessing(false);
-            if (result.paymentStatus === 'created') {
-              // Payment was initiated but never captured — money never left
-              // the buyer's account. Seats stay held.
-              setSubmitError(result.error || 'Payment is still pending. Complete the payment in the checkout window.');
-            } else if (result.refundConfirmed) {
-              // Captured payment but the seat could not be confirmed — the
-              // server automatically refunded. Seats are released.
-              setSubmitError(result.error || 'Payment refunded — seat no longer available. Please choose different seats or retry.');
-            } else if (result.error && result.error.includes('contact support')) {
-              setSubmitError(result.error);
-            } else {
-              setSubmitError(result.error || 'Payment verification failed. Your seats are still held — please retry.');
-            }
-            return;
-          }
-          if (!result.ticket || !result.booking) {
-            setIsProcessing(false);
-            setSubmitError('Booking confirmation data is missing. Your payment was received — please check My Tickets.');
-            return;
-          }
-          const confirmedTicket = confirmServerPurchasedTicket(result.ticket, result.booking);
-          await sendConfirmationEmail(confirmedTicket);
-          setIsProcessing(false);
-          resetBookingFlow();
-          onSuccess();
-        },
       },
       {
+        reservationRef: { get current() { return reservation?.reservationId ?? null; } },
         payDeposit,
       }
     );
@@ -1060,20 +1022,15 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
             {isBusy ? (
               <span className="animate-pulse flex items-center gap-2">
                 <RefreshCw className="w-5 h-5 animate-spin" />
-                Opening payment window...
+                Redirecting to PhonePe...
               </span>
             ) : (
               <>
                 <Lock className="w-5 h-5" />
-                <span>Pay Securely — {formatINR(payDeposit ? Math.round(serverTotal * 0.5) : serverTotal)}</span>
+                <span>Pay with PhonePe (UPI / Cards) — {formatINR(payDeposit ? Math.round(serverTotal * 0.5) : serverTotal)}</span>
               </>
             )}
           </button>
-          {rzpSession?.isTestMode && (
-            <p className="text-center text-[10px] font-bold uppercase tracking-wider text-amber-400/80">
-              Test Mode — no real money is charged
-            </p>
-          )}
           {submitError && (
             <div className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-start gap-2">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />

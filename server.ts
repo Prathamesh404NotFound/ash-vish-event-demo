@@ -10,14 +10,14 @@ import { rtdbGet, rtdbSet, rtdbUpdate, rtdbDelete, rtdbTransaction, rtdbPush } f
 import { getFirebaseAdminIdToken } from "./src/lib/identity-admin.js";
 import { sendTicketWhatsApp, sendTicketWhatsAppWithImage, normalizePhoneNumber } from "./src/lib/enotify.js";
 import {
-  isRazorpayConfigured,
+  isPhonePeConfigured,
   isTestMode,
-  createRazorpayOrder,
-  fetchRazorpayPayment,
-  refundRazorpayPayment,
-  verifyWebhookSignature,
-  KEY_ID as razorpayKeyId,
-} from "./src/lib/payment/razorpay.js";
+  createPhonePeOrder,
+  fetchPhonePeOrderStatus,
+  refundPhonePeOrder,
+  verifyPhonePeWebhookSignature,
+  CLIENT_ID as phonepeClientId,
+} from "./src/lib/payment/phonepe.js";
 
 const SERVER_HMAC_SECRET = process.env.SERVER_HMAC_SECRET?.trim();
 
@@ -2521,8 +2521,8 @@ export async function createApp() {
   });
 
   // -- Item: hold keepalive during payment -------------------------------
-  // Razorpay UPI/OTP flows can exceed the 10-minute hold. While the checkout
-  // modal is open, the client polls this endpoint (every ~2 minutes) to keep
+  // PhonePe UPI/OTP flows can exceed the 10-minute hold. While the checkout
+  // is in progress, the client polls this endpoint (every ~2 minutes) to keep
   // the reservation and its seat holds alive. Same ceiling as /renew (4x TTL),
   // owner-checked, and a 90-second cooldown prevents abuse.
   app.post("/api/reservations/:reservationId/extend", async (req, res) => {
@@ -2933,16 +2933,17 @@ export async function createApp() {
   });
 
   // -----------------------------------------------------------
-  // Razorpay payment routes (test-mode-first)
+  // -----------------------------------------------------------
+  // PhonePe payment routes (Standard Checkout v2)
   // Server-authoritative: order created server-side, fulfillment only after
-  // payment status is verified against the Razorpay API.
+  // payment status is verified against the PhonePe API.
   // -----------------------------------------------------------
 
-  app.post("/api/razorpay/create-order", async (req, res) => {
+  app.post("/api/phonepe/create-order", async (req, res) => {
     try {
-      const cfg = isRazorpayConfigured();
+      const cfg = isPhonePeConfigured();
       if (!cfg.available) {
-        return res.status(503).json({ success: false, error: cfg.reason || "Payment is not configured." });
+        return res.status(503).json({ success: false, error: cfg.reason || "Payment gateway is not configured." });
       }
       const owner = await resolveReservationOwner(req);
       const { reservationId } = req.body || {};
@@ -2992,193 +2993,198 @@ export async function createApp() {
       const payDeposit = req.body?.payDeposit === true;
       const amountPaiseToCharge = payDeposit ? Math.round(totalMinor * 0.5) : totalMinor;
 
-      // Our server-authoritative pending order (source of truth for fulfillment).
+      // Unique internal order ID & PhonePe merchant transaction ID
       const orderId = `ord_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+      const merchantOrderId = `m_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`.slice(0, 63);
+
+      // Derive base app URL for redirect
+      const host = req.get("host") || "ashvishevents.com";
+      const protocol = req.protocol === "https" || req.get("x-forwarded-proto") === "https" ? "https" : "http";
+      const origin = process.env.APP_URL || `${protocol}://${host}`;
+      const redirectUrl = `${origin.replace(/\/+$/, "")}/payment/phonepe/return?orderId=${encodeURIComponent(orderId)}&merchantOrderId=${encodeURIComponent(merchantOrderId)}`;
+
+      // Server-authoritative pending order (source of truth for fulfillment)
       await rtdbSet(`pending_orders/${orderId}`, {
         eventId: record.eventId,
         tierId: record.tierId,
         seatIds: record.seatIds,
         quantity: record.quantity,
         couponCode: appliedCoupon ? appliedCoupon.code : null,
+        couponDiscountMinor: discountMinor,
         customerDetails: record.attendee || {},
         userId: owner.ownerId,
         amount: amountPaiseToCharge / 100,
         amountMinor: amountPaiseToCharge,
         reservationId,
         createdAt: now,
-        paymentMethod: "razorpay",
-        rzpOrderId: null,
+        paymentMethod: "phonepe",
+        merchantOrderId,
+        phonepeOrderId: null,
+        phonepeRedirectUrl: null,
         isPartial: payDeposit,
         amountPaid: amountPaiseToCharge / 100,
         amountDue: payDeposit ? (totalMinor - amountPaiseToCharge) / 100 : 0,
       }, authToken);
 
-      // Create the Razorpay order server-side. Razorpay returns the amount it
-      // accepted; we reconcile against our computed amount.
-      const rzp = await createRazorpayOrder({
+      // Initiate order with PhonePe
+      const phonepeRes = await createPhonePeOrder({
+        merchantOrderId,
         amountPaise: amountPaiseToCharge,
-        currency: "INR",
-        receipt: orderId,
+        redirectUrl,
+        message: `${eventData.title || "Event"} Tickets`,
         attendeeName: record.attendee?.name,
         attendeeEmail: record.attendee?.email,
+        attendeePhone: record.attendee?.phone,
+        internalOrderId: orderId,
+        eventId: record.eventId,
       });
-      if (!rzp.ok) {
+
+      if (!phonepeRes.ok || !phonepeRes.redirectUrl) {
         await rtdbDelete(`pending_orders/${orderId}`, authToken);
-        return res.status(502).json({ success: false, error: rzp.error || "Payment gateway is currently unavailable." });
-      }
-      if (rzp.amount !== amountPaiseToCharge) {
-        await rtdbDelete(`pending_orders/${orderId}`, authToken);
-        console.error(`[RAZORPAY] amount mismatch: ours=${amountPaiseToCharge} razorpay=${rzp.amount}`);
-        return res.status(500).json({ success: false, error: "Payment gateway amount mismatch. Please try again." });
+        return res.status(502).json({ success: false, error: phonepeRes.error || "Payment gateway is currently unavailable." });
       }
 
-      // Persist the Razorpay order id onto our pending order.
+      // Persist PhonePe order details
       await rtdbUpdate(`pending_orders/${orderId}`, {
-        rzpOrderId: rzp.id,
-        rzpAmount: rzp.amount,
-        rzpKey: razorpayKeyId,
-        rzpCreatedAt: Date.now(),
+        phonepeOrderId: phonepeRes.orderId || merchantOrderId,
+        phonepeMerchantOrderId: merchantOrderId,
+        phonepeRedirectUrl: phonepeRes.redirectUrl,
+        phonepeAmountPaise: amountPaiseToCharge,
+        phonepeCreatedAt: Date.now(),
       }, authToken);
 
-      // Extend only the hold expiry. Payment state belongs to pending_orders.
+      // Extend hold expiry
       const holdUntil = Math.max(record.expiresAt, now + RESERVATION_HOLD_TTL_MS);
       await rtdbUpdate(`reservations/${reservationId}`, { expiresAt: holdUntil }, authToken);
 
       return res.json({
         success: true,
         orderId,
-        rzpOrderId: rzp.id,
-        rzpKey: razorpayKeyId,
+        merchantOrderId,
+        phonepeOrderId: phonepeRes.orderId || merchantOrderId,
+        redirectUrl: phonepeRes.redirectUrl,
         amountMinor: amountPaiseToCharge,
         appliedCoupon,
         isTestMode: isTestMode(),
         holdUntil,
       });
     } catch (err: any) {
-      console.error("[RAZORPAY CREATE-ORDER ERROR]", err.message || err);
+      console.error("[PHONEPE CREATE-ORDER ERROR]", err.message || err);
       return res.status(500).json({ success: false, error: err.message || "Failed to create payment order." });
     }
   });
 
-  app.post("/api/razorpay/verify-payment", async (req, res) => {
+  app.post("/api/phonepe/verify-payment", async (req, res) => {
     try {
-      const cfg = isRazorpayConfigured();
+      const cfg = isPhonePeConfigured();
       if (!cfg.available) {
-        return res.status(503).json({ success: false, error: cfg.reason || "Payment is not configured." });
+        return res.status(503).json({ success: false, error: cfg.reason || "Payment gateway is not configured." });
       }
       const owner = await resolveReservationOwner(req);
-      const { orderId, paymentId } = req.body || {};
-      if (!orderId || !paymentId) {
-        return res.status(400).json({ success: false, error: "orderId and paymentId are required." });
+      const { orderId, merchantOrderId: inputMerchantOrderId } = req.body || {};
+      if (!orderId && !inputMerchantOrderId) {
+        return res.status(400).json({ success: false, error: "orderId or merchantOrderId is required." });
       }
       const authToken = await getAdminAuthToken();
 
-      // Idempotency: already fulfilled (direct lookup and payment-id scan — a
-      // duplicate submission must never return 409, always success).
-      const processedRes = await rtdbGet(`processed_orders/${orderId}`, authToken);
-      if (processedRes.data) {
-        return res.json({ success: true, ticket: processedRes.data.ticket, booking: processedRes.data.booking, alreadyProcessed: true });
-      }
-      const allProcessed: any = (await rtdbGet("processed_orders", authToken)).data || {};
-      for (const [, entry] of Object.entries(allProcessed) as [string, any][]) {
-        if (entry && entry.paymentId === paymentId) {
-          return res.json({ success: true, ticket: entry.ticket, booking: entry.booking, alreadyProcessed: true });
+      // Find pending order
+      let pendingOrder: any = null;
+      let targetOrderId: string = orderId || "";
+
+      if (targetOrderId) {
+        const processedRes = await rtdbGet(`processed_orders/${targetOrderId}`, authToken);
+        if (processedRes.data) {
+          return res.json({ success: true, ticket: processedRes.data.ticket, booking: processedRes.data.booking, alreadyProcessed: true });
         }
+        const pendingRes = await rtdbGet(`pending_orders/${targetOrderId}`, authToken);
+        pendingOrder = pendingRes.data;
       }
 
-      const pendingRes = await rtdbGet(`pending_orders/${orderId}`, authToken);
-      const pendingOrder: any = pendingRes.data;
-      if (!pendingOrder) {
-        return res.status(404).json({ success: false, error: "Order not found or expired." });
-      }
-      if (pendingOrder.userId !== owner.ownerId) {
-        return res.status(403).json({ success: false, error: "Not your order." });
-      }
-
-      // Reconcile with Razorpay: fetch the actual payment and match order id + amount.
-      const paymentRes = await fetchRazorpayPayment(paymentId);
-      if (!paymentRes.ok) {
-        return res.status(400).json({
-          success: false,
-          error: "Payment could not be verified, please contact support with order ID " + orderId + ".",
-          paymentId,
-        });
-      }
-      const payment = paymentRes.payment;
-      if (!payment || !payment.order_id) {
-        return res.status(400).json({ success: false, error: "Payment record is incomplete at the gateway." });
-      }
-      // Reconciliation: prefer the direct mapping (payment.order_id === our
-      // pending order's rzpOrderId). When retries created a newer pending order
-      // (with a newer Razorpay order) but the buyer completed payment on the
-      // earlier Razorpay order, scan the pending orders for the one the
-      // gateway actually charged and fulfill that one instead.
-      let fulfillOrder: any = null;
-      let fulfillOrderId: string = "";
-      if (payment.order_id === pendingOrder.rzpOrderId && pendingOrder.userId === owner.ownerId) {
-        fulfillOrder = pendingOrder;
-        fulfillOrderId = orderId;
-      } else {
-        const allPending: any = (await rtdbGet("pending_orders", authToken)).data || {};
-        for (const [candidateId, candidate] of Object.entries(allPending) as [string, any][]) {
-          if (candidate?.rzpOrderId === payment.order_id && candidate?.userId === owner.ownerId) {
-            fulfillOrder = candidate;
-            fulfillOrderId = candidateId;
+      if (!pendingOrder && inputMerchantOrderId) {
+        const allPending = (await rtdbGet("pending_orders", authToken)).data || {};
+        for (const [candId, cand] of Object.entries(allPending) as [string, any][]) {
+          if (cand && (cand.merchantOrderId === inputMerchantOrderId || cand.phonepeMerchantOrderId === inputMerchantOrderId)) {
+            pendingOrder = cand;
+            targetOrderId = candId;
             break;
           }
         }
       }
-      if (!fulfillOrder) {
-        return res.status(400).json({ success: false, error: "Payment does not belong to this order." });
+
+      if (!pendingOrder) {
+        return res.status(404).json({ success: false, error: "Order not found or expired." });
       }
-      if (fulfillOrderId !== orderId) {
-        // Supersede the stale pending order from a retried checkout attempt so
-        // a second verification cannot double-charge logic or confuse holds.
-        await rtdbUpdate(`pending_orders/${orderId}`, { supersededBy: fulfillOrderId, supersededAt: new Date().toISOString() }, authToken);
+
+      if (pendingOrder.userId && pendingOrder.userId !== owner.ownerId) {
+        return res.status(403).json({ success: false, error: "Not your order." });
       }
-      const pendingOrderFinal: any = fulfillOrder;
-      if (pendingOrderFinal.paymentMethod !== "razorpay") {
-        return res.status(409).json({ success: false, error: "This order was not created for Razorpay payment." });
+
+      const lookupMerchantOrderId = pendingOrder.merchantOrderId || pendingOrder.phonepeMerchantOrderId || inputMerchantOrderId;
+      if (!lookupMerchantOrderId) {
+        return res.status(400).json({ success: false, error: "Order is missing PhonePe merchant order reference." });
       }
-      const captured = payment.amount === pendingOrderFinal.rzpAmount &&
-        (payment.status === "captured" || payment.status === "authorized") &&
-        !payment.refunded;
-      if (!captured) {
+
+      // Reconcile status with PhonePe API
+      const statusRes = await fetchPhonePeOrderStatus(lookupMerchantOrderId);
+      if (!statusRes.ok) {
         return res.status(400).json({
           success: false,
-          error: payment.status === "created"
-            ? "Payment is pending. Please complete the payment in the checkout window."
-            : payment.status === "failed"
-              ? "Payment failed. Your seats are still held — please retry."
-              : `Payment is not complete (status: ${payment.status}).`,
-          paymentStatus: payment.status,
+          error: "Payment could not be verified with PhonePe, please contact support with order ID " + targetOrderId + ".",
+          merchantOrderId: lookupMerchantOrderId,
         });
       }
 
-      // SAFETY NET: if the payment was actually captured but fulfillment fails
-      // (e.g. the seat hold expired during checkout and another buyer took the
-      // seat), refund the buyer immediately. A captured payment must never be
-      // held by the platform without a ticket and without a refund.
+      const paymentState = (statusRes.state || "").toUpperCase();
+      const isSuccess = paymentState === "COMPLETED" || paymentState === "SUCCESS";
+      const isPending = paymentState === "PENDING" || paymentState === "INITIALIZED" || paymentState === "PAYMENT_INITIATED";
+
+      if (isPending) {
+        return res.status(400).json({
+          success: false,
+          error: "Payment is still processing. Please complete the transaction in PhonePe.",
+          paymentStatus: paymentState,
+          isPending: true,
+        });
+      }
+
+      if (!isSuccess) {
+        return res.status(400).json({
+          success: false,
+          error: paymentState === "FAILED"
+            ? "Payment was not successful or was cancelled. Your seats remain held — you may retry."
+            : `Payment failed with status: ${paymentState}.`,
+          paymentStatus: paymentState,
+        });
+      }
+
+      // Reconcile amount
+      if (statusRes.amount && pendingOrder.amountMinor && statusRes.amount !== pendingOrder.amountMinor) {
+        console.error(`[PHONEPE] amount mismatch: ours=${pendingOrder.amountMinor} phonepe=${statusRes.amount}`);
+        return res.status(400).json({ success: false, error: "Payment amount mismatch detected. Please contact support." });
+      }
+
+      const paymentId = statusRes.paymentId || lookupMerchantOrderId;
+
+      // SAFETY NET: auto-refund if event or seat conflict occurs after payment
       const refundForConflict = async (reason: string): Promise<{ refunded: boolean; refundId?: string }> => {
         try {
-          const refundRes = await refundRazorpayPayment({
-            paymentId,
-            amountPaise: pendingOrderFinal.rzpAmount,
+          const refundRes = await refundPhonePeOrder({
+            merchantOrderId: lookupMerchantOrderId,
+            amountPaise: pendingOrder.amountMinor,
             reason: `ash-events: ${reason}`,
           });
           if (refundRes.ok) {
-            console.log(`[RAZORPAY REFUND] refunded ${paymentId}: ${refundRes.id} (${reason})`);
-            await rtdbUpdate(`pending_orders/${fulfillOrderId}`, {
-              refundId: refundRes.id,
+            console.log(`[PHONEPE REFUND] refunded ${lookupMerchantOrderId}: ${refundRes.refundId} (${reason})`);
+            await rtdbUpdate(`pending_orders/${targetOrderId}`, {
+              refundId: refundRes.refundId,
               refundStatus: refundRes.status || "processed",
               refundReason: reason,
               refundedAt: new Date().toISOString(),
             }, authToken).catch(() => {});
-            return { refunded: true, refundId: refundRes.id };
+            return { refunded: true, refundId: refundRes.refundId };
           }
-          // Refund initiation failed: record it and surface an actionable message.
-          console.error(`[RAZORPAY REFUND FAILED] ${paymentId}: ${refundRes.error}`);
-          await rtdbUpdate(`pending_orders/${fulfillOrderId}`, {
+          console.error(`[PHONEPE REFUND FAILED] ${lookupMerchantOrderId}: ${refundRes.error}`);
+          await rtdbUpdate(`pending_orders/${targetOrderId}`, {
             refundAttempted: false,
             refundError: refundRes.error || "Refund initiation failed",
             refundReason: reason,
@@ -3186,120 +3192,120 @@ export async function createApp() {
           }, authToken).catch(() => {});
           return { refunded: false };
         } catch (rErr: any) {
-          console.error("[RAZORPAY REFUND ERROR]", rErr.message || rErr);
+          console.error("[PHONEPE REFUND ERROR]", rErr.message || rErr);
           return { refunded: false };
         }
       };
 
-      // Re-quote server-side (coupon-aware) as a last sanity check before fulfillment.
-      const eventRes2 = await rtdbGet(`events/${pendingOrderFinal.eventId}`, authToken);
+      // Re-quote sanity check
+      const eventRes2 = await rtdbGet(`events/${pendingOrder.eventId}`, authToken);
       const eventData2 = eventRes2.data;
       if (!eventData2) {
-        // Captured payment + event gone: refund immediately (never 409 a
-        // captured payment without a refund path).
         const refund = await refundForConflict("Event no longer available after payment");
         return res.status(409).json({
           success: false,
           error: refund.refunded
             ? "Payment refunded — the event is no longer available. Please contact support if the refund does not appear."
-            : "The event is no longer available and the automatic refund could not be initiated. Please contact support with order ID " + fulfillOrderId + ".",
-          refundConfirmed: refund.refunded,
-          refundId: refund.refundId,
-          paymentId,
-        });
-      }
-      const quoteResult2 = computeReservationQuote(eventData2, pendingOrderFinal.seatIds, pendingOrderFinal.quantity, pendingOrderFinal.tierId);
-      const expectedMinor2 = Math.max(0, quoteResult2.quote.totalMinor - (pendingOrderFinal.couponDiscountMinor || 0));
-      const targetExpectedMinor = pendingOrderFinal.isPartial ? Math.round(expectedMinor2 * 0.5) : expectedMinor2;
-      if (pendingOrderFinal.amountMinor && pendingOrderFinal.amountMinor !== targetExpectedMinor) {
-        const refund = await refundForConflict("Quote changed since payment capture");
-        return res.status(409).json({
-          success: false,
-          error: refund.refunded
-            ? "Payment refunded — pricing changed during checkout. Please restart checkout and pay the current price."
-            : "Pricing changed during checkout and the automatic refund could not be initiated. Please contact support with order ID " + fulfillOrderId + ".",
+            : "The event is no longer available and the automatic refund could not be initiated. Please contact support with order ID " + targetOrderId + ".",
           refundConfirmed: refund.refunded,
           refundId: refund.refundId,
           paymentId,
         });
       }
 
-      const result = await finalizeBookingServerSide(fulfillOrderId || orderId, "razorpay", paymentId, authToken);
+      const quoteResult2 = computeReservationQuote(eventData2, pendingOrder.seatIds, pendingOrder.quantity, pendingOrder.tierId);
+      const expectedMinor2 = Math.max(0, quoteResult2.quote.totalMinor - (pendingOrder.couponDiscountMinor || 0));
+      const targetExpectedMinor = pendingOrder.isPartial ? Math.round(expectedMinor2 * 0.5) : expectedMinor2;
+      if (pendingOrder.amountMinor && pendingOrder.amountMinor !== targetExpectedMinor) {
+        const refund = await refundForConflict("Quote changed since payment capture");
+        return res.status(409).json({
+          success: false,
+          error: refund.refunded
+            ? "Payment refunded — pricing changed during checkout. Please restart checkout and pay the current price."
+            : "Pricing changed during checkout and the automatic refund could not be initiated. Please contact support with order ID " + targetOrderId + ".",
+          refundConfirmed: refund.refunded,
+          refundId: refund.refundId,
+          paymentId,
+        });
+      }
+
+      const result = await finalizeBookingServerSide(targetOrderId, "phonepe", paymentId, authToken);
       if (!result.success) {
-        // Captured payment but seats could not be booked (real conflict:
-        // hold expired during checkout / seat taken by another buyer).
         const refund = await refundForConflict("Seat no longer available after payment: " + (result.error || "fulfillment failed").slice(0, 120));
         return res.status(409).json({
           success: false,
           error: refund.refunded
             ? "Payment refunded — seat no longer available. Please choose different seats or retry."
-            : "Seat no longer available and the automatic refund could not be initiated. Please contact support with order ID " + fulfillOrderId + ".",
+            : "Seat no longer available and the automatic refund could not be initiated. Please contact support with order ID " + targetOrderId + ".",
           refundConfirmed: refund.refunded,
           refundId: refund.refundId,
           seatsStillHeld: false,
           paymentId,
         });
       }
+
       return res.json({
         success: true,
         ticket: result.ticket,
         booking: result.booking,
-        paymentMethod: "razorpay",
+        paymentMethod: "phonepe",
         paymentId,
       });
     } catch (err: any) {
-      console.error("[RAZORPAY VERIFY-PAYMENT ERROR]", err.message || err);
+      console.error("[PHONEPE VERIFY-PAYMENT ERROR]", err.message || err);
       return res.status(500).json({ success: false, error: err.message || "Failed to verify payment." });
     }
   });
 
   /**
-   * Razorpay webhook (supplemental path). Raw-body HMAC-SHA256 verification
-   * with KEY_SECRET; idempotent via processed_orders. Never the primary
-   * fulfillment path — the client-driven verify-payment flow is.
+   * PhonePe webhook (server-to-server callback).
    */
-  app.post("/api/razorpay/webhook", async (req, res) => {
+  app.post("/api/phonepe/webhook", async (req, res) => {
     try {
       const rawBody = typeof req.body === "string" ? req.body : JSON.stringify(req.body);
-      const signature = (req.headers["x-razorpay-signature"] as string) || "";
-      if (!verifyWebhookSignature(rawBody, signature)) {
-        console.warn("[RAZORPAY WEBHOOK] invalid signature");
+      const signature = (req.headers["x-verify"] as string) || (req.headers["authorization"] as string) || "";
+      if (!verifyPhonePeWebhookSignature(rawBody, signature)) {
+        console.warn("[PHONEPE WEBHOOK] invalid signature");
         return res.status(401).json({ success: false, error: "Invalid signature." });
       }
+
       let payload: any = {};
-      try { payload = JSON.parse(rawBody); } catch { return res.status(400).json({ success: false, error: "Invalid payload." }); }
-      const event = payload?.event;
-      const entity: any = payload?.payload?.payment?.entity || payload?.payload?.order?.entity || {};
-      const paymentId = entity?.id || "";
-      const rzpOrderId = entity?.order_id || "";
-      const relevantEvents = ["payment.authorized", "payment.captured", "order.paid"];
-      if (!relevantEvents.includes(event)) {
+      try { payload = typeof req.body === "object" ? req.body : JSON.parse(rawBody); } catch { return res.status(400).json({ success: false, error: "Invalid payload." }); }
+
+      const data = payload?.data || payload;
+      const merchantOrderId = data?.merchantOrderId || data?.merchantTransactionId || "";
+      const state = (data?.state || data?.status || data?.code || "").toUpperCase();
+      const isSuccess = state === "COMPLETED" || state === "SUCCESS" || state === "PAYMENT_SUCCESS";
+
+      if (!merchantOrderId || !isSuccess) {
         return res.json({ success: true, ignored: true });
       }
-      if (!paymentId || !rzpOrderId) {
-        return res.status(400).json({ success: false, error: "Missing payment/order ids." });
-      }
+
       const authToken = await getAdminAuthToken();
-      // Find our pending order by Razorpay order id.
       const allPending = await rtdbGet("pending_orders", authToken);
       const pendingEntries = (allPending.data || {}) as Record<string, any>;
-      const pendingOrder = Object.entries(pendingEntries).find(([, v]: any) => v?.rzpOrderId === rzpOrderId);
-      if (!pendingOrder) {
-        console.warn(`[RAZORPAY WEBHOOK] no pending order for rzp order ${rzpOrderId}`);
+      const matched = Object.entries(pendingEntries).find(([, v]: any) =>
+        v?.merchantOrderId === merchantOrderId || v?.phonepeMerchantOrderId === merchantOrderId
+      );
+
+      if (!matched) {
+        console.warn(`[PHONEPE WEBHOOK] no pending order for merchantOrderId ${merchantOrderId}`);
         return res.json({ success: true, ignored: true });
       }
-      const [orderId] = pendingOrder;
-      // Idempotency via processed_orders (finalizeBookingServerSide also guards).
+
+      const [orderId] = matched;
       if ((await rtdbGet(`processed_orders/${orderId}`, authToken)).data) {
         return res.json({ success: true });
       }
-      const result = await finalizeBookingServerSide(orderId, "razorpay", paymentId, authToken);
+
+      const paymentId = data?.transactionId || merchantOrderId;
+      const result = await finalizeBookingServerSide(orderId, "phonepe", paymentId, authToken);
       if (!result.success) {
-        console.error(`[RAZORPAY WEBHOOK] fulfillment failed for ${orderId}: ${result.error}`);
+        console.error(`[PHONEPE WEBHOOK] fulfillment failed for ${orderId}: ${result.error}`);
       }
       return res.json({ success: result.success });
     } catch (err: any) {
-      console.error("[RAZORPAY WEBHOOK ERROR]", err.message || err);
+      console.error("[PHONEPE WEBHOOK ERROR]", err.message || err);
       return res.status(500).json({ success: false, error: "Webhook processing failed." });
     }
   });

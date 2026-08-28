@@ -45,8 +45,8 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSearch }) => {
     <>
       {/* Floating Top Navbar */}
       <header className="fixed top-0 inset-x-0 z-50 transition-all duration-300">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-2 sm:pt-4">
-          <nav className="bg-[#0c0c0e]/70 backdrop-blur-xl rounded-2xl px-3 py-2 sm:px-6 sm:py-3 flex items-center justify-between shadow-[0_12px_35px_rgba(0,0,0,0.85)] border border-white/10 hover:border-[#D4AF37]/25 transition-colors duration-300">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-2 sm:pt-3">
+          <nav className="bg-[#0A0A0C]/80 backdrop-blur-md rounded-2xl px-3 py-2 sm:px-5 sm:py-2.5 flex items-center justify-between shadow-[0_8px_30px_rgba(0,0,0,0.75)] border border-white/10 hover:border-white/15 transition-all duration-300">
 
             {/* Logo & Brand Container */}
             <Link to="/" className="flex items-center gap-3 cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D4AF37] rounded-xl p-0.5 shrink-0">
@@ -67,17 +67,14 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSearch }) => {
                 </div>
               </div>
               <div className="flex flex-col">
-                <span className="font-heading font-extrabold text-lg sm:text-2xl tracking-tighter text-white leading-none group-hover:text-[#F3E5AB] transition-colors">
-                  Ash-vish<span className="bg-gradient-to-r from-[#F3E5AB] via-[#D4AF37] to-[#C5A059] bg-clip-text text-transparent ml-0.5 font-black font-sans">events</span>
-                </span>
-                <span className="text-[8px] sm:text-[9px] uppercase tracking-[0.2em] text-gray-400 font-bold mt-1">
-                  Premium Experience
+                <span className="font-heading font-bold text-base sm:text-lg tracking-tight text-white leading-tight group-hover:text-[#F3E5AB] transition-colors">
+                  Ash-vish <span className="text-[#D4AF37] font-semibold">Events</span>
                 </span>
               </div>
             </Link>
 
             {/* Desktop Navigation Links */}
-            <div className="hidden md:flex items-center gap-1 bg-[#141417]/90 p-1.5 rounded-xl border border-white/10 shadow-inner">
+            <div className="hidden md:flex items-center gap-2 bg-[#121214]/60 px-2 py-1 rounded-xl border border-white/5">
               {navItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = location.pathname === item.path;
@@ -85,18 +82,18 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSearch }) => {
                   <Link
                     key={item.path}
                     to={item.path}
-                    className={`relative flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs md:text-sm font-semibold transition-all duration-200 ${
+                    className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 ${
                       isActive
-                        ? 'bg-gradient-to-r from-[#F3E5AB] via-[#D4AF37] to-[#C5A059] text-black font-bold shadow-md shadow-[#D4AF37]/30'
-                        : 'text-gray-300 hover:text-white hover:bg-white/5'
+                        ? 'bg-[#D4AF37]/15 text-[#F3E5AB] border border-[#D4AF37]/30 font-semibold'
+                        : 'text-gray-400 hover:text-gray-200 hover:bg-white/5 border border-transparent'
                     }`}
                   >
-                    <Icon className="w-4 h-4 shrink-0" />
+                    <Icon className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-[#D4AF37]' : 'text-gray-400'}`} />
                     <span>{item.label}</span>
                     {!!item.badge && item.badge > 0 && (
                       <span
-                        className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${
-                          isActive ? 'bg-black text-white' : 'bg-[#D4AF37] text-black'
+                        className={`text-[9px] px-1.5 py-0.2 rounded-full font-bold ${
+                          isActive ? 'bg-[#D4AF37] text-black' : 'bg-white/10 text-gray-300'
                         }`}
                       >
                         {item.badge}
@@ -108,17 +105,17 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSearch }) => {
             </div>
 
             {/* Right Actions: Search trigger & Auth / User Profile */}
-            <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+            <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
               {/* Search Button */}
               {onOpenSearch && (
                 <button
                   onClick={onOpenSearch}
-                  className="flex items-center gap-2 px-3 py-2 rounded-xl bg-[#18181c] hover:bg-[#222228] border border-white/10 text-gray-300 text-xs sm:text-sm transition-all duration-200 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D4AF37] cursor-pointer touch-min-target"
+                  className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-[#141417]/80 hover:bg-[#1C1C20] border border-white/10 text-gray-400 hover:text-gray-200 text-xs transition-all duration-200 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D4AF37] cursor-pointer"
                   aria-label="Search events"
                 >
-                  <Search className="w-4 h-4 text-[#D4AF37] shrink-0" />
-                  <span className="hidden sm:inline font-medium">Search...</span>
-                  <kbd className="hidden md:inline-flex items-center px-1.5 py-0.5 text-[10px] font-mono font-medium text-gray-400 bg-white/10 rounded border border-white/10">
+                  <Search className="w-3.5 h-3.5 text-[#D4AF37] shrink-0" />
+                  <span className="hidden sm:inline font-normal">Search</span>
+                  <kbd className="hidden md:inline-flex items-center px-1.5 py-0.5 text-[9px] font-mono text-gray-500 bg-white/5 rounded border border-white/10">
                     ⌘K
                   </kbd>
                 </button>
@@ -129,43 +126,43 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSearch }) => {
                 <div className="relative">
                   <button
                     onClick={() => setUserDropdownOpen(!userDropdownOpen)}
-                    className="flex items-center gap-2 p-1.5 rounded-xl bg-[#1C1C1C] hover:bg-[#262626] border border-white/10 transition-all active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D4AF37] cursor-pointer touch-min-target"
+                    className="flex items-center gap-2 p-1 rounded-xl bg-[#141417] hover:bg-[#1E1E22] border border-white/10 transition-all active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D4AF37] cursor-pointer"
                     aria-label="User account menu"
                     aria-expanded={userDropdownOpen}
                   >
                     <img
                       src={user?.photoUrl}
                       alt={user?.name || 'User profile'}
-                      className="w-8 h-8 rounded-lg object-cover border border-[#D4AF37]/30"
+                      className="w-7 h-7 rounded-lg object-cover border border-[#D4AF37]/30"
                     />
                   </button>
 
                   {/* Profile Dropdown Menu */}
                   {userDropdownOpen && (
-                    <div className="absolute right-0 mt-2 sm:mt-3 w-60 sm:w-64 max-w-[calc(100vw-2rem)] bg-[#141414] border border-white/10 rounded-2xl shadow-2xl py-2 z-50 animate-in fade-in slide-in-from-top-2">
-                      <div className="px-4 py-2.5 border-b border-white/10">
-                        <p className="text-sm font-semibold text-white truncate">{user?.name}</p>
-                        <p className="text-xs text-gray-400 truncate">{user?.email}</p>
-                        <span className="mt-1.5 inline-flex items-center gap-1 px-2 py-0.5 text-[10px] bg-[#D4AF37]/15 text-[#F3E5AB] rounded-full border border-[#D4AF37]/20 font-medium uppercase tracking-wider">
-                          <Sparkles className="w-3 h-3" /> {user?.role || 'Customer'}
+                    <div className="absolute right-0 mt-2 w-56 bg-[#121214] border border-white/10 rounded-2xl shadow-2xl py-2 z-50 animate-in fade-in slide-in-from-top-2">
+                      <div className="px-4 py-2 border-b border-white/10">
+                        <p className="text-xs font-semibold text-white truncate">{user?.name}</p>
+                        <p className="text-[11px] text-gray-400 truncate">{user?.email}</p>
+                        <span className="mt-1.5 inline-flex items-center gap-1 px-2 py-0.5 text-[9px] bg-[#D4AF37]/15 text-[#F3E5AB] rounded-full border border-[#D4AF37]/20 font-medium uppercase tracking-wider">
+                          <Sparkles className="w-2.5 h-2.5" /> {user?.role || 'Customer'}
                         </span>
                       </div>
 
                       <Link
                         to="/account/profile"
                         onClick={() => setUserDropdownOpen(false)}
-                        className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs text-gray-300 hover:bg-white/5 hover:text-white text-left transition-colors"
+                        className="w-full flex items-center gap-2.5 px-4 py-2 text-xs text-gray-300 hover:bg-white/5 hover:text-white text-left transition-colors"
                       >
-                        <UserIcon className="w-4 h-4 text-gray-400 shrink-0" />
+                        <UserIcon className="w-3.5 h-3.5 text-gray-400 shrink-0" />
                         <span>Account Profile</span>
                       </Link>
 
                       <Link
                         to="/account/tickets"
                         onClick={() => setUserDropdownOpen(false)}
-                        className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs text-gray-300 hover:bg-white/5 hover:text-white text-left transition-colors"
+                        className="w-full flex items-center gap-2.5 px-4 py-2 text-xs text-gray-300 hover:bg-white/5 hover:text-white text-left transition-colors"
                       >
-                        <Ticket className="w-4 h-4 text-gray-400 shrink-0" />
+                        <Ticket className="w-3.5 h-3.5 text-gray-400 shrink-0" />
                         <span>My Tickets ({myTickets.length})</span>
                       </Link>
 
@@ -173,9 +170,9 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSearch }) => {
                       <Link
                         to="/organizer"
                         onClick={() => setUserDropdownOpen(false)}
-                        className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs text-[#D4AF37] hover:bg-[#D4AF37]/10 text-left transition-colors font-bold"
+                        className="w-full flex items-center gap-2.5 px-4 py-2 text-xs text-[#D4AF37] hover:bg-[#D4AF37]/10 text-left transition-colors font-semibold"
                       >
-                        <Building2 className="w-4 h-4 text-[#D4AF37] shrink-0" />
+                        <Building2 className="w-3.5 h-3.5 text-[#D4AF37] shrink-0" />
                         <span>Organizer Portal</span>
                       </Link>
 
@@ -184,10 +181,10 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSearch }) => {
                         <Link
                           to="/counter"
                           onClick={() => setUserDropdownOpen(false)}
-                          className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs text-[#D4AF37] hover:bg-[#D4AF37]/10 text-left transition-colors font-bold"
+                          className="w-full flex items-center gap-2.5 px-4 py-2 text-xs text-[#D4AF37] hover:bg-[#D4AF37]/10 text-left transition-colors font-semibold"
                         >
-                          <QrCode className="w-4 h-4 text-[#D4AF37] shrink-0" />
-                          <span>Ticket Counter Dashboard</span>
+                          <QrCode className="w-3.5 h-3.5 text-[#D4AF37] shrink-0" />
+                          <span>Ticket Counter</span>
                         </Link>
                       )}
 
@@ -196,9 +193,9 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSearch }) => {
                         <Link
                           to="/admin"
                           onClick={() => setUserDropdownOpen(false)}
-                          className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs text-[#D4AF37] hover:bg-[#D4AF37]/10 text-left transition-colors font-bold"
+                          className="w-full flex items-center gap-2.5 px-4 py-2 text-xs text-[#D4AF37] hover:bg-[#D4AF37]/10 text-left transition-colors font-semibold"
                         >
-                          <ShieldCheck className="w-4 h-4 text-[#D4AF37] shrink-0" />
+                          <ShieldCheck className="w-3.5 h-3.5 text-[#D4AF37] shrink-0" />
                           <span>Admin Portal</span>
                         </Link>
                       )}
@@ -211,9 +208,9 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSearch }) => {
                           setUserDropdownOpen(false);
                           navigate('/login');
                         }}
-                        className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs text-red-400 hover:bg-red-500/10 text-left transition-colors cursor-pointer"
+                        className="w-full flex items-center gap-2.5 px-4 py-2 text-xs text-red-400 hover:bg-red-500/10 text-left transition-colors cursor-pointer"
                       >
-                        <LogOut className="w-4 h-4 text-red-400 shrink-0" />
+                        <LogOut className="w-3.5 h-3.5 text-red-400 shrink-0" />
                         <span>Sign Out</span>
                       </button>
                     </div>
@@ -222,7 +219,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSearch }) => {
               ) : (
                 <Link
                   to="/login"
-                  className="px-3.5 py-2 sm:px-4 sm:py-2 rounded-xl bg-gradient-to-r from-[#F3E5AB] via-[#D4AF37] to-[#C5A059] hover:brightness-110 text-black font-extrabold text-xs sm:text-sm shadow-md shadow-[#D4AF37]/20 transition-all duration-200 active:scale-95 whitespace-nowrap cursor-pointer flex items-center justify-center min-h-[38px]"
+                  className="px-3 py-1.5 rounded-xl bg-[#D4AF37] hover:bg-[#F3E5AB] text-black font-semibold text-xs shadow-sm transition-all duration-200 active:scale-95 whitespace-nowrap cursor-pointer flex items-center justify-center"
                 >
                   Sign In
                 </Link>
@@ -231,10 +228,10 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSearch }) => {
               {/* Mobile Drawer Hamburger */}
               <button
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                className="md:hidden w-10 h-10 flex items-center justify-center rounded-xl bg-[#1C1C1C] text-gray-300 hover:text-white border border-white/10 active:scale-95 transition-all cursor-pointer touch-min-target"
+                className="md:hidden w-8 h-8 flex items-center justify-center rounded-xl bg-[#141417] text-gray-300 hover:text-white border border-white/10 active:scale-95 transition-all cursor-pointer"
                 aria-label={mobileMenuOpen ? "Close menu" : "Open navigation menu"}
               >
-                {mobileMenuOpen ? <X className="w-5 h-5 text-white" /> : <Menu className="w-5 h-5 text-gray-300" />}
+                {mobileMenuOpen ? <X className="w-4 h-4 text-white" /> : <Menu className="w-4 h-4 text-gray-300" />}
               </button>
             </div>
           </nav>

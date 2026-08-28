@@ -28,6 +28,7 @@ import { CityPage } from './pages/CityPage';
 import { BlogPage } from './pages/BlogPage';
 import { BlogPostPage } from './pages/BlogPostPage';
 import { TermsPage } from './pages/TermsPage';
+import { PaymentCallbackPage } from './pages/PaymentCallbackPage';
 
 function HashPassRedirectHandler() {
   const navigate = useNavigate();
@@ -253,6 +254,8 @@ export default function App() {
               <Route path="blog" element={<BlogPage />} />
               <Route path="blog/:slug" element={<BlogPostPage />} />
               <Route path="terms" element={<TermsPage />} />
+              <Route path="payment/phonepe/return" element={<PaymentCallbackPage />} />
+              <Route path="payment-callback" element={<PaymentCallbackPage />} />
 
               {/* Guarded Account Routes */}
               <Route
