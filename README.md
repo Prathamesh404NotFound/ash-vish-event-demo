@@ -31,7 +31,7 @@ Engineered with a modern React SPA frontend, an Express server backend, and real
 - **Interactive Visual Seat Maps**: Real-time seat layouts supporting VIP, Gold, and Silver tiers with dynamic pricing, seat locks, and contiguous family/group seat selection algorithms.
 - **Cryptographic Digital QR Passes**: Unique 32-character HMAC-SHA256 signed pass slugs (`/pass/:slug/:signature`) rendered on a cinematic, dark-themed ticket pass interface.
 - **Automated WhatsApp Pass Dispatch**: One-click ticket delivery directly to attendees' WhatsApp mobile numbers with clean, unguessable pass links.
-- **Multi-Gateway Payment Flow**: Razorpay integration supporting UPI, Credit/Debit cards, Net Banking, and Wallet payments with server-side signature verification.
+- **Multi-Gateway Payment Flow**: PhonePe Payment Gateway integration supporting UPI, Credit/Debit cards, Net Banking, and Wallet payments with server-side OAuth2 and state verification.
 
 ### 👥 Role-Based Access Control (RBAC)
 - **Super Admin Dashboard**: Full system telemetry, revenue breakdown, ticket sales graphs, user role assignment, and system settings.
@@ -54,7 +54,7 @@ Engineered with a modern React SPA frontend, an Express server backend, and real
 | **Styling** | Tailwind CSS, Framer Motion, Lucide Icons | Responsive UI with smooth micro-interactions |
 | **Backend** | Node.js, Express.js | Full-stack API proxy, authentication, and pass verification |
 | **Database** | Firebase Realtime Database & Firestore | Real-time seat locking, user auth, and ticket persistence |
-| **Payments** | Razorpay Node.js SDK | Secure online payment collection with HMAC webhooks |
+| **Payments** | PhonePe Standard Checkout (v2 API) | Secure online payment collection with OAuth2 tokens & webhooks |
 | **Pass Security** | Node.js Crypto (HMAC-SHA256) | Unguessable 32-hex pass slugs and signature generation |
 | **Ticketing** | `qrcode.react`, `jspdf` | QR code rendering and downloadable PDF ticket passes |
 
@@ -70,7 +70,7 @@ ash-vish-event-demo/
 │   ├── components/        # Reusable UI components (Navbar, SeatMap, QRScanner, etc.)
 │   ├── contexts/          # React Contexts (AuthContext, BookingContext)
 │   ├── data/              # Static blog posts, city data, and event presets
-│   ├── hooks/             # Custom React hooks (useSEO, useRazorpay, useRoleAuth)
+│   ├── hooks/             # Custom React hooks (useSEO, usePhonePe, useRoleAuth)
 │   ├── lib/               # Firebase setup, API clients, seat algorithms, UPI helpers
 │   ├── pages/             # App pages (Home, EventDetail, TicketPassPage, CityPage, etc.)
 │   │   ├── admin/         # Super Admin management screens
@@ -117,9 +117,10 @@ VITE_FIREBASE_DATABASE_URL=https://your_project.firebaseio.com
 # HMAC & Server Secrets
 SERVER_HMAC_SECRET=your_super_secret_hmac_key
 
-# Razorpay Credentials (Test or Live)
-VITE_RAZORPAY_KEY_ID=rzp_test_xxxx
-RAZORPAY_KEY_SECRET=your_razorpay_secret
+# PhonePe Credentials
+PHONEPE_CLIENT_ID=your_phonepe_client_id
+PHONEPE_CLIENT_SECRET=your_phonepe_client_secret
+PHONEPE_ENV=production
 ```
 
 ### 4. Running Development Server

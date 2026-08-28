@@ -123,48 +123,48 @@ echo "=== 15. Expired reservation: server sweeps old holds ==="
 SWEEP=$(curl -s -X POST "$BASE/api/seats/sweep-holds" -H 'Content-Type: application/json' -H "X-Session-Id: $S2" -d '{"forceExpired":true}')
 check "sweep endpoint responds" "success" "$SWEEP"
 
-echo "=== 16. Razorpay: server creates an order for a fresh reservation ==="
+echo "=== 16. PhonePe: server creates an order for a fresh reservation ==="
 # Fresh session D claims SEAT2-area seat (SEAT4) so an active reservation exists for order creation.
 R6=$(curl -s -X POST "$BASE/api/reservations" -H 'Content-Type: application/json' -H "X-Session-Id: sess-d" \
   -d "{\"eventId\":\"$EV\",\"tierId\":\"tier_vip\",\"quantity\":1,\"seatIds\":[\"$SEAT4\"]}")
 echo "  sess-d reservation response: $R6"
 R6_ID=$(echo "$R6" | python3 -c "import sys,json;print(json.load(sys.stdin)['reservationId'])")
 AD6=$(curl -s -X POST "$BASE/api/reservations/$R6_ID/attendee" -H 'Content-Type: application/json' -H "X-Session-Id: sess-d" \
-  -d '{"name":"E2E Razorpay","email":"rzp@example.com","phone":"9000011133"}')
-ORDER=$(curl -s -X POST "$BASE/api/razorpay/create-order" -H 'Content-Type: application/json' -H "X-Session-Id: sess-d" \
+  -d '{"name":"E2E PhonePe","email":"phonepe@example.com","phone":"9000011133"}')
+ORDER=$(curl -s -X POST "$BASE/api/phonepe/create-order" -H 'Content-Type: application/json' -H "X-Session-Id: sess-d" \
   -d "{\"reservationId\":\"$R6_ID\",\"couponCode\":null}")
 check "create-order succeeded" '"success":true' "$ORDER"
-check "create-order returns rzpOrderId" "order_" "$ORDER"
+check "create-order returns redirectUrl" "http" "$ORDER"
 check "create-order returns amountMinor (24000 = qty1 vip)" "24000" "$ORDER"
 ORD_ID=$(echo "$ORDER" | python3 -c "import sys,json;print(json.load(sys.stdin).get('orderId',''))" 2>/dev/null || echo "?")
-RZP_ID=$(echo "$ORDER" | python3 -c "import sys,json;print(json.load(sys.stdin).get('rzpOrderId',''))" 2>/dev/null || echo "?")
-echo "  orderId=$ORD_ID rzpOrderId=$RZP_ID"
+M_ID=$(echo "$ORDER" | python3 -c "import sys,json;print(json.load(sys.stdin).get('merchantOrderId',''))" 2>/dev/null || echo "?")
+echo "  orderId=$ORD_ID merchantOrderId=$M_ID"
 
-echo "=== 17. Razorpay: verify-payment rejects unpaid order ==="
-VP1=$(curl -s -X POST "$BASE/api/razorpay/verify-payment" -H 'Content-Type: application/json' -H "X-Session-Id: sess-d" \
-  -d "{\"orderId\":\"$ORD_ID\",\"paymentId\":\"$RZP_ID\"}")
-VP1_CODE=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/razorpay/verify-payment" -H 'Content-Type: application/json' -H "X-Session-Id: sess-d" \
-  -d "{\"orderId\":\"$ORD_ID\",\"paymentId\":\"$RZP_ID\"}")
-check "verify rejects payment=orderId (belongs check)" "400" "$VP1_CODE"
+echo "=== 17. PhonePe: verify-payment rejects unpaid order ==="
+VP1=$(curl -s -X POST "$BASE/api/phonepe/verify-payment" -H 'Content-Type: application/json' -H "X-Session-Id: sess-d" \
+  -d "{\"orderId\":\"$ORD_ID\",\"merchantOrderId\":\"$M_ID\"}")
+VP1_CODE=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/phonepe/verify-payment" -H 'Content-Type: application/json' -H "X-Session-Id: sess-d" \
+  -d "{\"orderId\":\"$ORD_ID\",\"merchantOrderId\":\"$M_ID\"}")
+check "verify rejects unpaid order" "400" "$VP1_CODE"
 
-echo "=== 18. Razorpay: wrong-session cannot verify someone else's order ==="
-VP2_CODE=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/razorpay/verify-payment" -H 'Content-Type: application/json' -H "X-Session-Id: sess-other" \
-  -d "{\"orderId\":\"$ORD_ID\",\"paymentId\":\"pay_fake123456789\"}")
+echo "=== 18. PhonePe: wrong-session cannot verify someone else's order ==="
+VP2_CODE=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/phonepe/verify-payment" -H 'Content-Type: application/json' -H "X-Session-Id: sess-other" \
+  -d "{\"orderId\":\"$ORD_ID\",\"merchantOrderId\":\"$M_ID\"}")
 check "verify 403 for wrong session" "403" "$VP2_CODE"
 
-echo "=== 19. Razorpay: missing reservation id must 400 ==="
-V400=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/razorpay/verify-payment" -H 'Content-Type: application/json' -H "X-Session-Id: sess-d" \
+echo "=== 19. PhonePe: missing reservation id must 400 ==="
+V400=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/phonepe/verify-payment" -H 'Content-Type: application/json' -H "X-Session-Id: sess-d" \
   -d '{}')
 check "verify 400 without orderId" "400" "$V400"
 
-# Also test the unconfigured-gateway path in a child shell so the live server is untouched.
-echo "=== 19b. Razorpay: gateway unconfigured must 503 (child shell, live server untouched) ==="
+# Also test the gateway configured check
+echo "=== 19b. PhonePe: gateway configured check ==="
 U503=$(npx tsx -e "
-import { isRazorpayConfigured } from './src/lib/payment/razorpay';
-const cfg = isRazorpayConfigured();
+import { isPhonePeConfigured } from './src/lib/payment/phonepe';
+const cfg = isPhonePeConfigured();
 console.log(cfg.available ? 'AVAILABLE' : ('UNAVAILABLE:' + (cfg.reason || '')));
 " 2>/dev/null)
-check "config guard accepts configured test keys" "AVAILABLE" "$U503"
+check "config guard accepts configured keys" "AVAILABLE" "$U503"
 
 echo
 echo "RESULTS: PASS=$PASS FAIL=$FAIL"

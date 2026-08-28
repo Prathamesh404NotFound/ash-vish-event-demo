@@ -63,7 +63,7 @@ if [ "$TOKEN_MISSING" = "0" ]; then
   check "Keepalive rejects unknown reservation" "404" "Reservation not found" "$CODE" "$BODY"
 
   # 3. verify-payment anonymous/unknown order
-  R=$(curl -s -w '\n%{http_code}' -X POST "$BASE_URL/api/razorpay/verify-payment" -H 'Content-Type: application/json' -H "$ADMIN_HEADER" -d '{"orderId":"fake-order-id-xyz","paymentId":"pay_fake"}')
+  R=$(curl -s -w '\n%{http_code}' -X POST "$BASE_URL/api/phonepe/verify-payment" -H 'Content-Type: application/json' -H "$ADMIN_HEADER" -d '{"orderId":"fake-order-id-xyz","merchantOrderId":"m_fake"}')
   CODE="${R##*$'\n'}"; BODY="${R%$'\n'*}"
   check "verify-payment: unknown order returns 404 (never a crash)" "404" "Order not found" "$CODE" "$BODY"
 
@@ -76,16 +76,15 @@ if [ "$TOKEN_MISSING" = "0" ]; then
       \"eventId\": \"$EVENT_ID\",
       \"customerDetails\": { \"name\": \"regression\", \"phone\": \"9000000000\", \"email\": \"regression@example.com\" },
       \"items\": [{ \"quantity\": 1, \"priceMinor\": 10000 }],
-      \"paymentMethod\": \"razorpay\",
-      \"razorpayOrderId\": \"order_fake_regression_$(date +%s)\",
-      \"razorpayPaymentId\": \"pay_regression_$(date +%s)\"
+      \"paymentMethod\": \"phonepe\",
+      \"merchantOrderId\": \"m_fake_regression_$(date +%s)\"
     }" 2>/dev/null)
     ORDER_ID=$(printf '%s' "$PENDING" | python3 -c "import sys,json; print(json.load(sys.stdin).get('orderId','') or json.load(sys.stdin).get('booking',{}).get('orderId',''))" 2>/dev/null || echo "")
     if [ -n "$ORDER_ID" ]; then
-      FIRST=$(curl -s -w '\n%{http_code}' -X POST "$BASE_URL/api/razorpay/verify-payment" -H 'Content-Type: application/json' -H "$ADMIN_HEADER" -d "{\"orderId\":\"$ORDER_ID\",\"paymentId\":\"pay_regression_$(date +%s)\"}")
+      FIRST=$(curl -s -w '\n%{http_code}' -X POST "$BASE_URL/api/phonepe/verify-payment" -H 'Content-Type: application/json' -H "$ADMIN_HEADER" -d "{\"orderId\":\"$ORDER_ID\",\"merchantOrderId\":\"m_regression_$(date +%s)\"}")
       FCODE="${FIRST##*$'\n'}"; FBODY="${FIRST%$'\n'*}"
       # Second call with the same payment id must be idempotent success.
-      DUP=$(curl -s -w '\n%{http_code}' -X POST "$BASE_URL/api/razorpay/verify-payment" -H 'Content-Type: application/json' -H "$ADMIN_HEADER" -d "{\"orderId\":\"$ORDER_ID\",\"paymentId\":\"pay_regression_$(date +%s)\"}")
+      DUP=$(curl -s -w '\n%{http_code}' -X POST "$BASE_URL/api/phonepe/verify-payment" -H 'Content-Type: application/json' -H "$ADMIN_HEADER" -d "{\"orderId\":\"$ORDER_ID\",\"merchantOrderId\":\"m_regression_$(date +%s)\"}")
       DCODE="${DUP##*$'\n'}"; DBODY="${DUP%$'\n'*}"
       if [ "$DCODE" = "200" ] && printf '%s' "$DBODY" | grep -q "alreadyProcessed"; then
         echo "PASS  Idempotent duplicate verify returns success ($DCODE)"
@@ -106,7 +105,7 @@ if [ "$TOKEN_MISSING" = "0" ]; then
 
   # 5. Gateway-verification failure message (real payment id, no matching
   #    gateway record → the lib returns an error; expect the contact message).
-  R=$(curl -s -w '\n%{http_code}' -X POST "$BASE_URL/api/razorpay/verify-payment" -H 'Content-Type: application/json' -H "$ADMIN_HEADER" -d "{\"orderId\":\"$ORDER_ID\",\"paymentId\":\"pay_nonexistent_$(date +%s)\"}")
+  R=$(curl -s -w '\n%{http_code}' -X POST "$BASE_URL/api/phonepe/verify-payment" -H 'Content-Type: application/json' -H "$ADMIN_HEADER" -d "{\"orderId\":\"$ORDER_ID\",\"merchantOrderId\":\"m_nonexistent_$(date +%s)\"}")
   CODE="${R##*$'\n'}"; BODY="${R%$'\n'*}"
   if [ "$CODE" = "400" ] && printf '%s' "$BODY" | grep -qi "contact support"; then
     echo "PASS  Gateway failure returns support-contact message (HTTP $CODE)"

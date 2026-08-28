@@ -94,7 +94,7 @@ export const TermsPage: React.FC = () => {
             <ul className="list-disc pl-5 space-y-2">
               <li>We do not share your personal data with third-party advertisers.</li>
               <li>WhatsApp notifications are used exclusively for ticket delivery and event updates via enotify.app.</li>
-              <li>Payment information is processed securely through Razorpay; we do not store full credit card or bank details on our servers.</li>
+              <li>Payment information is processed securely through PhonePe; we do not store full credit card or bank details on our servers.</li>
             </ul>
           </div>
         </section>
