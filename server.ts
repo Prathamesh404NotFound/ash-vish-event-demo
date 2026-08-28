@@ -956,6 +956,10 @@ async function finalizeBookingServerSide(
   const claimedSeats: string[] = [];
   let inventoryDeducted = false;
   let pendingOrder: any = null;
+  // Hoisted so catch block can reference them for inventory rollback
+  let eventId: string | undefined;
+  let tierId: string | undefined;
+  let quantity: number | undefined;
 
   const authToken = userToken || (await getAdminAuthToken());
 
@@ -1002,7 +1006,8 @@ async function finalizeBookingServerSide(
       await rtdbDelete(`processed_orders/${orderId}`, authToken).catch(() => {});
     };
 
-    const { eventId, tierId, seatIds, quantity, customerDetails, userId, amount, discount } = pendingOrder;
+    ({ eventId, tierId, quantity } = pendingOrder);
+    const { seatIds, customerDetails, userId, amount, discount } = pendingOrder;
     // Coupon code source of truth: prefer pending_order couponCode, fall back to
     // the explicitly-passed counter code (the walk-in endpoint validates the
     // coupon before building the pending order).
