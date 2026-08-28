@@ -65,7 +65,7 @@ export const Home: React.FC<HomeProps> = ({
         (event.posterUrl || event.coverUrl) &&
         typeof event.status === 'string' &&
         event.status !== 'draft' &&
-        event.status !== 'archived' &&
+        event.status !== 'cancelled' &&
         event.isEventPublic !== false
     );
   }, [events]);
