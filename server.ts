@@ -1447,9 +1447,10 @@ async function finalizeBookingServerSide(
             notificationEntry.status = 'sent';
             notificationEntry.waMessageId = res.waMessageId;
           } else {
-            // If it failed, we might want to clear the lock so it can be retried automatically?
-            // Actually, for "production-harden", it's safer to leave it "sent" to avoid loops,
-            // and let the operator use manual resend if needed.
+            // Clear the lock so a future manual resend (or the next booking
+            // retry) is not silently skipped. The lock only prevents double
+            // sends on success; a failed send must remain retryable.
+            await rtdbUpdate(`tickets/${ticketId}`, { whatsappConfirmationSent: null }, adminToken).catch(() => {});
             notificationEntry.status = 'failed';
             notificationEntry.reason = res.error?.message || JSON.stringify(res.error) || 'Unknown error';
           }
@@ -7429,6 +7430,11 @@ app.post("/api/counter/tickets/:ticketId/resend-whatsapp", requireRole(["counter
       return res.status(400).json({ success: false, error: "Ticket does not have an associated attendee phone number." });
     }
 
+    // Clear the idempotency lock so the manual resend is never silently skipped.
+    // The lock only guards the automatic post-purchase send; a manual resend by
+    // staff should always go through.
+    await rtdbUpdate(`tickets/${ticketId}`, { whatsappConfirmationSent: null }, adminToken).catch(() => {});
+
     const waRes = await sendTicketWhatsAppWithImage(ticket, ticket.attendeePhone);
     const notificationEntry: any = {
       channel: 'enotify_whatsapp',
@@ -7468,6 +7474,40 @@ app.post("/api/counter/tickets/:ticketId/resend-whatsapp", requireRole(["counter
     } else {
       return res.status(500).json({ success: false, error: waRes.error?.message || "WhatsApp delivery failed." });
     }
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Backward-compatible alias: older deployed clients and the admin panel may
+// call /api/countertickets/:ticketId/resend-whatsapp (without the slash).
+// Forward to the real handler so those requests don't 404/500.
+app.post("/api/countertickets/:ticketId/resend-whatsapp", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
+  req.url = req.url.replace('/api/countertickets/', '/api/counter/tickets/');
+  // Re-use handler logic inline rather than forwarding to avoid circular routing.
+  try {
+    const { ticketId } = req.params;
+    const adminToken = await getAdminAuthToken();
+    const ticketSnap = await rtdbGet(`tickets/${ticketId}`, adminToken);
+    const ticket = ticketSnap.data as any;
+    if (!ticket) return res.status(404).json({ success: false, error: "Ticket not found." });
+    if (!ticket.attendeePhone) {
+      return res.status(400).json({ success: false, error: "Ticket does not have an associated attendee phone number." });
+    }
+    await rtdbUpdate(`tickets/${ticketId}`, { whatsappConfirmationSent: null }, adminToken).catch(() => {});
+    const waRes = await sendTicketWhatsAppWithImage(ticket, ticket.attendeePhone);
+    const notificationEntry: any = {
+      channel: 'enotify_whatsapp',
+      createdAt: new Date().toISOString(),
+      ...(waRes.success ? { status: 'sent', waMessageId: waRes.waMessageId } : { status: 'failed', reason: waRes.error?.message || JSON.stringify(waRes.error) || 'Unknown error' }),
+    };
+    await rtdbPush("notifications", { ...notificationEntry, ticketId, recipientPhone: ticket.attendeePhone, attendeeName: ticket.attendeeName, eventTitle: ticket.eventTitle, subject: "WhatsApp Ticket Confirmation (Resend)", recipientCount: 1, createdBy: (req as any).user?.uid }, adminToken).catch(() => {});
+    if (!ticket.notifications) ticket.notifications = [];
+    ticket.notifications.push(notificationEntry);
+    await rtdbSet(`tickets/${ticketId}`, ticket, adminToken);
+    if (ticket.ownerId) await rtdbSet(`users/${ticket.ownerId}/tickets/${ticketId}`, ticket, adminToken).catch(() => {});
+    if (waRes.success) return res.json({ success: true, message: "WhatsApp message resent successfully." });
+    return res.status(500).json({ success: false, error: waRes.error?.message || "WhatsApp delivery failed." });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
   }

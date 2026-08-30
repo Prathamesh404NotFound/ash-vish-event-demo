@@ -1333,7 +1333,9 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const bulkOrdersAction = async (action: 'export' | 'cancel' | 'email', payload: {
     orderIds?: string[]; subject?: string; message?: string;
-    eventId?: string; status?: string; channel?: string; dateFrom?: string; dateTo?: string; search?: string;
+    eventId?: string; status?: string; channel?: string;
+    counterName?: string; issuer?: string; discountStatus?: 'applied' | 'none';
+    dateFrom?: string; dateTo?: string; search?: string;
   } = {}) => {
     const { orderIds, subject, message, ...filters } = payload;
     const body: any = { action };

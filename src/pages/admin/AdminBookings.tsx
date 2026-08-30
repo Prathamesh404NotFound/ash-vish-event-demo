@@ -250,7 +250,7 @@ export const AdminBookings: React.FC = () => {
   useEffect(() => {
     loadOrders();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterEventId, filterStatus, filterChannel, dateFrom, dateTo, page, pageSize]);
+  }, [filterEventId, filterStatus, filterChannel, filterCounter, filterIssuer, discountStatus, dateFrom, dateTo, page, pageSize]);
 
   // Keep local orders in sync with search input typing (server-side search still applies on submit)
   useEffect(() => {
@@ -311,6 +311,9 @@ export const AdminBookings: React.FC = () => {
         eventId: filterEventId || undefined,
         status: filterStatus || undefined,
         channel: filterChannel || undefined,
+        counterName: filterCounter || undefined,
+        issuer: filterIssuer || undefined,
+        discountStatus: discountStatus === 'all' ? undefined : discountStatus,
         dateFrom: dateFrom || undefined,
         dateTo: dateTo || undefined,
         search: search || undefined,

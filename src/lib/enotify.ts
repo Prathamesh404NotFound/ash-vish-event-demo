@@ -365,18 +365,27 @@ export async function sendTicketWhatsApp(
 
 /**
  * Sends ticket via enotify.app REST API WITH an image (event poster).
- * 
+ *
  * Protocol:
  * GET https://enotify.app/api/sendImage?token=...&phone=...&image=...&caption=...
+ *
+ * Retries up to 3 times on 429/5xx/network errors with 1s, 3s, 9s backoffs,
+ * matching the behaviour of sendTicketWhatsApp (text-only variant).
+ * Falls back to text-only send when the image URL is unavailable.
  */
 export async function sendTicketWhatsAppWithImage(
   ticket: any,
   recipientPhone: string
 ): Promise<{ success: boolean; waMessageId?: string; error?: any }> {
   const rawEnabled = process.env.ENOTIFY_ENABLED;
-  const isExplicitlyDisabled = rawEnabled !== undefined && ['false', '0', 'off', 'no', 'disabled'].includes(String(rawEnabled).trim().toLowerCase());
-  
-  if (isExplicitlyDisabled) return { success: false, error: 'ENOTIFY_DISABLED' };
+  const isExplicitlyDisabled =
+    rawEnabled !== undefined &&
+    ['false', '0', 'off', 'no', 'disabled'].includes(String(rawEnabled).trim().toLowerCase());
+
+  if (isExplicitlyDisabled) {
+    console.warn('[ENOTIFY] Sending skipped: ENOTIFY_DISABLED via ENOTIFY_ENABLED env var.');
+    return { success: false, error: 'ENOTIFY_DISABLED' };
+  }
 
   const token = (
     process.env.ENOTIFY_TOKEN ||
@@ -385,35 +394,143 @@ export async function sendTicketWhatsAppWithImage(
     DEFAULT_INSTANCE_TOKEN
   ).trim();
 
-  if (!token) return { success: false, error: 'MISSING_API_TOKEN' };
+  if (!token) {
+    console.error('[ENOTIFY] WhatsApp API token is missing in environment variables.');
+    return { success: false, error: 'MISSING_API_TOKEN' };
+  }
 
-  const baseUrl = (
-    process.env.ENOTIFY_API_URL ||
-    DEFAULT_API_URL
-  ).trim().replace(/\/+$/, '');
+  const baseUrl = (process.env.ENOTIFY_API_URL || DEFAULT_API_URL).trim().replace(/\/+$/, '');
 
   const normalizedPhone = normalizePhoneNumber(recipientPhone);
-  if (!normalizedPhone) return { success: false, error: 'INVALID_PHONE_NUMBER' };
+  if (!normalizedPhone) {
+    console.error(`[ENOTIFY] Invalid phone number: "${recipientPhone}"`);
+    return { success: false, error: 'INVALID_PHONE_NUMBER' };
+  }
 
   const messageText = formatWhatsAppTicketMessage(ticket);
-  
-  // Use the public URL for the poster
+  const truncatedTokenStr = truncateToken(token);
+
+  // Resolve poster URL: prefer the ticket's own poster, then event poster, then
+  // fall back to the default Sufiyana Shaam poster so the image is always set.
   const appUrl = (process.env.VITE_APP_URL || process.env.APP_URL || 'https://ashvishevents.com').replace(/\/+$/, '');
-  const posterUrl = `${appUrl}/sufiyana-shaam-poster.jpg`;
+  const rawPoster: string =
+    ticket?.posterUrl ||
+    ticket?.coverUrl ||
+    ticket?.eventPoster ||
+    `${appUrl}/sufiyana-shaam-poster.jpg`;
+  // Make relative paths absolute
+  const posterUrl = rawPoster.startsWith('http') ? rawPoster : `${appUrl}${rawPoster.startsWith('/') ? '' : '/'}${rawPoster}`;
 
-  const targetUrl = `${baseUrl}/sendImage?token=${encodeURIComponent(token)}&phone=${encodeURIComponent(normalizedPhone)}&image=${encodeURIComponent(posterUrl)}&caption=${encodeURIComponent(messageText)}`;
+  const maxAttempts = 3;
+  const backoffs = [1000, 3000, 9000];
+  let attempts = 0;
+  let lastError: any = null;
 
-  try {
-    const response = await fetch(targetUrl);
-    const responseData: any = await response.json();
-    
-    if (response.ok && (responseData.status === 'success' || responseData.status === true || responseData.status === 200)) {
-      return { success: true, waMessageId: responseData.data?.id || responseData.messageId || `enotify_img_${Date.now()}` };
+  while (attempts < maxAttempts) {
+    attempts++;
+    console.log(`[ENOTIFY-IMG] Send attempt ${attempts}/${maxAttempts} to ${normalizedPhone} (token: ${truncatedTokenStr})`);
+
+    const targetUrl = `${baseUrl}/sendImage?token=${encodeURIComponent(token)}&phone=${encodeURIComponent(normalizedPhone)}&image=${encodeURIComponent(posterUrl)}&caption=${encodeURIComponent(messageText)}`;
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 20000);
+
+    try {
+      const response = await fetch(targetUrl, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json, text/plain, */*' },
+        signal: controller.signal,
+      });
+
+      const responseText = await response.text();
+      let responseData: any = null;
+      try {
+        responseData = responseText ? JSON.parse(responseText) : {};
+      } catch {
+        responseData = { raw: responseText };
+      }
+
+      // Hard failures — do not retry
+      if (response.status === 400 || response.status === 401 || response.status === 402 || response.status === 403) {
+        console.error(`[ENOTIFY-IMG] Hard failure HTTP ${response.status}:`, responseText);
+        // Fall back to text-only on 400 (likely the image URL was rejected by the API)
+        if (response.status === 400) {
+          console.warn('[ENOTIFY-IMG] Image rejected (400) — falling back to text-only send.');
+          return sendTicketWhatsApp(ticket, recipientPhone);
+        }
+        return { success: false, error: responseData?.error || responseData || { status: response.status } };
+      }
+
+      // Retryable errors
+      if (response.status === 429 || response.status >= 500) {
+        console.warn(`[ENOTIFY-IMG] Retryable HTTP ${response.status} on attempt ${attempts}:`, responseText);
+        lastError = responseData?.error || responseData || { status: response.status };
+        if (attempts < maxAttempts) {
+          await new Promise((r) => setTimeout(r, backoffs[attempts - 1]));
+          continue;
+        }
+        break;
+      }
+
+      if (response.ok) {
+        const rawStatus = responseData.status;
+        const statusStr = rawStatus !== undefined ? String(rawStatus).trim().toLowerCase() : '';
+        const messageIDs =
+          responseData.data?.messageIDs ||
+          responseData.data?.messageIds ||
+          responseData.messageIDs ||
+          responseData.messageIds;
+
+        // Body-level hard failures
+        if (['400', '401', '402', '403', 'error', 'failed', 'false'].includes(statusStr)) {
+          console.error(`[ENOTIFY-IMG] Body-level failure (status: ${responseData.status}):`, JSON.stringify(responseData));
+          // Fall back to text-only
+          console.warn('[ENOTIFY-IMG] Falling back to text-only send after body failure.');
+          return sendTicketWhatsApp(ticket, recipientPhone);
+        }
+
+        if (
+          statusStr === 'success' ||
+          rawStatus === true ||
+          rawStatus === 200 ||
+          statusStr === '200' ||
+          (Array.isArray(messageIDs) && messageIDs.length > 0) ||
+          responseData.data?.id ||
+          responseData.messageId
+        ) {
+          const waMessageId =
+            (Array.isArray(messageIDs) && messageIDs.length > 0 ? String(messageIDs[0]) : null) ||
+            (typeof messageIDs === 'string' ? messageIDs : null) ||
+            responseData.data?.id ||
+            responseData.messageId ||
+            `enotify_img_${Date.now()}`;
+          console.log(`[ENOTIFY-IMG] Success on attempt ${attempts}. Message ID: ${waMessageId}`);
+          return { success: true, waMessageId: String(waMessageId) };
+        }
+
+        // Unknown response — retry
+        console.warn(`[ENOTIFY-IMG] Unexpected response on attempt ${attempts}:`, JSON.stringify(responseData));
+        lastError = responseData;
+        if (attempts < maxAttempts) {
+          await new Promise((r) => setTimeout(r, backoffs[attempts - 1]));
+          continue;
+        }
+      }
+    } catch (networkErr: any) {
+      const isAbort = networkErr.name === 'AbortError';
+      const errMsg = isAbort ? 'Request timed out after 20s' : (networkErr.message || String(networkErr));
+      console.warn(`[ENOTIFY-IMG] Network error on attempt ${attempts}:`, errMsg);
+      lastError = { message: errMsg, type: isAbort ? 'TimeoutError' : 'NetworkError' };
+      if (attempts < maxAttempts) {
+        await new Promise((r) => setTimeout(r, backoffs[attempts - 1]));
+        continue;
+      }
+    } finally {
+      clearTimeout(timeoutId);
     }
-    
-    return { success: false, error: responseData };
-  } catch (err) {
-    console.error("[ENOTIFY] Image send network/fetch error:", err);
-    return { success: false, error: err };
   }
+
+  // All image attempts exhausted — fall back to text-only
+  console.warn('[ENOTIFY-IMG] All image send attempts failed. Falling back to text-only send.');
+  return sendTicketWhatsApp(ticket, recipientPhone);
 }
