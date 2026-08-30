@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { ref, get, push, child, onValue } from 'firebase/database';
 import { rtdb, auth } from '../lib/firebase';
 import { useAuth } from './AuthContext';
-import { EventItem, Ticket, TicketTier, BookingRecord, Coupon, EventReview, OrganizerAccount, WhatsAppTemplate } from '../types';
+import { EventItem, Ticket, TicketTier, BookingRecord, Coupon, EventReview, OrganizerAccount } from '../types';
 import { safeFetch, getApiUrl, SafeFetchResponse } from '../lib/api';
 import { rtdbGet, rtdbSet, rtdbDelete, rtdbUpdate } from '../lib/rtdb';
 import { isSeatBasedEvent } from '../lib/seatMap';
@@ -169,11 +169,6 @@ interface BookingContextType {
   }) => Promise<Response>;
   resendTicketWhatsApp: (ticketId: string) => Promise<Response>;
   // WhatsApp Templates
-  whatsappTemplates: WhatsAppTemplate[];
-  fetchWhatsAppTemplates: () => Promise<void>;
-  createWhatsAppTemplate: (data: { name: string; body: string; assignedEventIds: string[] }) => Promise<boolean>;
-  updateWhatsAppTemplate: (id: string, data: Partial<WhatsAppTemplate>) => Promise<boolean>;
-  deleteWhatsAppTemplate: (id: string) => Promise<void>;
 }
 
 const BookingContext = createContext<BookingContextType | undefined>(undefined);
@@ -1008,7 +1003,6 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // Coupons State
   const [coupons, setCoupons] = useState<Coupon[]>([]);
-  const [whatsappTemplates, setWhatsappTemplates] = useState<WhatsAppTemplate[]>([]);
 
   const fetchCoupons = async () => {
     try {
@@ -1027,81 +1021,6 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, [user?.role, user?.id]);
 
   // ---- WhatsApp Templates ----
-  const fetchWhatsAppTemplates = async () => {
-    try {
-      const res = await safeFetch<any>('/api/whatsapp-templates', {
-        headers: await authenticatedApiHeaders(),
-      });
-      if (res.ok && res.data?.templates) {
-        setWhatsappTemplates(res.data.templates);
-      }
-    } catch (err) {
-      console.warn('Failed to fetch WhatsApp templates:', err);
-    }
-  };
-
-  useEffect(() => {
-    if (user?.role === 'admin' || user?.role === 'super_admin') {
-      fetchWhatsAppTemplates();
-    }
-  }, [user?.role]);
-
-  const createWhatsAppTemplate = async (data: { name: string; body: string; assignedEventIds: string[] }): Promise<boolean> => {
-    try {
-      const res = await safeFetch<any>('/api/whatsapp-templates', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(await authenticatedApiHeaders()) },
-        body: JSON.stringify(data),
-      });
-      if (res.ok && res.data?.template) {
-        setWhatsappTemplates(prev => [res.data.template, ...prev]);
-        showToast('WhatsApp template created!', 'success');
-        return true;
-      }
-      showToast(res.data?.error || 'Failed to create template.', 'error');
-      return false;
-    } catch {
-      showToast('Network error creating template.', 'error');
-      return false;
-    }
-  };
-
-  const updateWhatsAppTemplate = async (id: string, data: Partial<WhatsAppTemplate>): Promise<boolean> => {
-    try {
-      const res = await safeFetch<any>(`/api/whatsapp-templates/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...(await authenticatedApiHeaders()) },
-        body: JSON.stringify(data),
-      });
-      if (res.ok && res.data?.template) {
-        setWhatsappTemplates(prev => prev.map(t => t.id === id ? res.data.template : t));
-        showToast('Template updated!', 'success');
-        return true;
-      }
-      showToast(res.data?.error || 'Failed to update template.', 'error');
-      return false;
-    } catch {
-      showToast('Network error updating template.', 'error');
-      return false;
-    }
-  };
-
-  const deleteWhatsAppTemplate = async (id: string): Promise<void> => {
-    try {
-      const res = await safeFetch<any>(`/api/whatsapp-templates/${id}`, {
-        method: 'DELETE',
-        headers: await authenticatedApiHeaders(),
-      });
-      if (res.ok) {
-        setWhatsappTemplates(prev => prev.filter(t => t.id !== id));
-        showToast('Template deleted.', 'info');
-      } else {
-        showToast(res.data?.error || 'Failed to delete template.', 'error');
-      }
-    } catch {
-      showToast('Network error deleting template.', 'error');
-    }
-  };
 
   const validateCouponServer = async (code: string, eventId: string, amount: number) => {
     const codeUpper = code.trim().toUpperCase();
@@ -1751,11 +1670,6 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         fetchAdminEvents,
         fetchOrders,
         resendTicketWhatsApp,
-        whatsappTemplates,
-        fetchWhatsAppTemplates,
-        createWhatsAppTemplate,
-        updateWhatsAppTemplate,
-        deleteWhatsAppTemplate,
         createManualOrder,
         editOrder,
         refundOrder,
