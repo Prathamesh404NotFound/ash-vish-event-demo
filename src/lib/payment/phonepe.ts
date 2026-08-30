@@ -15,8 +15,8 @@ import crypto from "crypto";
  *  - Webhook: Supplemental idempotent callback route.
  */
 
-const CLIENT_ID = process.env.PHONEPE_CLIENT_ID || "M22GIH1IAD6YJ_2608200104";
-const CLIENT_SECRET = process.env.PHONEPE_CLIENT_SECRET || "NzY1ZDBlM2EtNzk3MC00MWRlLTk2MTQtMGQ1M2I5N2Q5ZmNl";
+const CLIENT_ID = process.env.PHONEPE_CLIENT_ID || "";
+const CLIENT_SECRET = process.env.PHONEPE_CLIENT_SECRET || "";
 const PHONEPE_ENV = (process.env.PHONEPE_ENV || "production").toLowerCase();
 
 const IS_PRODUCTION = PHONEPE_ENV === "production" || !PHONEPE_ENV.includes("sand") && !PHONEPE_ENV.includes("test");
