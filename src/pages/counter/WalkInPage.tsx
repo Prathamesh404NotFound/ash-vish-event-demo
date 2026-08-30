@@ -32,7 +32,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { useNavigate } from 'react-router-dom';
 import { useBooking } from '../../contexts/BookingContext';
 import { useAuth } from '../../contexts/AuthContext';
-import { Ticket as TicketType } from '../../types';
+import { Ticket as TicketType, normalizeTiers } from '../../types';
 import { clearStoredActiveShift, readActiveCounterId, readPreferredStoredActiveShift, writeStoredActiveShift } from '../../lib/counterSession';
 import { SeatMap } from '../../components/SeatMap';
 import { sendTicketToWhatsApp } from '../../utils/whatsapp';
@@ -200,7 +200,7 @@ export const WalkInPage: React.FC = () => {
   ));
 
   const selectedEvent = events.find((e) => e.id === selectedEventId) || events[0];
-  const selectedEventTiers = selectedEvent?.ticketTiers || [];
+  const selectedEventTiers = normalizeTiers(selectedEvent?.ticketTiers);
   const selectedTier = selectedEventTiers.find((t) => t.id === selectedTierId) || selectedEventTiers[0];
 
   // Remember the last event + tier for fast repeat issuance.

@@ -149,11 +149,11 @@ export const CounterOverview: React.FC = () => {
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-gray-400">Availability:</span>
                     <span className={`font-bold ${
-                      (evt.ticketTiers || []).reduce((sum, t) => sum + (t.remainingInventory ?? (t.totalInventory || 0)), 0) > 0 
+                      (Array.isArray(evt.ticketTiers) ? evt.ticketTiers : Object.values(evt.ticketTiers || {})).filter(Boolean).reduce((sum: number, t: any) => sum + (t.remainingInventory ?? (t.totalInventory || 0)), 0) > 0 
                         ? 'text-amber-400' 
                         : 'text-red-400'
                     }`}>
-                      {(evt.ticketTiers || []).reduce((sum, t) => sum + (t.remainingInventory ?? (t.totalInventory || 0)), 0)} Tickets Left
+                      {(Array.isArray(evt.ticketTiers) ? evt.ticketTiers : Object.values(evt.ticketTiers || {})).filter(Boolean).reduce((sum: number, t: any) => sum + (t.remainingInventory ?? (t.totalInventory || 0)), 0)} Tickets Left
                     </span>
                   </div>
                 </div>

@@ -893,7 +893,11 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const countToDeduct = ticket.quantity || selectedSeats?.length || 1;
     setEvents((prev) => prev.map((event) => event.id !== eventId ? event : {
       ...event,
-      ticketTiers: (Array.isArray(event.ticketTiers) ? event.ticketTiers : []).filter(Boolean).map((tier: any) =>
+      ticketTiers: (Array.isArray(event.ticketTiers)
+        ? event.ticketTiers
+        : (event.ticketTiers && typeof event.ticketTiers === 'object')
+          ? Object.values(event.ticketTiers)
+          : []).filter(Boolean).map((tier: any) =>
         !tier ? tier : tier.id !== tierId
           ? tier
           : { ...tier, remainingInventory: Math.max(0, (tier.remainingInventory || 0) - countToDeduct) }),
