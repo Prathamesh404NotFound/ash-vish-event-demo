@@ -29,6 +29,7 @@ import { BlogPage } from './pages/BlogPage';
 import { BlogPostPage } from './pages/BlogPostPage';
 import { TermsPage } from './pages/TermsPage';
 import { PaymentCallbackPage } from './pages/PaymentCallbackPage';
+import { NotFoundPage } from './pages/NotFoundPage';
 
 function HashPassRedirectHandler() {
   const navigate = useNavigate();
@@ -317,8 +318,10 @@ export default function App() {
               <Route path="*" element={<Navigate to="/counter" replace />} />
             </Route>
 
-            {/* Fallback redirect */}
-            <Route path="*" element={<Navigate to="/" replace />} />
+            {/* 404 - Not Found (inside MainLayout for consistent nav/footer) */}
+            <Route path="*" element={<MainLayout />}>
+              <Route path="*" element={<NotFoundPage />} />
+            </Route>
           </Routes>
         </BrowserRouter>
       </BookingProvider>

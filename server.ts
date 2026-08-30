@@ -1903,9 +1903,9 @@ export async function createApp() {
           if (verified) {
             let serverRole = await fetchUserRoleFromRTDB(verified.uid, token);
 
-            if (roleHeader && allowedRoles.includes(roleHeader) && process.env.NODE_ENV !== 'production') {
-              serverRole = roleHeader;
-            }
+            // SECURITY FIX: Never trust client-supplied role headers. Roles are
+            // always resolved server-side from Firebase UID to RTDB staff record.
+            // The X-User-Role header is intentionally ignored for authorization.
 
             if (serverRole === 'organizer' || serverRole === 'event_manager') {
               const orgsSnap = await rtdbGet('organizers', token);
@@ -2026,6 +2026,11 @@ export async function createApp() {
 
     const normalizedPhone = normalizePhoneNumber(phone);
     if (!normalizedPhone) return res.status(400).json({ success: false, error: "Invalid phone number format" });
+    // Rate limit: max 3 OTP requests per phone per 5 minutes
+    const otpKey = `otp:${normalizedPhone}`;
+    if (!checkRateLimit(otpKey, 5 * 60 * 1000, 3)) {
+      return res.status(429).json({ success: false, error: "Too many OTP requests. Please wait a few minutes." });
+    }
 
     const adminToken = await getAdminAuthToken();
     if (!adminToken) return res.status(500).json({ success: false, error: "Server authentication failed" });
@@ -6353,6 +6358,23 @@ export async function createApp() {
     }
   });
 
+  // General-purpose in-memory rate limiter for sensitive endpoints.
+  const rateLimitMap = new Map<string, number[]>();
+  function checkRateLimit(key: string, windowMs: number, maxRequests: number): boolean {
+    const now = Date.now();
+    const timestamps = (rateLimitMap.get(key) || []).filter(ts => now - ts < windowMs);
+    if (timestamps.length >= maxRequests) return false;
+    timestamps.push(now);
+    rateLimitMap.set(key, timestamps);
+    if (rateLimitMap.size > 10000) {
+      for (const [k, v] of rateLimitMap) {
+        const fresh = v.filter(ts => now - ts < windowMs);
+        if (fresh.length === 0) rateLimitMap.delete(k);
+        else rateLimitMap.set(k, fresh);
+      }
+    }
+    return true;
+  }
   // Rate limiting map for /api/passes endpoint: IP -> timestamps array
   const passRateLimits = new Map<string, number[]>();
 

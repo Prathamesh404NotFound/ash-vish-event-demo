@@ -18,13 +18,16 @@ export const QRPlaceholder: React.FC<QRPlaceholderProps> = ({
   id,
 }) => {
   const qrValue = value || 'ASHVISH-EMPTY-TICKET';
-  const displaySize = Math.max(220, size);
+  // Use the requested size directly — the parent controls the container.
+  // Previously Math.max(220, size) forced QR to 220px minimum, causing
+  // overflow when embedded in small containers (e.g. ticket card QR = 56px).
+  const displaySize = Math.max(48, size);
 
   return (
     <div className="flex flex-col items-center">
       <div
-        className="relative flex flex-col items-center justify-center p-4 bg-white rounded-2xl shadow-xl overflow-hidden select-none border border-black/10"
-        style={{ width: displaySize, height: displaySize }}
+        className="relative flex flex-col items-center justify-center bg-white rounded-xl shadow-xl overflow-hidden select-none border border-black/10"
+        style={{ width: displaySize, height: displaySize, padding: Math.max(2, Math.round(displaySize * 0.08)) }}
       >
         <QRCodeSVG
           value={qrValue}
@@ -52,8 +55,9 @@ export const QRPlaceholder: React.FC<QRPlaceholderProps> = ({
 
         {/* Center Branding Logo Overlay */}
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <div className="p-1 bg-[#D4AF37] rounded-md shadow-md text-black font-extrabold text-[10px] flex items-center gap-0.5 border border-white">
-            <TicketIcon className="w-3 h-3 stroke-[2.5]" />
+          <div className="bg-[#D4AF37] rounded shadow-md text-black font-extrabold flex items-center border border-white"
+            style={{ padding: Math.max(1, Math.round(displaySize * 0.02)) }}>
+            <TicketIcon style={{ width: Math.max(8, Math.round(displaySize * 0.06)), height: Math.max(8, Math.round(displaySize * 0.06)) }} strokeWidth={2.5} />
           </div>
         </div>
 
