@@ -1,21 +1,42 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Ticket, QrCode, UserPlus, CheckCircle2, Clock, Users, ArrowRight, ShieldCheck } from 'lucide-react';
+import { Ticket, QrCode, UserPlus, CheckCircle2, Clock, Users, ShieldCheck, RefreshCw } from 'lucide-react';
 import { useBooking } from '../../contexts/BookingContext';
+import { normalizeTiers } from '../../types';
+import { CounterOverviewSkeleton } from '../../components/counter/CounterSkeletons';
 
 export const CounterOverview: React.FC = () => {
   const navigate = useNavigate();
   const { events, allTickets } = useBooking();
 
-  const totalTickets = allTickets.length;
-  const scannedTickets = allTickets.filter((t) => t.status === 'redeemed' || t.status === 'used').length;
-  const walkInTickets = allTickets.filter((t) => t.isWalkIn).length;
-  const validUnscanned = allTickets.filter((t) => t.status === 'valid').length;
+  // Memoize all ticket statistics to avoid recalculating on every render
+  const stats = useMemo(() => {
+    const total = allTickets.length;
+    const scanned = allTickets.filter((t) => t.status === 'redeemed' || t.status === 'used').length;
+    const walkIn = allTickets.filter((t) => t.isWalkIn).length;
+    const valid = allTickets.filter((t) => t.status === 'valid').length;
+    const progress = total > 0 ? Math.round((scanned / total) * 100) : 0;
+    return { total, scanned, walkIn, valid, progress };
+  }, [allTickets]);
 
-  const scanProgress = totalTickets > 0 ? Math.round((scannedTickets / totalTickets) * 100) : 0;
+  // Memoize per-event stats
+  const eventStats = useMemo(() => {
+    return events.map((evt) => {
+      const tiers = normalizeTiers(evt.ticketTiers);
+      const eventTickets = allTickets.filter((t) => t.eventId === evt.id);
+      const eventScanned = eventTickets.filter((t) => t.status === 'redeemed' || t.status === 'used').length;
+      const remaining = tiers.reduce((sum, t) => sum + (t.remainingInventory ?? (t.totalInventory || 0)), 0);
+      return { ...evt, eventTickets, eventScanned, remaining, tierCount: tiers.length };
+    });
+  }, [events, allTickets]);
+
+  // Loading state: show skeleton while context is populating
+  if (!events && allTickets.length === 0) {
+    return <CounterOverviewSkeleton />;
+  }
 
   return (
-    <div className="space-y-8 max-w-6xl mx-auto">
+    <div className="space-y-8 max-w-6xl mx-auto animate-fade-in-up">
       {/* Top Banner */}
       <div className="p-6 md:p-8 rounded-3xl bg-gradient-to-r from-[#1C1C1C] via-[#141414] to-[#0D0D0D] border border-white/10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6 shadow-2xl">
         <div>
@@ -33,14 +54,14 @@ export const CounterOverview: React.FC = () => {
         <div className="flex items-center gap-3 w-full md:w-auto">
           <button
             onClick={() => navigate('/counter/scan')}
-            className="flex-1 md:flex-initial py-3 px-5 rounded-2xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] hover:brightness-110 text-black font-extrabold text-xs flex items-center justify-center gap-2 shadow-lg shadow-[#D4AF37]/25 transition-all"
+            className="flex-1 md:flex-initial py-3 px-5 rounded-2xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] hover:brightness-110 text-black font-extrabold text-xs flex items-center justify-center gap-2 shadow-lg shadow-[#D4AF37]/25 transition-all active:scale-[0.98]"
           >
             <QrCode className="w-4 h-4 stroke-[2.5]" />
             <span>Scan QR Pass</span>
           </button>
           <button
             onClick={() => navigate('/counter/walk-in')}
-            className="flex-1 md:flex-initial py-3 px-5 rounded-2xl bg-[#222] hover:bg-[#333] text-white font-extrabold text-xs flex items-center justify-center gap-2 transition-all border border-white/10"
+            className="flex-1 md:flex-initial py-3 px-5 rounded-2xl bg-[#222] hover:bg-[#333] text-white font-extrabold text-xs flex items-center justify-center gap-2 transition-all border border-white/10 active:scale-[0.98]"
           >
             <UserPlus className="w-4 h-4 text-[#D4AF37]" />
             <span>Issue Walk-In</span>
@@ -55,7 +76,7 @@ export const CounterOverview: React.FC = () => {
             <span>Total Issued Passes</span>
             <Ticket className="w-4 h-4 text-[#D4AF37]" />
           </div>
-          <p className="font-heading font-extrabold text-2xl text-white">{totalTickets}</p>
+          <p className="font-heading font-extrabold text-2xl text-white">{stats.total}</p>
           <p className="text-[11px] text-gray-500">Across all online & counter sales</p>
         </div>
 
@@ -64,8 +85,8 @@ export const CounterOverview: React.FC = () => {
             <span>Scanned at Gate</span>
             <CheckCircle2 className="w-4 h-4 text-emerald-400" />
           </div>
-          <p className="font-heading font-extrabold text-2xl text-white">{scannedTickets}</p>
-          <p className="text-[11px] text-emerald-400/80 font-medium">{scanProgress}% venue check-in rate</p>
+          <p className="font-heading font-extrabold text-2xl text-white">{stats.scanned}</p>
+          <p className="text-[11px] text-emerald-400/80 font-medium">{stats.progress}% venue check-in rate</p>
         </div>
 
         <div className="p-5 rounded-2xl bg-[#141414] border border-amber-500/20 space-y-2">
@@ -73,7 +94,7 @@ export const CounterOverview: React.FC = () => {
             <span>Awaiting Entry</span>
             <Clock className="w-4 h-4 text-amber-400" />
           </div>
-          <p className="font-heading font-extrabold text-2xl text-white">{validUnscanned}</p>
+          <p className="font-heading font-extrabold text-2xl text-white">{stats.valid}</p>
           <p className="text-[11px] text-gray-500">Valid passes ready to enter</p>
         </div>
 
@@ -82,7 +103,7 @@ export const CounterOverview: React.FC = () => {
             <span>Counter Walk-Ins</span>
             <Users className="w-4 h-4 text-blue-400" />
           </div>
-          <p className="font-heading font-extrabold text-2xl text-white">{walkInTickets}</p>
+          <p className="font-heading font-extrabold text-2xl text-white">{stats.walkIn}</p>
           <p className="text-[11px] text-gray-500">Manual counter cash sales</p>
         </div>
       </div>
@@ -91,12 +112,12 @@ export const CounterOverview: React.FC = () => {
       <div className="p-6 rounded-3xl bg-[#141414] border border-white/10 space-y-3">
         <div className="flex items-center justify-between text-xs font-bold text-white">
           <span>Overall Venue Gate Turnstile Progress</span>
-          <span className="text-[#D4AF37]">{scannedTickets} / {totalTickets} Guests Admitted</span>
+          <span className="text-[#D4AF37]">{stats.scanned} / {stats.total} Guests Admitted</span>
         </div>
         <div className="w-full h-3 rounded-full bg-[#222] overflow-hidden">
           <div
             className="h-full bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] rounded-full transition-all duration-500"
-            style={{ width: `${scanProgress}%` }}
+            style={{ width: `${stats.progress}%` }}
           />
         </div>
       </div>
@@ -105,32 +126,35 @@ export const CounterOverview: React.FC = () => {
       <div className="p-6 rounded-3xl bg-[#141414] border border-white/10 space-y-4">
         <h2 className="font-heading font-extrabold text-lg text-white flex items-center gap-2">
           <span>Active Events Schedule</span>
-          <span className="text-xs font-normal text-gray-400">({events.length} listed)</span>
+          <span className="text-xs font-normal text-gray-400">({eventStats.length} listed)</span>
         </h2>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {events.map((evt) => {
-            const eventTickets = allTickets.filter((t) => t.eventId === evt.id);
-            const eventScanned = eventTickets.filter((t) => t.status === 'redeemed' || t.status === 'used').length;
-
-            return (
+        {eventStats.length === 0 ? (
+          <div className="text-center py-8">
+            <Ticket className="w-10 h-10 text-white/10 mx-auto mb-3" />
+            <p className="text-sm text-gray-500">No active events found</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {eventStats.map((evt) => (
               <div
                 key={evt.id}
                 className="p-4 rounded-2xl bg-[#1C1C1C] border border-white/5 space-y-3 hover:border-white/20 transition-all"
               >
                 <div className="flex gap-3">
                   {evt.posterUrl ? (
-                  <img
-                    src={evt.posterUrl}
-                    alt={evt.title}
-                    className="w-16 h-16 rounded-xl object-cover flex-shrink-0"
-                  />
+                    <img
+                      src={evt.posterUrl}
+                      alt={evt.title}
+                      className="w-16 h-16 rounded-xl object-cover flex-shrink-0"
+                      loading="lazy"
+                    />
                   ) : (
                     <div className="w-16 h-16 rounded-xl bg-[#262626] border border-white/10 flex items-center justify-center flex-shrink-0">
                       <Ticket className="w-6 h-6 text-white/30" />
                     </div>
                   )}
-                  <div className="overflow-hidden">
+                  <div className="overflow-hidden min-w-0">
                     <span className="text-[10px] uppercase tracking-wider text-[#D4AF37] font-bold">
                       {evt.city} • {evt.venue}
                     </span>
@@ -143,24 +167,20 @@ export const CounterOverview: React.FC = () => {
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-gray-400">Check-In Status:</span>
                     <span className="font-bold text-white">
-                      <span className="text-emerald-400">{eventScanned}</span> / {eventTickets.length} Passes Scanned
+                      <span className="text-emerald-400">{evt.eventScanned}</span> / {evt.eventTickets.length} Passes Scanned
                     </span>
                   </div>
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-gray-400">Availability:</span>
-                    <span className={`font-bold ${
-                      (Array.isArray(evt.ticketTiers) ? evt.ticketTiers : Object.values(evt.ticketTiers || {})).filter(Boolean).reduce((sum: number, t: any) => sum + (t.remainingInventory ?? (t.totalInventory || 0)), 0) > 0 
-                        ? 'text-amber-400' 
-                        : 'text-red-400'
-                    }`}>
-                      {(Array.isArray(evt.ticketTiers) ? evt.ticketTiers : Object.values(evt.ticketTiers || {})).filter(Boolean).reduce((sum: number, t: any) => sum + (t.remainingInventory ?? (t.totalInventory || 0)), 0)} Tickets Left
+                    <span className={`font-bold ${evt.remaining > 0 ? 'text-amber-400' : 'text-red-400'}`}>
+                      {evt.remaining} Tickets Left
                     </span>
                   </div>
                 </div>
               </div>
-            );
-          })}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

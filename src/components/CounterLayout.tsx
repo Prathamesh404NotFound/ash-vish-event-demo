@@ -1,7 +1,8 @@
 import React from 'react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Ticket, QrCode, UserPlus, LogOut, ArrowLeft, ShieldCheck, Sparkles, Clock, ShoppingBag, TrendingUp } from 'lucide-react';
+import { Ticket, QrCode, UserPlus, LogOut, ArrowLeft, ShieldCheck, Sparkles, Clock, ShoppingBag, TrendingUp, RefreshCw } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { ErrorBoundary } from './ErrorBoundary';
 
 export const CounterLayout: React.FC = () => {
   const { user, logout } = useAuth();
@@ -132,7 +133,9 @@ export const CounterLayout: React.FC = () => {
 
       {/* Main Content Area */}
       <main className="min-w-0 flex-1 p-3 sm:p-4 lg:p-8 pb-20 lg:pb-8 overflow-y-auto">
-        <Outlet />
+        <ErrorBoundary>
+          <Outlet />
+        </ErrorBoundary>
       </main>
     </div>
   );

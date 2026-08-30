@@ -23,6 +23,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { safeFetch } from '../../lib/api';
 import { authenticatedApiHeaders } from '../../lib/authHeaders';
 import { clearStoredActiveShift, readActiveCounterId, readStoredActiveShift, writeStoredActiveShift } from '../../lib/counterSession';
+import { ShiftPageSkeleton } from '../../components/counter/CounterSkeletons';
 
 interface ShiftLiveTotals {
   expectedCash: number;
@@ -292,12 +293,7 @@ export const ShiftPage: React.FC = () => {
 
       {/* Main Shift Status / Actions Container */}
       {isLoading && shifts.length === 0 ? (
-        <div className="p-12 rounded-3xl bg-[#141414] border border-white/10 text-center space-y-3">
-          <div className="w-10 h-10 rounded-2xl bg-[#D4AF37]/10 border border-[#D4AF37]/30 flex items-center justify-center animate-spin mx-auto text-[#D4AF37]">
-            <RefreshCw className="w-5 h-5" />
-          </div>
-          <p className="text-gray-400 text-xs font-medium">Checking shift registration status...</p>
-        </div>
+        <ShiftPageSkeleton />
       ) : activeShift ? (
         /* ACTIVE OPEN SHIFT VIEW */
         <div className="space-y-6">
