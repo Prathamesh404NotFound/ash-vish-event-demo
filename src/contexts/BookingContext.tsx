@@ -797,9 +797,16 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setEvents((prev) =>
       prev.map((e) => {
         if (e.id === ticket.eventId) {
+          // Guard: RTDB can store ticketTiers as an object or with null entries.
+          const tiers = Array.isArray(e.ticketTiers)
+            ? e.ticketTiers.filter(Boolean)
+            : typeof e.ticketTiers === 'object' && e.ticketTiers !== null
+              ? Object.values(e.ticketTiers).filter(Boolean)
+              : [];
           return {
             ...e,
-            ticketTiers: e.ticketTiers.map((t) => {
+            ticketTiers: tiers.map((t) => {
+              if (!t) return t;
               // Fix: Use tierId from ticket to match exactly instead of relying on tierName,
               // which could be duplicate or have different casing.
               const tid = ticket.tierId || ticket.tierName;
@@ -880,9 +887,10 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const countToDeduct = ticket.quantity || selectedSeats?.length || 1;
     setEvents((prev) => prev.map((event) => event.id !== eventId ? event : {
       ...event,
-      ticketTiers: event.ticketTiers.map((tier) => tier.id !== tierId
-        ? tier
-        : { ...tier, remainingInventory: Math.max(0, tier.remainingInventory - countToDeduct) }),
+      ticketTiers: (Array.isArray(event.ticketTiers) ? event.ticketTiers : []).filter(Boolean).map((tier: any) =>
+        !tier ? tier : tier.id !== tierId
+          ? tier
+          : { ...tier, remainingInventory: Math.max(0, (tier.remainingInventory || 0) - countToDeduct) }),
     }));
     setAllTickets((prev) => [ticket, ...prev.filter((item) => item.id !== ticket.id)]);
     setMyTickets((prev) => [ticket, ...prev.filter((item) => item.id !== ticket.id)]);

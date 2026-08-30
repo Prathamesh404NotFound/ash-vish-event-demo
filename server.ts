@@ -3207,8 +3207,37 @@ export async function createApp() {
         return res.status(404).json({ success: false, error: "Order not found or expired." });
       }
 
-      if (pendingOrder.userId && pendingOrder.userId !== owner.ownerId) {
+      // Ownership check: accept the order when the caller matches ANY of:
+      //  1. Exact Firebase UID (most reliable)
+      //  2. Guest session hash (caller is unauthenticated but holds the same session)
+      //  3. The reservation's owner (order was created from that reservation)
+      // This prevents a stale/changed identity from blocking fulfillment after
+      // the user signs in between create-order and the PhonePe return redirect.
+      const pendingUserId = pendingOrder.userId || '';
+      const callerUid = owner.uid || '';
+      const callerSession = owner.guestOwnerId || '';
+      let reservationOwnerId = '';
+      if (pendingOrder.reservationId) {
+        try {
+          const resRec = (await rtdbGet(`reservations/${pendingOrder.reservationId}`, authToken)).data;
+          if (resRec?.ownerId) reservationOwnerId = resRec.ownerId;
+        } catch { /* best-effort */ }
+      }
+      const callerOwns = pendingUserId === callerUid
+        || pendingUserId === callerSession
+        || (reservationOwnerId && (reservationOwnerId === callerUid || reservationOwnerId === callerSession));
+      if (pendingUserId && !callerOwns) {
         return res.status(403).json({ success: false, error: "Not your order." });
+      }
+
+      // When the caller is authenticated with a Firebase UID that differs from
+      // the stored userId, upgrade the pending order's userId so the booking
+      // is written under the correct user path (visible in ticket panel).
+      if (callerUid && pendingUserId !== callerUid) {
+        await rtdbUpdate(`pending_orders/${targetOrderId}`,
+          { userId: callerUid, previousUserId: pendingUserId }, authToken
+        ).catch(() => {});
+        pendingOrder.userId = callerUid;
       }
 
       const lookupMerchantOrderId = pendingOrder.merchantOrderId || pendingOrder.phonepeMerchantOrderId || inputMerchantOrderId;
@@ -3476,8 +3505,28 @@ export async function createApp() {
       }
 
       // 3. Ownership check (same logic as verify-payment).
-      if (pendingOrder.userId && pendingOrder.userId !== owner.ownerId) {
+      const pendingUserId = pendingOrder.userId || '';
+      const callerUid = owner.uid || '';
+      const callerSession = owner.guestOwnerId || '';
+      let reservationOwnerId = '';
+      if (pendingOrder.reservationId) {
+        try {
+          const resRec = (await rtdbGet(`reservations/${pendingOrder.reservationId}`, authToken)).data;
+          if (resRec?.ownerId) reservationOwnerId = resRec.ownerId;
+        } catch { /* best-effort */ }
+      }
+      const callerOwns = pendingUserId === callerUid
+        || pendingUserId === callerSession
+        || (reservationOwnerId && (reservationOwnerId === callerUid || reservationOwnerId === callerSession));
+      if (pendingUserId && !callerOwns) {
         return res.status(403).json({ success: false, error: "Not your order." });
+      }
+      // Upgrade userId when caller is authenticated Firebase user
+      if (callerUid && pendingUserId !== callerUid) {
+        await rtdbUpdate(`pending_orders/${targetOrderId}`,
+          { userId: callerUid, previousUserId: pendingUserId }, authToken
+        ).catch(() => {});
+        pendingOrder.userId = callerUid;
       }
 
       // 4. Verify payment status with PhonePe independently.

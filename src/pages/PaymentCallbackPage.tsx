@@ -126,6 +126,24 @@ export function PaymentCallbackPage() {
       }
 
       if (!result.success) {
+        // If not a refund, attempt booking recovery before showing failure.
+        // The recovery endpoint re-verifies with PhonePe independently.
+        if (!result.refundConfirmed && orderId) {
+          try {
+            const headers = await buildIdentityHeaders(false);
+            const recoveryRes = await safeFetch<any>('/api/phonepe/recover-booking', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', ...headers },
+              body: JSON.stringify({ orderId, merchantOrderId }),
+            });
+            if (recoveryRes.ok && recoveryRes.data?.success && recoveryRes.data?.ticket) {
+              handleSuccess({ success: true, ticket: recoveryRes.data.ticket, booking: recoveryRes.data.booking });
+              return;
+            }
+          } catch {
+            // Recovery failed — fall through to show the error
+          }
+        }
         setStatus('failed');
         if (result.refundConfirmed) {
           setErrorMessage(
