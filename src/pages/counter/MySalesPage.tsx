@@ -6,6 +6,7 @@ import {
 import { useAuth } from '../../contexts/AuthContext';
 import { useBooking } from '../../contexts/BookingContext';
 import { readPreferredStoredActiveShift } from '../../lib/counterSession';
+import { MySalesSkeleton } from '../../components/counter/CounterSkeletons';
 
 interface Ticket {
   id: string;
@@ -486,10 +487,7 @@ export const MySalesPage: React.FC = () => {
       {/* Main Grid / Log Table */}
       <div className="bg-[#121212] border border-white/10 rounded-2xl overflow-hidden">
         {loading ? (
-          <div className="p-12 text-center text-gray-400 flex flex-col items-center gap-3">
-            <RefreshCw className="w-8 h-8 animate-spin text-[#D4AF37]" />
-            <p className="text-xs">Fetching personal sales log...</p>
-          </div>
+          <MySalesSkeleton />
         ) : error ? (
           <div className="p-12 text-center text-red-400 flex flex-col items-center gap-2">
             <AlertCircle className="w-8 h-8" />

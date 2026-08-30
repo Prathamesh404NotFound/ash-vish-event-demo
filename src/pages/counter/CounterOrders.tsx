@@ -24,6 +24,7 @@ import {
 import { useBooking } from '../../contexts/BookingContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { safeFetch } from '../../lib/api';
+import { CounterOrdersSkeleton } from '../../components/counter/CounterSkeletons';
 import { authenticatedApiHeaders } from '../../lib/authHeaders';
 import { readPreferredStoredActiveShift } from '../../lib/counterSession';
 import { SeatMap } from '../../components/SeatMap';
@@ -362,10 +363,7 @@ export const CounterOrders: React.FC = () => {
         </div>
 
         {isLoading ? (
-          <div className="p-12 text-center space-y-3">
-            <RefreshCw className="w-6 h-6 animate-spin text-[#D4AF37] mx-auto" />
-            <p className="text-gray-400 text-xs font-medium">Fetching orders from server...</p>
-          </div>
+          <CounterOrdersSkeleton />
         ) : orders.length === 0 ? (
           <div className="p-10 rounded-2xl bg-black/40 border border-white/5 text-center text-gray-500 text-xs">
             No orders match the selected filters.
