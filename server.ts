@@ -1502,8 +1502,56 @@ async function finalizeBookingServerSide(
             return;
           }
 
-          // Use text-only for automatic confirmation as per user preference "no img for now".
-          const res = await sendTicketWhatsApp(newTicket, targetPhone);
+          // Look up a custom WhatsApp template for this event, fall back to default.
+          let res: { success: boolean; waMessageId?: string; error?: any };
+          try {
+            const templatesSnap = await rtdbGet("whatsapp_templates", adminToken);
+            const allTemplates = templatesSnap.data
+              ? (Array.isArray(templatesSnap.data) ? templatesSnap.data.filter(Boolean) : Object.values(templatesSnap.data))
+              : [];
+            const matchingTemplate = allTemplates.find((t: any) =>
+              t?.isActive && Array.isArray(t.assignedEventIds) && t.assignedEventIds.includes(eventId)
+            ) || allTemplates.find((t: any) =>
+              t?.isActive && (!t.assignedEventIds || t.assignedEventIds.length === 0)
+            );
+            if (matchingTemplate && matchingTemplate.body) {
+              const selectedSeats = Array.isArray(newTicket.selectedSeats) ? newTicket.selectedSeats : [];
+              const seatLabel = selectedSeats.length > 0 ? selectedSeats.join(', ') : (newTicket.seatNumber && !/general/i.test(newTicket.seatNumber) ? newTicket.seatNumber : '');
+              const rawTicketRef = newTicket.ticketNumber || newTicket.id || '';
+              const ticketRef = String(rawTicketRef).replace(/^ASH-/i, '');
+              const appUrlBase = (process.env.VITE_APP_URL || process.env.APP_URL || 'https://ashvishevents.com').replace(/\/+$/, '');
+              const passSlugObj = newTicket?.passSlug;
+              const passPath = passSlugObj?.id && passSlugObj?.sig ? `${passSlugObj.id}/${passSlugObj.sig}` : (newTicket as any).passId || newTicket.ticketNumber;
+              const passUrl = `${appUrlBase}/pass/${passPath}`;
+              const mapsRaw = newTicket.eventGoogleMapsQuery || `${newTicket.venue || ''}, ${newTicket.city || ''}`;
+              const mapsUrl = /^https?:\/\//i.test(mapsRaw) ? mapsRaw : `https://maps.google.com/?q=${encodeURIComponent(mapsRaw)}`;
+              const renderedBody = matchingTemplate.body
+                .replace(/\{\{eventTitle\}\}/g, newTicket.eventTitle || 'Event')
+                .replace(/\{\{attendeeName\}\}/g, newTicket.attendeeName || 'Guest')
+                .replace(/\{\{quantity\}\}/g, String(newTicket.quantity || 1))
+                .replace(/\{\{date\}\}/g, newTicket.date || '')
+                .replace(/\{\{time\}\}/g, newTicket.time || '')
+                .replace(/\{\{venue\}\}/g, newTicket.venue || '')
+                .replace(/\{\{city\}\}/g, newTicket.city || '')
+                .replace(/\{\{tierName\}\}/g, newTicket.tierName || 'Standard')
+                .replace(/\{\{seatLabel\}\}/g, seatLabel)
+                .replace(/\{\{ticketRef\}\}/g, ticketRef)
+                .replace(/\{\{passUrl\}\}/g, passUrl)
+                .replace(/\{\{mapsUrl\}\}/g, mapsUrl)
+                .replace(/\{\{totalPaid\}\}/g, String(newTicket.totalPaid || 0))
+                .replace(/\{\{attendeePhone\}\}/g, newTicket.attendeePhone || '')
+                .replace(/\{\{attendeeEmail\}\}/g, newTicket.attendeeEmail || '')
+                .replace(/\{\{bookingId\}\}/g, bookingId || '');
+              console.log(`[WHATSAPP] Using custom template "${matchingTemplate.name}" for event ${eventId}`);
+              const sent = await sendWhatsAppText(targetPhone, renderedBody);
+              res = sent ? { success: true, waMessageId: `template_${Date.now()}` } : { success: false, error: 'Template send failed' };
+            } else {
+              res = await sendTicketWhatsApp(newTicket, targetPhone);
+            }
+          } catch (templateErr) {
+            console.warn("[WHATSAPP TEMPLATE] Lookup failed, using default:", (templateErr as any)?.message);
+            res = await sendTicketWhatsApp(newTicket, targetPhone);
+          }
           
           const notificationEntry: any = {
             channel: 'enotify_whatsapp',
@@ -2360,6 +2408,81 @@ export async function createApp() {
         entityId: code,
         beforeState,
       });
+      return res.json({ success: true });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // -----------------------------------------------------------
+  // WhatsApp Message Templates (admin-only CRUD)
+  // -----------------------------------------------------------
+
+  app.get("/api/whatsapp-templates", verifyRole(['admin', 'super_admin']), async (req: any, res) => {
+    try {
+      const authToken = await getAdminAuthToken();
+      const snap = await rtdbGet("whatsapp_templates", authToken);
+      const data = snap.data || {};
+      const templates = Array.isArray(data) ? data.filter(Boolean) : Object.values(data);
+      return res.json({ success: true, templates });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  app.post("/api/whatsapp-templates", verifyRole(['admin', 'super_admin']), async (req: any, res) => {
+    try {
+      const { name, body, assignedEventIds } = req.body || {};
+      if (!name || !body) {
+        return res.status(400).json({ success: false, error: "Template name and body are required." });
+      }
+      const authToken = await getAdminAuthToken();
+      const id = 'wamt_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8);
+      const template = {
+        id,
+        name: String(name).slice(0, 100),
+        body: String(body).slice(0, 4000),
+        assignedEventIds: Array.isArray(assignedEventIds) ? assignedEventIds : [],
+        isActive: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      await rtdbSet(`whatsapp_templates/${id}`, template, authToken);
+      return res.json({ success: true, template });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  app.put("/api/whatsapp-templates/:id", verifyRole(['admin', 'super_admin']), async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const { name, body, assignedEventIds, isActive } = req.body || {};
+      const authToken = await getAdminAuthToken();
+      const existing = (await rtdbGet(`whatsapp_templates/${id}`, authToken)).data;
+      if (!existing) {
+        return res.status(404).json({ success: false, error: "Template not found." });
+      }
+      const updated = {
+        ...existing,
+        ...(name !== undefined ? { name: String(name).slice(0, 100) } : {}),
+        ...(body !== undefined ? { body: String(body).slice(0, 4000) } : {}),
+        ...(assignedEventIds !== undefined ? { assignedEventIds: Array.isArray(assignedEventIds) ? assignedEventIds : [] } : {}),
+        ...(isActive !== undefined ? { isActive: Boolean(isActive) } : {}),
+        updatedAt: new Date().toISOString(),
+      };
+      await rtdbSet(`whatsapp_templates/${id}`, updated, authToken);
+      return res.json({ success: true, template: updated });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  app.delete("/api/whatsapp-templates/:id", verifyRole(['admin', 'super_admin']), async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const authToken = await getAdminAuthToken();
+      await rtdbDelete(`whatsapp_templates/${id}`, authToken);
       return res.json({ success: true });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err.message });
