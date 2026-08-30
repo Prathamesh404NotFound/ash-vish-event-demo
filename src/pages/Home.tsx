@@ -75,76 +75,16 @@ export const Home: React.FC<HomeProps> = ({
     [publicEvents]
   );
 
-  // Fallback featured event if none in database yet
-  const fallbackHeroEvent: EventItem = {
-    id: 'sufiyana-shaam-2026',
-    title: 'Sufiyana Shaam A Bollywood Musical Night',
-    subtitle:
-      'An enchanting evening of timeless melodies, soulful sufi rhythms, and live orchestral brilliance.',
-    category: 'concert',
-    date: '06 Sep 2026',
-    time: '08:00 PM',
-    venue: 'Megh Malhar Hall, The Sayaji, Kolhapur',
-    address: 'Sayaji Hotel, Kawala Naka, Kolhapur',
-    city: 'Kolhapur',
-    startingPrice: 499,
-    posterUrl: '/sufiyana-shaam-poster.jpg',
-    coverUrl: '/sufiyana-shaam-poster.jpg',
-    organizer: 'Ash-vish Events',
-    description:
-      'Step into an immersive musical sanctuary where the mystique of authentic Sufi traditions harmoniously meets the grandeur of classic and contemporary Bollywood compositions. Featuring celebrated vocalists, live harmonium, acoustic percussion, and a grand orchestral ensemble, this signature production is designed for connoisseurs of pristine sound and soulful melodies.',
-    artists: [
-      { id: '1', name: 'Aishwarya & Vishwajeet', role: 'Lead Vocalists', image: '/favicon-192.png' },
-      { id: '2', name: 'Symphony Ensemble', role: 'Live Orchestra', image: '/favicon-192.png' },
-    ],
-    ticketTiers: [
-      {
-        id: 'silver',
-        name: 'Silver Pass',
-        price: 499,
-        description: 'Access to general seating',
-        totalInventory: 200,
-        remainingInventory: 140,
-        perks: ['Entry pass', 'Free parking'],
-      },
-      {
-        id: 'gold',
-        name: 'Gold Pass',
-        price: 999,
-        description: 'Prime mid-hall acoustic seating',
-        totalInventory: 150,
-        remainingInventory: 85,
-        perks: ['Prime seating', 'Complimentary beverage', 'Express entry'],
-      },
-      {
-        id: 'vip',
-        name: 'VIP Lounge',
-        price: 1999,
-        description: 'Front-row luxury experience',
-        totalInventory: 50,
-        remainingInventory: 18,
-        perks: ['Front row seats', 'Meet & Greet', 'VIP lounge access', 'Complimentary gourmet snacks'],
-      },
-    ],
-    gallery: ['/sufiyana-shaam-poster.jpg'],
-    faqs: [
-      { question: 'What is the dress code?', answer: 'Smart casual or traditional festive attire is recommended.' },
-      { question: 'Is parking available?', answer: 'Yes, valet and self-parking are available at The Sayaji.' },
-    ],
-    isFeatured: true,
-    isTrending: true,
-    isPopularThisWeek: true,
-    rating: 4.9,
-    reviewsCount: 128,
-    status: 'published',
-  };
+  // No fallback event - only show real events from the database
+  // Previously there was a hardcoded "Sufiyana Shaam" placeholder, but that's now removed
+  // to ensure users only see actual event data
 
   const heroEvents = featuredEvents.length ? featuredEvents : publicEvents;
 
   const currentHeroEvent: EventItem | undefined =
     heroEvents.length > 0
       ? heroEvents[Math.min(heroIndex, heroEvents.length - 1)]
-      : publicEvents[0] || fallbackHeroEvent;
+      : undefined; // No fallback - only show real events
 
   const isSaved = currentHeroEvent ? favorites.includes(currentHeroEvent.id) : false;
 

@@ -25,6 +25,8 @@ import { useBooking } from '../contexts/BookingContext';
 import { useAuth } from '../contexts/AuthContext';
 import { EventCard } from '../components/EventCard';
 import { EventReviewsSection } from '../components/EventReviewsSection';
+import { TicketCard } from '../components/TicketCard';
+import { TicketCardSkeleton } from '../components/TicketCardSkeleton';
 import { formatINR } from '../utils/formatters';
 import { isSeatBasedEvent } from '../lib/seatMap';
 import { useSEO } from '../hooks/useSEO';
@@ -45,6 +47,7 @@ export const EventDetail: React.FC<EventDetailProps> = ({
 }) => {
   const { events, favorites, toggleFavorite } = useBooking();
   const isFav = favorites.includes(event.id);
+  const isLoadingTickets = !event.ticketTiers || event.ticketTiers.length === 0;
   const normalizedExternalBookingUrl = typeof event.externalBookingUrl === 'string'
     ? event.externalBookingUrl.trim()
     : '';
@@ -72,6 +75,10 @@ export const EventDetail: React.FC<EventDetailProps> = ({
     const flat = ticketTiers.find((t) => t.popular) || ticketTiers[0];
     return typeof flat?.price === 'number' && flat.price > 0 ? flat.price : 0;
   });
+  const [selectedTierId, setSelectedTierId] = useState<string | null>(
+    ticketTiers[0]?.id || null
+  );
+  const selectedTier = ticketTiers.find((t) => t.id === selectedTierId);
   const [quantity, setQuantity] = useState(1);
   const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(0);
   const [allCounters, setAllCounters] = useState<PublicCounter[]>([]);
@@ -103,9 +110,15 @@ export const EventDetail: React.FC<EventDetailProps> = ({
   const similarEvents = events.filter((e) => e.category === event.category && e.id !== event.id);
 
   const handleBookNow = () => {
+    // Use the selected tier, or fall back to the first tier
+    const tierToBook = selectedTier || ticketTiers[0];
+    if (!tierToBook) {
+      alert('No ticket tiers available for this event');
+      return;
+    }
     // Seat selection happens exclusively in the checkout wizard (Seats step).
     // Pass an empty seat list so the wizard drives the map there.
-    onProceedToCheckout(event, ticketTiers[0], quantity, []);
+    onProceedToCheckout(event, tierToBook, quantity, []);
   };
 
   return (
@@ -311,8 +324,8 @@ export const EventDetail: React.FC<EventDetailProps> = ({
             </div>
           )}
 
-          {/* What's Included (event perks + tier perks) */}
-          {(event.perks?.length > 0 || (showPublicTicketInfo && ticketTiers[0]?.perks?.length > 0)) && (
+          {/* What's Included (event perks + selected tier perks) */}
+          {(event.perks?.length > 0 || (showPublicTicketInfo && selectedTier?.perks?.length > 0)) && (
             <div className="space-y-3">
               <h3 className="font-heading font-bold text-xl text-white flex items-center gap-2">
                 <Sparkles className="w-5 h-5 text-[#D4AF37]" />
@@ -335,14 +348,14 @@ export const EventDetail: React.FC<EventDetailProps> = ({
                     </ul>
                   </div>
                 )}
-                {showPublicTicketInfo && ticketTiers[0]?.perks?.length > 0 && (
+                {showPublicTicketInfo && selectedTier?.perks?.length > 0 && (
                   <div className="space-y-2">
                     <span className="text-[10px] uppercase tracking-widest font-bold text-gray-500 flex items-center gap-1.5">
-                      <Star className="w-3 h-3 text-[#D4AF37]" /> {ticketTiers[0].name} Benefits
+                      <Star className="w-3 h-3 text-[#D4AF37]" /> {selectedTier.name} Benefits
 
                     </span>
                     <ul className="space-y-2">
-                      {ticketTiers[0].perks.map((perk) => (
+                      {selectedTier.perks.map((perk) => (
                         <li key={perk} className="flex items-start gap-2.5 text-xs text-gray-300">
                           <Star className="w-4 h-4 text-[#D4AF37] shrink-0 mt-0.5" />
                           <span>{perk}</span>
@@ -385,32 +398,97 @@ export const EventDetail: React.FC<EventDetailProps> = ({
               </a>
             </div>
           ) : (
-            <div className="p-5 rounded-2xl bg-[#141414] border border-[#D4AF37]/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div className="flex items-start gap-3">
-                <div className="p-2.5 rounded-xl bg-[#D4AF37]/10 text-[#D4AF37] border border-[#D4AF37]/20 shrink-0">
-                  <Ticket className="w-5 h-5" />
+            <>
+              {/* Ticket Selection Grid */}
+              {ticketTiers && ticketTiers.length > 0 && showPublicTicketInfo && (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-heading font-bold text-xl text-white flex items-center gap-2">
+                      <Ticket className="w-5 h-5 text-[#D4AF37]" />
+                      <span>Select Your Ticket</span>
+                    </h3>
+                    {ticketTiers.length > 1 && (
+                      <span className="text-xs text-gray-400 font-medium">
+                        {ticketTiers.length} options available
+                      </span>
+                    )}
+                  </div>
+
+                  <div className={`grid gap-4 ${
+                    ticketTiers.length === 1 ? 'grid-cols-1' :
+                    ticketTiers.length === 2 ? 'grid-cols-1 sm:grid-cols-2' :
+                    'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3'
+                  }`}>
+                    {ticketTiers.map((tier) => {
+                      const isVip = tier.name.toLowerCase().includes('vip');
+                      return (
+                        <TicketCard
+                          key={tier.id}
+                          tier={tier}
+                          isVip={isVip}
+                          isPopular={tier.popular}
+                          selectedTierId={selectedTierId || undefined}
+                          onSelect={(tier) => {
+                            setSelectedTierId(tier.id);
+                            setQuantity(1); // Reset quantity when tier changes
+                          }}
+                        />
+                      );
+                    })}
+                  </div>
                 </div>
-                <div>
-                  <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wider block">
-                    One Simple Price
-                  </span>
-                  <span className="font-heading font-bold text-lg text-white block mt-0.5">
-                    {formatINR(flatPrice)} per ticket — all {isSeatBasedEvent(event) ? "seats" : "guests"}
-                  </span>
-                  <p className="text-xs text-gray-400 mt-0.5">
-                    {isSeatBasedEvent(event)
-                      ? "Choose your exact seat on the map during checkout."
-                      : "General admission — pick your tickets during checkout; no seat selection."}
-                  </p>
+              )}
+
+              {/* Loading State */}
+              {isLoadingTickets && showPublicTicketInfo && (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-heading font-bold text-xl text-white flex items-center gap-2">
+                      <Ticket className="w-5 h-5 text-[#D4AF37]" />
+                      <span>Select Your Ticket</span>
+                    </h3>
+                  </div>
+
+                  <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+                    {[1, 2, 3].map((idx) => (
+                      <div key={idx}>
+                        <TicketCardSkeleton />
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
-              <div className="text-left sm:text-right">
-                <span className="text-xs text-gray-400 font-medium block">Total Availability</span>
-                <span className="font-heading font-extrabold text-xl text-[#D4AF37]">
-                  {event.ticketTiers.reduce((sum, t) => sum + (t.remainingInventory || 0), 0)} tickets left
-                </span>
-              </div>
-            </div>
+              )}
+
+              {/* Fallback for single tier or no public tickets */}
+              {(!showPublicTicketInfo || ticketTiers.length === 0) && (
+                <div className="p-5 rounded-2xl bg-[#141414] border border-[#D4AF37]/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                  <div className="flex items-start gap-3">
+                    <div className="p-2.5 rounded-xl bg-[#D4AF37]/10 text-[#D4AF37] border border-[#D4AF37]/20 shrink-0">
+                      <Ticket className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wider block">
+                        Ticket Information
+                      </span>
+                      <span className="font-heading font-bold text-lg text-white block mt-0.5">
+                        {selectedTier ? formatINR(selectedTier.price) : 'Price unavailable'} per ticket
+                      </span>
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        {isSeatBasedEvent(event)
+                          ? "Choose your exact seat on the map during checkout."
+                          : "General admission — pick your tickets during checkout; no seat selection."}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-left sm:text-right">
+                    <span className="text-xs text-gray-400 font-medium block">Available</span>
+                    <span className="font-heading font-extrabold text-xl text-[#D4AF37]">
+                      {selectedTier?.remainingInventory ?? 0} left
+                    </span>
+                  </div>
+                </div>
+              )}
+            </>
           )}
 
           {/* Schedule */}
@@ -646,23 +724,40 @@ export const EventDetail: React.FC<EventDetailProps> = ({
               </div>
             ) : (
               <>
+                {/* Selected Ticket Summary */}
                 <div className="border-b border-white/10 pb-4">
                   <span className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold block">
-                    One Simple Price
+                    Selected Ticket
                   </span>
                   <div className="flex items-center justify-between mt-1">
                     <span className="font-heading font-bold text-lg text-white">
-                      Standard Ticket — All Seats
+                      {selectedTier?.name || (isLoadingTickets ? '...' : 'Choose a Ticket')}
                     </span>
                     <span className="font-heading font-extrabold text-2xl text-[#D4AF37]">
-                      {formatINR(flatPrice)}
+                      {selectedTier ? formatINR(selectedTier.price) : (isLoadingTickets ? '...' : '—')}
                     </span>
                   </div>
-                  <p className="text-xs text-gray-400 mt-1">
-                    {isSeatBasedEvent(event)
-                      ? "Same price for every seat — pick yours on the map during checkout."
-                      : "General admission — no seat selection, quantity only."}
-                  </p>
+                  {selectedTier && (
+                    <>
+                      <p className="text-xs text-gray-400 mt-2">
+                        {selectedTier.description || 'Select your preferred ticket tier'}
+                      </p>
+                      <div className="mt-3 flex items-center gap-2">
+                        <span className={`text-xs font-semibold ${
+                          (selectedTier.remainingInventory ?? 0) <= 0 ? 'text-red-400' :
+                          (selectedTier.remainingInventory ?? 0) <= 5 ? 'text-amber-400' :
+                          'text-emerald-400'
+                        }`}>
+                          {(selectedTier.remainingInventory ?? 0) <= 0 
+                            ? 'Sold Out' 
+                            : (selectedTier.remainingInventory ?? 0) <= 5
+                              ? `Only ${selectedTier.remainingInventory} left`
+                              : `${selectedTier.remainingInventory} available`
+                          }
+                        </span>
+                      </div>
+                    </>
+                  )}
                 </div>
 
                 {/* Quantity Stepper */}
@@ -685,6 +780,7 @@ export const EventDetail: React.FC<EventDetailProps> = ({
                     <button
                       onClick={() => setQuantity(Math.min(6, quantity + 1))}
                       className="w-9 h-9 rounded-lg bg-[#141414] hover:bg-black text-white font-bold text-base flex items-center justify-center border border-white/10 transition-colors"
+                      disabled={(selectedTier?.remainingInventory ?? 0) <= 0}
                     >
                       +
                     </button>
@@ -692,30 +788,44 @@ export const EventDetail: React.FC<EventDetailProps> = ({
                 </div>
 
                 {/* Price Breakdown */}
-                <div className="space-y-2 text-xs text-gray-300 pt-2 border-t border-white/10">
-                  <div className="flex justify-between">
-                    <span>Standard Ticket ({formatINR(flatPrice)} × {quantity})</span>
-                    <span className="font-semibold text-white">{formatINR(flatPrice * quantity)}</span>
+                {selectedTier && (
+                  <div className="space-y-2 text-xs text-gray-300 pt-2 border-t border-white/10">
+                    <div className="flex justify-between">
+                      <span>{selectedTier.name} ({formatINR(selectedTier.price)} × {quantity})</span>
+                      <span className="font-semibold text-white">{formatINR(selectedTier.price * quantity)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>GST & Service Charge</span>
+                      <span className="font-semibold text-emerald-400">INCLUDED</span>
+                    </div>
+                    <div className="pt-2 border-t border-white/10 flex justify-between items-center">
+                      <span className="font-heading font-bold text-sm text-white">Total Amount</span>
+                      <span className="font-heading font-extrabold text-2xl text-[#D4AF37]">
+                        {formatINR(selectedTier.price * quantity)}
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex justify-between">
-                    <span>GST & Service Charge</span>
-                    <span className="font-semibold text-emerald-400">INCLUDED</span>
-                  </div>
-                  <div className="pt-2 border-t border-white/10 flex justify-between items-center">
-                    <span className="font-heading font-bold text-sm text-white">Total Amount</span>
-                    <span className="font-heading font-extrabold text-2xl text-[#D4AF37]">
-                      {formatINR(flatPrice * quantity)}
-                    </span>
-                  </div>
-                </div>
+                )}
 
                 {/* Book Now Button */}
                 <button
                   onClick={handleBookNow}
-                  className="w-full py-4 rounded-2xl bg-gradient-to-r from-[#F3E5AB] via-[#D4AF37] to-[#C5A059] hover:brightness-110 text-black font-extrabold text-base flex items-center justify-center gap-2 shadow-xl shadow-[#D4AF37]/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
+                  disabled={(selectedTier?.remainingInventory ?? 0) <= 0 || !selectedTier || isLoadingTickets}
+                  className={`
+                    w-full py-4 rounded-2xl font-extrabold text-base flex items-center justify-center gap-2 shadow-xl transition-all
+                    ${isLoadingTickets || !selectedTier || (selectedTier?.remainingInventory ?? 0) <= 0
+                      ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
+                      : 'bg-gradient-to-r from-[#F3E5AB] via-[#D4AF37] to-[#C5A059] hover:brightness-110 text-black hover:scale-[1.02] active:scale-[0.98] shadow-[#D4AF37]/20'
+                    }
+                  `}
                 >
                   <Ticket className="w-5 h-5 stroke-[2.5]" />
-                  <span>Proceed To Checkout</span>
+                  <span>
+                    {isLoadingTickets ? 'Loading Tickets...' :
+                    (selectedTier?.remainingInventory ?? 0) <= 0 ? 'Sold Out' : 
+                    !selectedTier ? 'Select a Ticket' : 
+                    'Proceed To Checkout'}
+                  </span>
                 </button>
 
                 <p className="text-[11px] text-gray-400 text-center flex items-center justify-center gap-1">
