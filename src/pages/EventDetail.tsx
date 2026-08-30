@@ -141,7 +141,8 @@ export const EventDetail: React.FC<EventDetailProps> = ({
         </div>
       </div>
 
-      {/* Event Summary — kept outside the artwork so text never overlaps the banner */}
+      {/* Event Summary — title, badges and rating. On mobile the banner
+          sits immediately below this card, then the info cards follow. */}
       <section className="rounded-3xl bg-[#141414] border border-white/10 p-5 sm:p-7 shadow-xl">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
           <div className="space-y-3 min-w-0">
@@ -165,6 +166,7 @@ export const EventDetail: React.FC<EventDetailProps> = ({
             )}
           </div>
 
+          {/* Rating badge: inline with title on desktop, below subtitle on mobile */}
           <div className="flex items-center gap-2 px-4 py-3 rounded-2xl bg-[#1C1C1C] border border-amber-400/25 text-white text-sm font-bold shadow-lg w-fit shrink-0">
             <Star className="w-5 h-5 fill-amber-400 text-amber-400" />
             <span className="text-lg">{event.rating}</span>
@@ -173,7 +175,8 @@ export const EventDetail: React.FC<EventDetailProps> = ({
         </div>
       </section>
 
-      {/* Hero Cover Image — artwork only, with no overlaid text */}
+      {/* Hero Cover Image — on mobile: portrait crop below title, above info cards.
+          On sm+: wide cinematic banner. */}
       <div className="aspect-[4/5] sm:aspect-[2.5/1] w-full rounded-3xl overflow-hidden border border-white/10 bg-[#1C1C1C] shadow-2xl">
         {event.coverUrl || event.posterUrl ? (
         <img

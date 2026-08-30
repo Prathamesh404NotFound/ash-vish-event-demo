@@ -18,6 +18,7 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { useBooking } from '../contexts/BookingContext';
 import { useRoleAuth } from '../hooks/useRoleAuth';
+import { UserAvatar } from './UserAvatar';
 
 interface NavbarProps {
   onOpenSearch?: () => void;
@@ -130,10 +131,11 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSearch }) => {
                     aria-label="User account menu"
                     aria-expanded={userDropdownOpen}
                   >
-                    <img
+                    <UserAvatar
                       src={user?.photoUrl}
-                      alt={user?.name || 'User profile'}
-                      className="w-7 h-7 rounded-lg object-cover border border-[#D4AF37]/30"
+                      name={user?.name}
+                      size="w-7 h-7"
+                      className="border border-[#D4AF37]/30"
                     />
                   </button>
 

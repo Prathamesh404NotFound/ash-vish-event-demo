@@ -110,7 +110,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       name: fbUser.displayName || fbUser.email?.split('@')[0] || 'Ash-vish Member',
       email: fbUser.email || '',
       phone: fbUser.phoneNumber || '+1 (555) 019-2831',
-      photoUrl: fbUser.photoURL || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=300',
+      photoUrl: fbUser.photoURL || '',
       authProvider: fbUser.providerData?.[0]?.providerId === 'google.com' ? 'google' : 'email',
       joinedDate: 'August 2026',
       role: resolvedRole,

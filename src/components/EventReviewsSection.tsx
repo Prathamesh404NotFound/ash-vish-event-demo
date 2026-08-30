@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { Star, CheckCircle2, MessageSquarePlus, Send, ThumbsUp } from 'lucide-react';
+import { Star, CheckCircle2, MessageSquarePlus, Send } from 'lucide-react';
 import { useBooking } from '../contexts/BookingContext';
 import { useAuth } from '../contexts/AuthContext';
+import { UserAvatar } from './UserAvatar';
 
 interface EventReviewsSectionProps {
   eventId: string;
@@ -42,7 +43,7 @@ export const EventReviewsSection: React.FC<EventReviewsSectionProps> = ({ eventI
       userRating,
       comment,
       user?.name || 'Verified Fan',
-      user?.avatarUrl
+      user?.photoUrl || undefined
     );
     setIsSubmitting(false);
 
@@ -196,10 +197,11 @@ export const EventReviewsSection: React.FC<EventReviewsSectionProps> = ({ eventI
             <div key={rev.id} className="bg-[#181818] border border-white/5 hover:border-white/10 rounded-2xl p-5 space-y-3 transition-colors">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <img
-                    src={rev.userAvatar || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=200"}
-                    alt={rev.userName}
-                    className="w-9 h-9 rounded-full object-cover border border-[#D4AF37]/30"
+                  <UserAvatar
+                    src={rev.userAvatar}
+                    name={rev.userName}
+                    size="w-9 h-9"
+                    className="border border-[#D4AF37]/30"
                   />
                   <div>
                     <div className="flex items-center gap-2">

@@ -4070,7 +4070,7 @@ export async function createApp() {
         eventId,
         userId: userId || `usr_${Date.now()}`,
         userName: userName || "Guest Fan",
-        userAvatar: userAvatar || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=200",
+        userAvatar: userAvatar || null,
         rating: Math.min(5, Math.max(1, Number(rating))),
         comment: String(comment).trim(),
         createdAt: new Date().toISOString(),

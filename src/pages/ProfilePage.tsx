@@ -4,6 +4,7 @@ import { User, Mail, Phone, Shield, ShieldCheck, Ticket, Heart, LogOut, CheckCir
 import { useAuth } from '../contexts/AuthContext';
 import { useBooking } from '../contexts/BookingContext';
 import { useRoleAuth } from '../hooks/useRoleAuth';
+import { UserAvatar } from '../components/UserAvatar';
 
 export const ProfilePage: React.FC = () => {
   const { user, updateProfile, logout } = useAuth();
@@ -42,10 +43,11 @@ export const ProfilePage: React.FC = () => {
         {/* Left Column: Avatar & Overview */}
         <div className="md:col-span-5 bg-[#141414] border border-white/10 rounded-3xl p-6 flex flex-col items-center text-center space-y-4">
           <div className="relative group">
-            <img
-              src={photoUrl || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=300'}
-              alt={name}
-              className="w-28 h-28 rounded-full object-cover border-4 border-[#D4AF37] shadow-xl"
+            <UserAvatar
+              src={photoUrl || undefined}
+              name={user?.name}
+              size="w-28 h-28"
+              className="border-4 border-[#D4AF37] shadow-xl"
             />
             <div className="absolute inset-0 bg-black/50 rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white cursor-pointer">
               <Camera className="w-6 h-6" />
