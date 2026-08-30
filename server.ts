@@ -2496,7 +2496,7 @@ export async function createApp() {
   /** Identify the owner for reservation endpoints: logged-in uid or a guest session id. */
   async function resolveReservationOwner(
     req: any
-  ): Promise<{ ownerId: string; authenticated: boolean; uid?: string; role?: string; guestOwnerId?: string }> {
+  ): Promise<{ ownerId: string; authenticated: boolean; uid?: string; role?: string; guestOwnerId?: string; email?: string }> {
     const headerSession = (req.headers["x-session-id"] as string)?.slice(0, 64) || "";
     const sessionIdGuest = headerSession
       ? "guest_" + crypto.createHash("sha256").update(headerSession).digest("hex").slice(0, 16)
@@ -2519,7 +2519,7 @@ export async function createApp() {
       })();
       if (verified) {
         const role = await fetchUserRoleFromRTDB(verified.uid, token);
-        return { ownerId: verified.uid, authenticated: true, uid: verified.uid, role, guestOwnerId: sessionIdGuest || undefined };
+        return { ownerId: verified.uid, authenticated: true, uid: verified.uid, role, email: verified.email, guestOwnerId: sessionIdGuest || undefined };
       }
     }
     // Guest session identity: based on the stable X-Session-Id header. The old
@@ -3330,12 +3330,16 @@ export async function createApp() {
         return res.status(404).json({ success: false, error: "Order not found or expired." });
       }
 
-      // Ownership check: accept the order when the caller matches ANY of:
-      //  1. Exact Firebase UID (most reliable)
-      //  2. Guest session hash (caller is unauthenticated but holds the same session)
-      //  3. The reservation's owner (order was created from that reservation)
-      // This prevents a stale/changed identity from blocking fulfillment after
-      // the user signs in between create-order and the PhonePe return redirect.
+      // Ownership check — flexible enough to handle identity changes between
+      // create-order (guest session) and PhonePe return (logged-in user).
+      //
+      // Accept when the caller matches ANY of:
+      //  1. Firebase UID stored in the order
+      //  2. Guest session hash stored in the order
+      //  3. Reservation owner
+      //  4. Caller is authenticated AND the order's attendee email matches
+      //     the Firebase user's email (handles identity change case).
+      //  5. Caller is authenticated AND the order has no userId (legacy guest).
       const pendingUserId = pendingOrder.userId || '';
       const callerUid = owner.uid || '';
       const callerSession = owner.guestOwnerId || '';
@@ -3346,10 +3350,30 @@ export async function createApp() {
           if (resRec?.ownerId) reservationOwnerId = resRec.ownerId;
         } catch { /* best-effort */ }
       }
-      const callerOwns = pendingUserId === callerUid
+
+      // Direct identity match
+      let callerOwns = pendingUserId === callerUid
         || pendingUserId === callerSession
         || (reservationOwnerId && (reservationOwnerId === callerUid || reservationOwnerId === callerSession));
-      if (pendingUserId && !callerOwns) {
+
+      // Fallback: authenticated user + matching attendee email
+      if (!callerOwns && callerUid && owner.authenticated) {
+        const callerEmail = owner.email || '';
+        const orderEmail = (pendingOrder.customerDetails?.email || '').toLowerCase().trim();
+        if (callerEmail && orderEmail && callerEmail.toLowerCase().trim() === orderEmail) {
+          callerOwns = true;
+          console.log(`[PHONEPE VERIFY] Ownership accepted via email match for order ${targetOrderId}`);
+        }
+      }
+
+      // Final fallback: authenticated user claiming an unclaimed guest order
+      if (!callerOwns && callerUid && owner.authenticated && !pendingUserId) {
+        callerOwns = true;
+        console.log(`[PHONEPE VERIFY] Ownership accepted: authenticated user claiming unclaimed order ${targetOrderId}`);
+      }
+
+      if (!callerOwns) {
+        console.warn(`[PHONEPE VERIFY] Ownership rejected for ${targetOrderId}: pendingUserId=${pendingUserId} callerUid=${callerUid} callerSession=${callerSession}`);
         return res.status(403).json({ success: false, error: "Not your order." });
       }
 
@@ -3627,7 +3651,7 @@ export async function createApp() {
         return res.status(404).json({ success: false, error: "Order not found or expired. If your payment was captured, contact support." });
       }
 
-      // 3. Ownership check (same logic as verify-payment).
+      // 3. Ownership check (same flexible logic as verify-payment).
       const pendingUserId = pendingOrder.userId || '';
       const callerUid = owner.uid || '';
       const callerSession = owner.guestOwnerId || '';
@@ -3638,10 +3662,25 @@ export async function createApp() {
           if (resRec?.ownerId) reservationOwnerId = resRec.ownerId;
         } catch { /* best-effort */ }
       }
-      const callerOwns = pendingUserId === callerUid
+      let callerOwns = pendingUserId === callerUid
         || pendingUserId === callerSession
         || (reservationOwnerId && (reservationOwnerId === callerUid || reservationOwnerId === callerSession));
-      if (pendingUserId && !callerOwns) {
+      // Fallback: authenticated user + matching attendee email
+      if (!callerOwns && callerUid && owner.authenticated) {
+        const callerEmail = owner.email || '';
+        const orderEmail = (pendingOrder.customerDetails?.email || '').toLowerCase().trim();
+        if (callerEmail && orderEmail && callerEmail.toLowerCase().trim() === orderEmail) {
+          callerOwns = true;
+          console.log(`[RECOVER] Ownership accepted via email match for order ${targetOrderId}`);
+        }
+      }
+      // Final fallback: authenticated user claiming an unclaimed guest order
+      if (!callerOwns && callerUid && owner.authenticated && !pendingUserId) {
+        callerOwns = true;
+        console.log(`[RECOVER] Ownership accepted: authenticated user claiming unclaimed order ${targetOrderId}`);
+      }
+      if (!callerOwns) {
+        console.warn(`[RECOVER] Ownership rejected for ${targetOrderId}: pendingUserId=${pendingUserId} callerUid=${callerUid}`);
         return res.status(403).json({ success: false, error: "Not your order." });
       }
       // Upgrade userId when caller is authenticated Firebase user

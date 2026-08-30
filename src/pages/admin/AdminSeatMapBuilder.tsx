@@ -639,7 +639,7 @@ export const AdminSeatMapBuilder: React.FC = () => {
                         className="w-full bg-[#121212] border border-white/10 rounded-lg px-2.5 py-1.5 text-white"
                       >
                         <option value="" className="bg-[#121212]">None (per-seat price only)</option>
-                        {(selectedEvent?.ticketTiers || []).map((t) => (
+                        {(Array.isArray(selectedEvent?.ticketTiers) ? selectedEvent?.ticketTiers : Object.values(selectedEvent?.ticketTiers || {})).filter(Boolean).map((t: any) => (
                           <option key={t.id} value={t.id} className="bg-[#121212]">
                             {t.name}
                           </option>

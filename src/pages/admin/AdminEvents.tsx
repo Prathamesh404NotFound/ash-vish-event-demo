@@ -336,9 +336,14 @@ export const AdminEvents: React.FC = () => {
       .map((f) => `${f.question} :: ${f.answer}`)
       .join('\n'));
 
-    if (evt.ticketTiers && evt.ticketTiers.length > 0) {
+    const normalizedTiers = Array.isArray(evt.ticketTiers)
+      ? evt.ticketTiers
+      : (evt.ticketTiers && typeof evt.ticketTiers === 'object')
+        ? Object.values(evt.ticketTiers)
+        : [];
+    if (normalizedTiers.length > 0) {
       setTiers(
-        evt.ticketTiers.map((t) => ({
+        normalizedTiers.filter(Boolean).map((t: any) => ({
           id: t.id,
           name: t.name,
           price: t.price,
@@ -809,10 +814,15 @@ export const AdminEvents: React.FC = () => {
               ) : (
                 filteredEvents.map((evt) => {
                   const currentStatus = evt.status || 'published';
+                  const normTiers = Array.isArray(evt.ticketTiers)
+                    ? evt.ticketTiers.filter(Boolean)
+                    : (evt.ticketTiers && typeof evt.ticketTiers === 'object')
+                      ? Object.values(evt.ticketTiers).filter(Boolean)
+                      : [];
                   const totalCap =
                     evt.totalCapacity ||
-                    (evt.ticketTiers || []).reduce((sum, t) => sum + (t.totalInventory || 0), 0);
-                  const totalRem = (evt.ticketTiers || []).reduce((sum, t) => sum + (t.remainingInventory ?? (t.totalInventory || 0)), 0);
+                    normTiers.reduce((sum: number, t: any) => sum + (t.totalInventory || 0), 0);
+                  const totalRem = normTiers.reduce((sum: number, t: any) => sum + (t.remainingInventory ?? (t.totalInventory || 0)), 0);
 
                   return (
                     <tr key={evt.id} className="hover:bg-white/[0.02] transition-colors group">
@@ -897,7 +907,7 @@ export const AdminEvents: React.FC = () => {
                         </div>
                         <div className="text-gray-400 text-[11px] flex items-center gap-1">
                           <TicketIcon className="w-3.5 h-3.5 text-gray-500" />
-                          <span>{evt.ticketTiers?.length || 1} Tiers • {totalCap} Cap</span>
+                          <span>{normTiers.length || 1} Tiers • {totalCap} Cap</span>
                         </div>
                         <div className="flex items-center gap-1">
                           <div className={`w-1.5 h-1.5 rounded-full ${totalRem > 0 ? 'bg-emerald-500' : 'bg-red-500'}`} />

@@ -354,3 +354,17 @@ export interface WhatsAppTemplate {
   createdAt: string;
   updatedAt: string;
 }
+
+/**
+ * Normalize ticketTiers from RTDB.
+ * RTDB stores arrays as objects with numeric keys { "0": {...}, "1": {...} }.
+ * This utility safely converts any shape into a proper filtered array.
+ */
+export function normalizeTiers(ticketTiers: any): TicketTier[] {
+  if (!ticketTiers) return [];
+  if (Array.isArray(ticketTiers)) return ticketTiers.filter(Boolean) as TicketTier[];
+  if (typeof ticketTiers === 'object') {
+    return Object.values(ticketTiers).filter(Boolean) as TicketTier[];
+  }
+  return [];
+}
