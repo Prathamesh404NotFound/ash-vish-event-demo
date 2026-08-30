@@ -338,3 +338,19 @@ export interface EventReview {
   isVerifiedBuyer?: boolean;
 }
 
+export interface WhatsAppTemplate {
+  id: string;
+  name: string;
+  /** Template body with {{variable}} placeholders. Supported variables:
+   *  {{eventTitle}}, {{attendeeName}}, {{quantity}}, {{date}}, {{time}},
+   *  {{venue}}, {{city}}, {{tierName}}, {{seatLabel}}, {{ticketRef}},
+   *  {{passUrl}}, {{mapsUrl}}, {{totalPaid}}, {{attendeePhone}},
+   *  {{attendeeEmail}}, {{bookingId}}
+   */
+  body: string;
+  /** Assigned event IDs. Empty array = default template for all events. */
+  assignedEventIds: string[];
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}

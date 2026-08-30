@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Ticket as TicketIcon, Calendar, Clock, CheckCircle } from 'lucide-react';
 import { useBooking } from '../contexts/BookingContext';
-import { TicketCard } from '../components/TicketCard';
+import { PurchasedTicketCard } from '../components/PurchasedTicketCard';
 import { EmptyState } from '../components/EmptyState';
 
 interface MyTicketsPageProps {
@@ -65,7 +65,7 @@ export const MyTicketsPage: React.FC<MyTicketsPageProps> = ({ onExploreEvents })
       {displayTickets.length > 0 ? (
         <div className="space-y-6">
           {displayTickets.map((tkt) => (
-            <TicketCard key={tkt.id} ticket={tkt} />
+            <PurchasedTicketCard key={tkt.id} ticket={tkt} />
           ))}
         </div>
       ) : (

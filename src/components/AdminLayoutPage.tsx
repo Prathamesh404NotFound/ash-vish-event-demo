@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Ticket, ShieldCheck, LayoutDashboard, Calendar, Users, QrCode, Settings, ArrowLeft, Tag, MessageSquare, Armchair, Building2, BarChart3, UserCheck, Clock } from 'lucide-react';
+import { Ticket, ShieldCheck, LayoutDashboard, Calendar, Users, QrCode, Settings, ArrowLeft, Tag, MessageSquare, Armchair, Building2, BarChart3, UserCheck, Clock, MessageSquareCode } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 export const AdminLayoutPage: React.FC = () => {
@@ -57,6 +57,12 @@ export const AdminLayoutPage: React.FC = () => {
       path: "/admin/coupons",
       icon: Tag,
       description: "Promos & discount codes"
+    },
+    {
+      title: "WhatsApp Templates",
+      path: "/admin/whatsapp-templates",
+      icon: MessageSquareCode,
+      description: "Custom booking message templates"
     },
     {
       title: "Reports",
