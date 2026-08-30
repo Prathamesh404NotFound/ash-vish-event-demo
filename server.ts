@@ -364,10 +364,13 @@ function seatPriceForRow(tiers: any[], seatMapTierName: string): number | undefi
  */
 function computeReservationQuote(
   eventData: any,
-  seatIds: string[],
+  seatIds: string[] | null | undefined,
   quantity: number,
   tierId: string
 ): { quote: ReservationQuote; seatMapVersion: number; tier?: any } {
+  // Firebase RTDB silently drops empty arrays — normalize to [] so every
+  // caller is safe regardless of what the database returns.
+  const normalizedSeatIds: string[] = Array.isArray(seatIds) ? seatIds : [];
   const tiers: any[] = normalizeTiers(eventData.ticketTiers);
   // Admin toggle: usesSeatMap=false forces general admission even when a seat
   // map was previously configured on the event.
@@ -376,7 +379,7 @@ function computeReservationQuote(
   let subtotalMinor = 0;
   const tier = tiers.find((t: any) => t.id === tierId);
 
-  if (seatIds.length > 0) {
+  if (normalizedSeatIds.length > 0) {
     // Flat pricing: every seat costs the selected ticket tier's price,
     // regardless of row. No per-row tier price lookups.
     if (!seatMap) {
@@ -389,11 +392,11 @@ function computeReservationQuote(
     if (!seatPrice || seatPrice <= 0) {
       throw new Error("Ticket tier price is not configured for this event.");
     }
-    if ((tier.remainingInventory ?? 0) < seatIds.length) {
+    if ((tier.remainingInventory ?? 0) < normalizedSeatIds.length) {
       throw new Error(`Not enough tickets remaining. Only ${tier.remainingInventory ?? 0} left.`);
     }
     const seatMapVersion = seatMap.version ?? 1;
-    subtotalMinor = seatPrice * seatIds.length * 100;
+    subtotalMinor = seatPrice * normalizedSeatIds.length * 100;
     return { quote: { currency: "INR", subtotalMinor, discountMinor: 0, feesMinor: 0, totalMinor: subtotalMinor }, seatMapVersion, tier };
   }
 
@@ -2513,7 +2516,7 @@ export async function createApp() {
         return res.status(409).json({ success: false, error: "Maximum reservation extensions reached. Please complete payment." });
       }
       const update: any = { expiresAt: newExpiresAt };
-      if (record.seatIds.length > 0) {
+      if (record.seatIds && record.seatIds.length > 0) {
         for (const seatId of record.seatIds) {
           rtdbUpdate(`seats/${record.eventId}/${seatId}`, { holdExpiresAt: newExpiresAt, heldBy: record.ownerId, status: "held", heldAt: now }, authToken).catch(() => {});
         }
@@ -2995,9 +2998,8 @@ export async function createApp() {
       }
       const totalMinor = Math.max(0, quoteResult.quote.totalMinor - discountMinor);
 
-      // Support deposit / partial payment option:
-      const payDeposit = req.body?.payDeposit === true;
-      const amountPaiseToCharge = payDeposit ? Math.round(totalMinor * 0.5) : totalMinor;
+      // Always charge the full amount — deposit/partial payment is not supported.
+      const amountPaiseToCharge = totalMinor;
 
       // Unique internal order ID & PhonePe merchant transaction ID
       const orderId = `ord_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
@@ -3027,9 +3029,8 @@ export async function createApp() {
         merchantOrderId,
         phonepeOrderId: null,
         phonepeRedirectUrl: null,
-        isPartial: payDeposit,
         amountPaid: amountPaiseToCharge / 100,
-        amountDue: payDeposit ? (totalMinor - amountPaiseToCharge) / 100 : 0,
+        amountDue: 0,
       }, authToken);
 
       // Initiate order with PhonePe

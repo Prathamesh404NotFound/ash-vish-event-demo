@@ -81,7 +81,6 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
   const [attendeeEmail, setAttendeeEmail] = useState(user?.email || reservation?.attendee?.email || '');
   const [attendeePhone, setAttendeePhone] = useState(user?.phone || reservation?.attendee?.phone || '');
   const [attendeeDirty, setAttendeeDirty] = useState(false);
-  const [payDeposit, setPayDeposit] = useState(false);
 
   // Sync form with the restored reservation's attendee details on load.
   useEffect(() => {
@@ -514,7 +513,6 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
       },
       {
         reservationRef: { get current() { return reservation?.reservationId ?? null; } },
-        payDeposit,
       }
     );
   };
@@ -938,19 +936,9 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
                 <p className="text-xs text-gray-400 mt-0.5">{attendeeName} • {attendeeEmail} • {attendeePhone}</p>
               </div>
               <div className="text-right">
-                {payDeposit ? (
-                  <>
-                    <p className="text-[10px] font-bold text-amber-400 uppercase tracking-wider">Deposit Due Now</p>
-                    <p className="font-heading font-extrabold text-2xl text-[#D4AF37]">{formatINR(Math.round(serverTotal * 0.5))}</p>
-                    <p className="text-[10px] text-gray-400 mt-0.5">Balance: {formatINR(serverTotal - Math.round(serverTotal * 0.5))} at box office</p>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Total Due Now</p>
-                    <p className="font-heading font-extrabold text-2xl text-[#D4AF37]">{formatINR(serverTotal)}</p>
-                    {serverDiscount > 0 && <p className="text-[10px] text-emerald-400">-{formatINR(serverDiscount)} coupon applied</p>}
-                  </>
-                )}
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Total Due Now</p>
+                <p className="font-heading font-extrabold text-2xl text-[#D4AF37]">{formatINR(serverTotal)}</p>
+                {serverDiscount > 0 && <p className="text-[10px] text-emerald-400">-{formatINR(serverDiscount)} coupon applied</p>}
               </div>
             </div>
             <p className="text-[10px] text-gray-500 mt-3 flex items-center gap-1">
@@ -958,50 +946,7 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
             </p>
           </div>
 
-          {/* Deposit Payment Choice Option Panel */}
-          <div className="bg-[#141414] border border-white/10 rounded-3xl p-5 space-y-4 text-left">
-            <h4 className="text-xs font-bold uppercase tracking-wider text-gray-400">Select Payment Plan</h4>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => setPayDeposit(false)}
-                className={`p-4 rounded-2xl border text-left transition-all ${
-                  !payDeposit
-                    ? 'bg-[#D4AF37]/10 border-[#D4AF37] text-white'
-                    : 'bg-black/20 border-white/5 text-gray-400 hover:border-white/15'
-                }`}
-              >
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-xs font-bold">Pay Full Amount</span>
-                  <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${!payDeposit ? 'border-[#D4AF37]' : 'border-gray-600'}`}>
-                    {!payDeposit && <div className="w-2 h-2 rounded-full bg-[#D4AF37]" />}
-                  </div>
-                </div>
-                <p className="font-heading font-extrabold text-lg text-white">{formatINR(serverTotal)}</p>
-                <p className="text-[10px] text-gray-400 mt-1">Pay 100% now to receive your active QR gate entry pass instantly.</p>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setPayDeposit(true)}
-                className={`p-4 rounded-2xl border text-left transition-all ${
-                  payDeposit
-                    ? 'bg-[#D4AF37]/10 border-[#D4AF37] text-white'
-                    : 'bg-black/20 border-white/5 text-gray-400 hover:border-white/15'
-                }`}
-              >
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-xs font-bold">Pay Partial / Deposit (50%)</span>
-                  <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${payDeposit ? 'border-[#D4AF37]' : 'border-gray-600'}`}>
-                    {payDeposit && <div className="w-2 h-2 rounded-full bg-[#D4AF37]" />}
-                  </div>
-                </div>
-                <p className="font-heading font-extrabold text-lg text-[#D4AF37]">{formatINR(Math.round(serverTotal * 0.5))}</p>
-                <p className="text-[10px] text-gray-400 mt-1">Pay 50% deposit now; balance {formatINR(serverTotal - Math.round(serverTotal * 0.5))} payable at the walk-in box office counter.</p>
-              </button>
-            </div>
-          </div>
-
+          {/* Confirm Your Booking */}
           <div className="bg-[#141414] border border-[#D4AF37]/30 rounded-3xl p-6 space-y-4">
             <h3 className="font-heading font-bold text-lg text-white flex items-center gap-2">
               <ShieldCheck className="w-5 h-5 text-emerald-400" />
@@ -1010,7 +955,7 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
             <p className="text-xs text-gray-400 leading-relaxed">
               Clicking below opens the secure payment window. Your seats stay held while you pay and are
               confirmed atomically by the server only after the payment is verified — another buyer cannot
-              take them during checkout. Your {payDeposit ? 'reservation pass' : 'QR gate pass'} will be delivered to your email once payment is confirmed.
+              take them during checkout. Your QR gate pass will be delivered to your email once payment is confirmed.
             </p>
           </div>
 
@@ -1027,7 +972,7 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
             ) : (
               <>
                 <Lock className="w-5 h-5" />
-                <span>Pay with PhonePe (UPI / Cards) — {formatINR(payDeposit ? Math.round(serverTotal * 0.5) : serverTotal)}</span>
+                <span>Pay with PhonePe (UPI / Cards) — {formatINR(serverTotal)}</span>
               </>
             )}
           </button>
