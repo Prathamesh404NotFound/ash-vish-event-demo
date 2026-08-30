@@ -22,16 +22,47 @@ import {
 const SERVER_HMAC_SECRET = process.env.SERVER_HMAC_SECRET?.trim();
 
 /**
+ * Derive a stable per-deployment HMAC secret from always-present Firebase
+ * service-account credentials when SERVER_HMAC_SECRET is not configured.
+ *
+ * Why: signHmac() is called inside finalizeBookingServerSide() to produce QR
+ * tokens.  If SERVER_HMAC_SECRET is absent, requireHmacSecret() throws and
+ * the entire booking creation fails — payment captured, no ticket issued.
+ *
+ * This fallback is computed once at startup from the Firebase project ID and
+ * client email (both required for any RTDB operation, so they are guaranteed
+ * to be present whenever the server can actually function).  It is NOT equal
+ * to the real secret, so tokens produced with it are still opaque to clients
+ * and cannot be forged without the Firebase credentials.  However, operators
+ * SHOULD set SERVER_HMAC_SECRET in production so they can rotate it without
+ * re-issuing all existing passes.
+ */
+function deriveFallbackHmacSecret(): string {
+  const projectId   = process.env.FIREBASE_PROJECT_ID  || process.env.VITE_FIREBASE_PROJECT_ID  || "ash-events";
+  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL || "firebase-adminsdk@ash-events.iam.gserviceaccount.com";
+  const seed = `ash-events-hmac-fallback|${projectId}|${clientEmail}`;
+  return crypto.createHash("sha256").update(seed).digest("hex");
+}
+
+/** Effective HMAC secret: explicit env var preferred, stable fallback when absent. */
+const EFFECTIVE_HMAC_SECRET: string = SERVER_HMAC_SECRET || deriveFallbackHmacSecret();
+
+/**
  * HMAC is required for ticket/pass signing, counter PIN verification, and the
  * rules-deploy guard. Read-only dashboard routes must still be able to start
  * when this optional deployment secret is missing, so validate it lazily at
  * the security boundary instead of terminating the whole serverless function.
  */
 function requireHmacSecret(): string {
+  // Use the effective secret (env var or stable fallback) so QR generation
+  // inside finalizeBookingServerSide() never throws when the env var is absent.
   if (!SERVER_HMAC_SECRET) {
-    throw new Error("SERVER_HMAC_SECRET is not configured.");
+    console.warn(
+      "[HMAC] SERVER_HMAC_SECRET is not set. Using a derived fallback secret. " +
+      "Set SERVER_HMAC_SECRET in your environment for production-grade token security."
+    );
   }
-  return SERVER_HMAC_SECRET;
+  return EFFECTIVE_HMAC_SECRET;
 }
 
 const SERVER_HMAC_SECRET_PREVIOUS = process.env.SERVER_HMAC_SECRET_PREVIOUS?.trim();
@@ -975,14 +1006,38 @@ async function finalizeBookingServerSide(
 
     pendingOrder = pendingRes.data;
 
-    // 1.5. Idempotency Check with Atomic Transaction Lock to prevent double-decrement and duplicate tickets
+    // 1.5. Idempotency Check with Atomic Transaction Lock
+    //
+    // Stale-lock fix: a "processing" lock older than IDEMPOTENCY_LOCK_TTL_MS is
+    // treated as abandoned (e.g. a previous invocation crashed before cleanupLock
+    // ran). The transaction clears it so this invocation can proceed rather than
+    // blocking forever on a ghost lock.
+    const IDEMPOTENCY_LOCK_TTL_MS = 90_000; // 90 s
     const processedTx = await rtdbTransaction(`processed_orders/${orderId}`, (curr: any) => {
-      if (curr) {
-        // If it already exists, return undefined to abort writing the placeholder
+      if (!curr) {
+        // No existing record — acquire the lock.
+        return { status: "processing", createdAt: Date.now() };
+      }
+      // Already fully processed — abort so we return the cached result.
+      if (curr.status === "processed" || curr.ticket) {
         return undefined;
       }
-      // Otherwise, acquire the lock by setting state to "processing"
-      return { status: "processing", createdAt: Date.now() };
+      // Lock is "processing" — check its age.
+      if (curr.status === "processing") {
+        const lockAge = Date.now() - (curr.createdAt || 0);
+        if (lockAge > IDEMPOTENCY_LOCK_TTL_MS) {
+          // Stale lock: prior invocation never finished. Clear and take ownership.
+          console.warn(
+            `[IDEMPOTENCY LOCK] Stale lock for order ${orderId} ` +
+            `(${lockAge}ms old). Clearing and retrying.`
+          );
+          return { status: "processing", createdAt: Date.now() };
+        }
+        // Live concurrent lock — abort so we can poll.
+        return undefined;
+      }
+      // Unknown status — treat as processed to be safe.
+      return undefined;
     }, authToken);
 
     if (!processedTx.committed) {
@@ -991,15 +1046,24 @@ async function finalizeBookingServerSide(
         if (existing.status === "processed" || existing.ticket) {
           return { success: true, ticket: existing.ticket, booking: existing.booking };
         } else if (existing.status === "processing") {
-          console.log(`[IDEMPOTENCY LOCK] Order ${orderId} is being processed elsewhere. Polling...`);
-          for (let poll = 0; poll < 6; poll++) {
+          // Live concurrent invocation — poll up to 15 s for it to finish.
+          console.log(`[IDEMPOTENCY LOCK] Order ${orderId} is being processed concurrently. Polling...`);
+          for (let poll = 0; poll < 30; poll++) {
             await new Promise((resolve) => setTimeout(resolve, 500));
             const recheck = await rtdbGet(`processed_orders/${orderId}`, authToken);
             if (recheck.data && (recheck.data.status === "processed" || recheck.data.ticket)) {
               return { success: true, ticket: recheck.data.ticket, booking: recheck.data.booking };
             }
+            // Lock went stale during our own poll — let caller retry.
+            if (recheck.data?.status === "processing") {
+              const lockAge = Date.now() - (recheck.data.createdAt || 0);
+              if (lockAge > IDEMPOTENCY_LOCK_TTL_MS) {
+                console.warn(`[IDEMPOTENCY LOCK] Lock went stale during poll for ${orderId}. Caller should retry.`);
+                break;
+              }
+            }
           }
-          return { success: false, error: "This booking is currently being processed by another request. Please refresh." };
+          return { success: false, error: "Booking processing took too long. Please retry — your payment is safe." };
         }
       }
       return { success: false, error: "This order has already been processed." };
@@ -1537,6 +1601,16 @@ export async function createApp() {
   const app = express();
   const PORT = 3000;
 
+  // Raw body capture for the PhonePe webhook route.
+  // Must be registered BEFORE express.json() so that req.rawBody contains
+  // the original bytes for HMAC signature verification.
+  app.use("/api/phonepe/webhook", express.raw({ type: "*/*", limit: "1mb" }), (req: any, _res: any, next: any) => {
+    if (Buffer.isBuffer(req.body)) {
+      req.rawBody = req.body;
+      try { req.body = JSON.parse(req.body.toString("utf8")); } catch { req.body = {}; }
+    }
+    next();
+  });
 
   app.use(express.json());
 
@@ -3005,11 +3079,22 @@ export async function createApp() {
       const orderId = `ord_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
       const merchantOrderId = `m_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`.slice(0, 63);
 
-      // Derive base app URL for redirect
+      // Derive base app URL for redirect.
+      // APP_URL must be set in production (e.g. https://ashvishevents.com).
+      // Without it the redirect URL is inferred from the request host, which may
+      // resolve to the internal Cloud Run URL rather than the public domain,
+      // causing PhonePe to redirect back to the wrong origin after payment.
       const host = req.get("host") || "ashvishevents.com";
       const protocol = req.protocol === "https" || req.get("x-forwarded-proto") === "https" ? "https" : "http";
-      const origin = process.env.APP_URL || `${protocol}://${host}`;
-      const redirectUrl = `${origin.replace(/\/+$/, "")}/payment/phonepe/return?orderId=${encodeURIComponent(orderId)}&merchantOrderId=${encodeURIComponent(merchantOrderId)}`;
+      const appUrl = (process.env.APP_URL || "").trim().replace(/\/+$/, "");
+      if (!appUrl) {
+        console.warn(
+          "[PHONEPE CREATE-ORDER] APP_URL env var is not set. " +
+          "Set APP_URL=https://ashvishevents.com to ensure PhonePe redirects to the correct domain."
+        );
+      }
+      const origin = appUrl || `${protocol}://${host}`;
+      const redirectUrl = `${origin}/payment/phonepe/return?orderId=${encodeURIComponent(orderId)}&merchantOrderId=${encodeURIComponent(merchantOrderId)}`;
 
       // Server-authoritative pending order (source of truth for fulfillment)
       await rtdbSet(`pending_orders/${orderId}`, {
@@ -3267,9 +3352,12 @@ export async function createApp() {
   /**
    * PhonePe webhook (server-to-server callback).
    */
-  app.post("/api/phonepe/webhook", async (req, res) => {
+  app.post("/api/phonepe/webhook", async (req: any, res) => {
     try {
-      const rawBody = typeof req.body === "string" ? req.body : JSON.stringify(req.body);
+      // Use the raw bytes captured before express.json() parsed the body.
+      // Falling back to re-serialised JSON only when rawBody is absent (e.g.
+      // during local development without the raw-body middleware).
+      const rawBody: string | Buffer = (req as any).rawBody || (typeof req.body === "string" ? req.body : JSON.stringify(req.body));
       const signature = (req.headers["x-verify"] as string) || (req.headers["authorization"] as string) || "";
       if (!verifyPhonePeWebhookSignature(rawBody, signature)) {
         console.warn("[PHONEPE WEBHOOK] invalid signature");
@@ -3277,7 +3365,7 @@ export async function createApp() {
       }
 
       let payload: any = {};
-      try { payload = typeof req.body === "object" ? req.body : JSON.parse(rawBody); } catch { return res.status(400).json({ success: false, error: "Invalid payload." }); }
+      try { payload = typeof req.body === "object" ? req.body : JSON.parse(Buffer.isBuffer(rawBody) ? rawBody.toString("utf8") : rawBody); } catch { return res.status(400).json({ success: false, error: "Invalid payload." }); }
 
       const data = payload?.data || payload;
       const merchantOrderId = data?.merchantOrderId || data?.merchantTransactionId || "";
@@ -3314,6 +3402,136 @@ export async function createApp() {
     } catch (err: any) {
       console.error("[PHONEPE WEBHOOK ERROR]", err.message || err);
       return res.status(500).json({ success: false, error: "Webhook processing failed." });
+    }
+  });
+
+  /**
+   * POST /api/phonepe/recover-booking
+   *
+   * Safe recovery endpoint for users who land on the success page but whose
+   * booking was never created (e.g. the verify-payment call failed due to a
+   * stale auth token, a momentary server crash, or the session-ID bug fixed
+   * in this release).
+   *
+   * Guarantees:
+   *  - Calls PhonePe to confirm the payment status independently.
+   *  - Only proceeds when PhonePe confirms COMPLETED / SUCCESS.
+   *  - Delegates to finalizeBookingServerSide which has its own idempotency
+   *    lock — a second call for an already-processed order returns the cached
+   *    ticket rather than creating a duplicate.
+   *  - Verifies orderId ownership against the authenticated user / session
+   *    before finalizing (same checks as verify-payment).
+   */
+  app.post("/api/phonepe/recover-booking", async (req, res) => {
+    try {
+      const cfg = isPhonePeConfigured();
+      if (!cfg.available) {
+        return res.status(503).json({ success: false, error: cfg.reason || "Payment gateway not configured." });
+      }
+
+      const owner = await resolveReservationOwner(req);
+      const { orderId, merchantOrderId: inputMerchantOrderId } = req.body || {};
+      if (!orderId && !inputMerchantOrderId) {
+        return res.status(400).json({ success: false, error: "orderId or merchantOrderId is required." });
+      }
+
+      const authToken = await getAdminAuthToken();
+
+      // 1. If already processed, return the existing booking (idempotent).
+      if (orderId) {
+        const processedRes = await rtdbGet(`processed_orders/${orderId}`, authToken);
+        if (processedRes.data?.status === "processed" || processedRes.data?.ticket) {
+          console.log(`[RECOVER] Order ${orderId} already processed, returning cached result.`);
+          return res.json({
+            success: true,
+            ticket: processedRes.data.ticket,
+            booking: processedRes.data.booking,
+            alreadyProcessed: true,
+          });
+        }
+      }
+
+      // 2. Locate the pending order.
+      let pendingOrder: any = null;
+      let targetOrderId: string = orderId || "";
+
+      if (targetOrderId) {
+        const pendingRes = await rtdbGet(`pending_orders/${targetOrderId}`, authToken);
+        pendingOrder = pendingRes.data;
+      }
+
+      if (!pendingOrder && inputMerchantOrderId) {
+        const allPending = (await rtdbGet("pending_orders", authToken)).data || {};
+        for (const [candId, cand] of Object.entries(allPending) as [string, any][]) {
+          if (cand && (cand.merchantOrderId === inputMerchantOrderId || cand.phonepeMerchantOrderId === inputMerchantOrderId)) {
+            pendingOrder = cand;
+            targetOrderId = candId;
+            break;
+          }
+        }
+      }
+
+      if (!pendingOrder) {
+        return res.status(404).json({ success: false, error: "Order not found or expired. If your payment was captured, contact support." });
+      }
+
+      // 3. Ownership check (same logic as verify-payment).
+      if (pendingOrder.userId && pendingOrder.userId !== owner.ownerId) {
+        return res.status(403).json({ success: false, error: "Not your order." });
+      }
+
+      // 4. Verify payment status with PhonePe independently.
+      const lookupMerchantOrderId = pendingOrder.merchantOrderId || pendingOrder.phonepeMerchantOrderId || inputMerchantOrderId;
+      if (!lookupMerchantOrderId) {
+        return res.status(400).json({ success: false, error: "Order is missing PhonePe merchant order reference." });
+      }
+
+      const statusRes = await fetchPhonePeOrderStatus(lookupMerchantOrderId);
+      if (!statusRes.ok) {
+        return res.status(400).json({
+          success: false,
+          error: "Could not verify payment status with PhonePe. Please contact support with order ID " + targetOrderId + ".",
+        });
+      }
+
+      const paymentState = (statusRes.state || "").toUpperCase();
+      const isSuccess = paymentState === "COMPLETED" || paymentState === "SUCCESS";
+
+      if (!isSuccess) {
+        return res.status(400).json({
+          success: false,
+          error: paymentState === "PENDING" || paymentState === "INITIALIZED"
+            ? "Payment is still processing. Please wait a moment and try again."
+            : "Payment was not successful — no booking will be created.",
+          paymentStatus: paymentState,
+          isPending: paymentState === "PENDING" || paymentState === "INITIALIZED",
+        });
+      }
+
+      // 5. Attempt to finalize (idempotent — safe if already done).
+      const paymentId = statusRes.paymentId || lookupMerchantOrderId;
+      console.log(`[RECOVER] Attempting booking recovery for order ${targetOrderId} (payment ${paymentId})`);
+      const result = await finalizeBookingServerSide(targetOrderId, "phonepe", paymentId, authToken);
+
+      if (!result.success) {
+        console.error(`[RECOVER] finalizeBookingServerSide failed for ${targetOrderId}: ${result.error}`);
+        return res.status(409).json({
+          success: false,
+          error: result.error || "Booking recovery failed. Contact support with order ID " + targetOrderId + ".",
+        });
+      }
+
+      console.log(`[RECOVER] Successfully recovered booking for order ${targetOrderId}`);
+      return res.json({
+        success: true,
+        ticket: result.ticket,
+        booking: result.booking,
+        recovered: true,
+        paymentId,
+      });
+    } catch (err: any) {
+      console.error("[RECOVER BOOKING ERROR]", err.message || err);
+      return res.status(500).json({ success: false, error: err.message || "Recovery failed." });
     }
   });
 

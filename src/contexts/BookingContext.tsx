@@ -36,7 +36,9 @@ export interface QuoteResult {
   appliedCoupon?: { code: string; type: string; value: number };
 }
 
-const SESSION_ID_STORAGE_KEY = 'ash_vish_session_id';
+/** Exported so other modules (e.g. PaymentCallbackPage) can read the same
+ *  storage key without duplicating the string literal. */
+export const SESSION_ID_STORAGE_KEY = 'ash_vish_session_id';
 let inMemorySessionId: string | null = null;
 
 /** Stable working placeholder for any image URL that cannot load on the public site. */
