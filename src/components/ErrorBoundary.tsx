@@ -1,6 +1,6 @@
 // @ts-nocheck
 import React from 'react';
-import { Ticket, RefreshCw } from 'lucide-react';
+import { Ticket, RefreshCw, Home, AlertTriangle } from 'lucide-react';
 
 interface ErrorBoundaryState {
   hasError: boolean;
@@ -14,7 +14,7 @@ interface ErrorBoundaryProps {
 /**
  * Catch-all runtime error boundary. If any descendant component throws
  * (e.g. a TypeError from a malformed database record), the whole page
- * no longer goes blank — a branded fallback with a retry button is shown.
+ * no longer goes blank — a branded fallback with retry options is shown.
  */
 export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
   constructor(props: ErrorBoundaryProps) {
@@ -35,38 +35,57 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
     const { children } = this.props;
     if (!hasError) return children;
     return (
-      <div className="min-h-screen bg-[#0A0A0A] flex items-center justify-center px-4">
-        <div className="max-w-md w-full rounded-3xl bg-[#141414] border border-white/10 p-8 text-center space-y-4">
-          <div className="w-14 h-14 rounded-2xl bg-[#D4AF37]/10 border border-[#D4AF37]/30 flex items-center justify-center mx-auto">
-            <Ticket className="w-7 h-7 text-[#D4AF37]" />
+      <div className="min-h-screen bg-[#070707] flex items-center justify-center px-4">
+        <div className="max-w-md w-full rounded-3xl bg-[#121214] border border-white/[0.06] p-8 sm:p-10 text-center space-y-5">
+          {/* Icon */}
+          <div className="relative mx-auto w-16 h-16">
+            <div className="absolute inset-0 rounded-2xl bg-[#D4AF37]/5 blur-xl scale-150" />
+            <div className="relative w-full h-full rounded-2xl bg-[#1A1A1C] border border-white/[0.08] flex items-center justify-center">
+              <AlertTriangle className="w-7 h-7 text-[#D4AF37]" strokeWidth={1.5} />
+            </div>
           </div>
-          <h1 className="font-heading font-extrabold text-xl text-white">
-            Something went wrong on this page
-          </h1>
-          <p className="text-xs text-gray-400 leading-relaxed">
-            We encountered an unexpected error while loading this view. Please
-            try reloading — if the problem persists, contact support.
-          </p>
-          <div className="flex items-center justify-center gap-3 pt-2">
+
+          {/* Title */}
+          <div className="space-y-1.5">
+            <h1 className="font-heading font-bold text-xl text-white leading-snug">
+              Something went wrong
+            </h1>
+            <p className="text-sm text-gray-500 leading-relaxed max-w-xs mx-auto">
+              We hit an unexpected error while loading this page. Your data is safe — this is a display issue.
+            </p>
+          </div>
+
+          {/* Error Details (collapsed) */}
+          {error && (
+            <details className="group">
+              <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-400 transition-colors select-none">
+                Technical details
+              </summary>
+              <div className="mt-2 p-3 bg-[#0D0D0F] rounded-xl border border-white/[0.04] text-left">
+                <p className="text-[10px] font-mono text-gray-500 break-all leading-relaxed">
+                  {error.toString()}
+                </p>
+              </div>
+            </details>
+          )}
+
+          {/* Actions */}
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-1">
             <button
               onClick={() => window.location.reload()}
-              className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] hover:brightness-110 text-black font-bold text-xs flex items-center gap-2 transition-all"
+              className="group w-full sm:w-auto px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-[#D4AF37]/15 transition-all duration-200 hover:shadow-[#D4AF37]/25 hover:scale-[1.02] active:scale-[0.98]"
             >
-              <RefreshCw className="w-3.5 h-3.5" />
+              <RefreshCw className="w-3.5 h-3.5 group-hover:rotate-180 transition-transform duration-500" />
               Reload page
             </button>
             <button
-              onClick={() => this.setState({ hasError: false, error: null })}
-              className="px-5 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-semibold text-xs border border-white/15 transition-all"
+              onClick={() => window.location.href = '/'}
+              className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-white/[0.05] hover:bg-white/[0.08] text-gray-300 font-semibold text-xs flex items-center justify-center gap-2 border border-white/[0.08] transition-all duration-200"
             >
-              Try again
+              <Home className="w-3.5 h-3.5" />
+              Go home
             </button>
           </div>
-          {error && (
-            <p className="text-[10px] font-mono text-gray-500 break-all">
-              {error.toString()}
-            </p>
-          )}
         </div>
       </div>
     );
