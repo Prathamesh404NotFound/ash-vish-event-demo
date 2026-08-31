@@ -191,6 +191,7 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
   const [currentZoom, setCurrentZoom] = useState<number>(1);
   const [hasExposureComp, setHasExposureComp] = useState(false);
   const [isDecodingActive, setIsDecodingActive] = useState(false);
+  const missedScanFramesRef = useRef<number>(0);
   const [stalledScanHint, setStalledScanHint] = useState(false);
   const [qrBoxSize, setQrBoxSize] = useState<{ width: number; height: number }>({ width: 320, height: 320 });
 
@@ -644,8 +645,39 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
             });
 
             if (qrCode && qrCode.data) {
-              console.log('[ROI_JSQR_DECODE_SUCCESS]', qrCode.data);
+              // SMART AUTO-ZOOM: QR detected successfully.
+              // Reset missed-frame counter and return zoom toward 1x if currently zoomed.
+              missedScanFramesRef.current = 0;
+              if (videoTrackRef.current && availableZoomLevels.length > 1) {
+                const caps = (videoTrackRef.current as any).getCapabilities?.();
+                const maxZoom = caps?.zoom?.max || 1;
+                if (currentZoom > 1 && maxZoom > 1) {
+                  // Smoothly return toward 1x after successful detection
+                  const newZoom = Math.max(1, currentZoom - 0.25);
+                  if (Math.abs(newZoom - currentZoom) > 0.01) {
+                    setCurrentZoom(newZoom);
+                    videoTrackRef.current.applyConstraints({ advanced: [{ zoom: newZoom } as any] }).catch(() => {});
+                  }
+                }
+              }
               onSuccess(qrCode.data);
+            } else {
+              // SMART AUTO-ZOOM: No QR detected this frame.
+              // After ~30 consecutive misses (≈1s at 30fps), step up zoom if available.
+              missedScanFramesRef.current++;
+              if (missedScanFramesRef.current >= 30 && videoTrackRef.current && availableZoomLevels.length > 1) {
+                missedScanFramesRef.current = 0;
+                const caps = (videoTrackRef.current as any).getCapabilities?.();
+                const maxZoom = caps?.zoom?.max || 1;
+                if (currentZoom < maxZoom && maxZoom > 1) {
+                  const step = availableZoomLevels.length > 2 ? 0.5 : (maxZoom - 1) / 2;
+                  const newZoom = Math.min(maxZoom, currentZoom + Math.max(step, 0.25));
+                  if (Math.abs(newZoom - currentZoom) > 0.01) {
+                    setCurrentZoom(newZoom);
+                    videoTrackRef.current.applyConstraints({ advanced: [{ zoom: newZoom } as any] }).catch(() => {});
+                  }
+                }
+              }
             }
           }
         } catch (e) {
@@ -706,6 +738,7 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
     setCameraError(null);
     setStalledScanHint(false);
     setIsTorchOn(false);
+    missedScanFramesRef.current = 0;
 
     // Browser permission pre-check where supported
     if (navigator?.permissions?.query) {
@@ -800,27 +833,33 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
         // Frame decode pass
       };
 
+      // PERF FIX: Pass no-op callbacks to html5-qrcode so it only manages the
+      // camera stream without running its own scanning loop. The custom ROI
+      // decoder (startRoiDecodingLoop) handles all QR detection at ~50% CPU
+      // because it crops to a 360px center region instead of scanning the full
+      // high-res frame.
+      const noopFrame = () => {};
       try {
         await html5QrCode.start(
           cameraSource,
           scanConfig,
-          handleSuccess,
-          handleFrameError
+          noopFrame,
+          noopFrame
         );
       } catch (firstStartErr: any) {
         console.warn('[CAMERA] High-res config start failed, trying basic constraints fallback:', firstStartErr);
         await html5QrCode.start(
           cameraSource,
           { fps: isLowEndDevice ? 15 : 30, qrbox: box, disableFlip: true },
-          handleSuccess,
-          handleFrameError
+          noopFrame,
+          noopFrame
         );
       }
 
       setIsCameraActive(true);
       setIsDecodingActive(true);
 
-      // Start high-performance ROI decoding loop
+      // Start high-performance ROI decoding loop (sole QR decoder)
       startRoiDecodingLoop(handleSuccess);
 
       // Start 4s timer (A2 requirement: 4s instead of 3s) for hold-distance guidance
