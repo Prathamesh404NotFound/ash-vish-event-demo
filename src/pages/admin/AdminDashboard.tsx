@@ -112,25 +112,29 @@ export const AdminDashboard: React.FC = () => {
       .reduce((sum, t) => sum + (Number((t as any).amountDue) || 0), 0);
 
   // 12-Day Sales Velocity Chart Data Generation
+  // Use UTC dates throughout so the chart matches the backend's UTC-based
+  // purchasedAt grouping, regardless of the user's local timezone.
   const chartData = React.useMemo(() => {
     const dataPoints: { dateLabel: string; displayLabel: string; revenue: number; orders: number }[] = [];
     const revenueMap = new Map<string, { revenue: number; orders: number }>();
 
     if (report?.revenueByDate) {
       report.revenueByDate.forEach((item) => {
-        const formattedDate = new Date(item.date).toISOString().split('T')[0];
-        revenueMap.set(formattedDate, { revenue: item.revenue, orders: item.orders });
+        // item.date is already a YYYY-MM-DD string from the backend.
+        revenueMap.set(item.date, { revenue: item.revenue, orders: item.orders });
       });
     }
 
-    const today = new Date();
+    // Anchor to UTC midnight of today so the 12-day window aligns with
+    // the backend's UTC-based date keys from purchasedAt.slice(0,10).
+    const todayUtcStr = new Date().toISOString().split('T')[0];
+    const [utcYear, utcMonth, utcDay] = todayUtcStr.split('-').map(Number);
+
     for (let i = 11; i >= 0; i--) {
-      const d = new Date(today);
-      d.setDate(today.getDate() - i);
+      const d = new Date(Date.UTC(utcYear, utcMonth - 1, utcDay - i));
       const dateStr = d.toISOString().split('T')[0];
       const match = revenueMap.get(dateStr);
-      
-      const dayLabel = d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+      const dayLabel = d.toLocaleDateString([], { month: 'short', day: 'numeric', timeZone: 'UTC' });
       dataPoints.push({
         dateLabel: dateStr,
         displayLabel: dayLabel,
