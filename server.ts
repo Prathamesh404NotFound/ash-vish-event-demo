@@ -5786,84 +5786,93 @@ export async function createApp() {
       const eventsSnap = await rtdbGet("events", adminToken);
       const eventsById: Record<string, any> = (eventsSnap.data || {}) as Record<string, any>;
 
+      // ── All metrics derive from the tickets collection — the same source of
+      //    truth the attendees roster panel uses. This eliminates any discrepancy
+      //    between dashboard counts and the roster.
+      const ticketsSnap = await rtdbGet("tickets", adminToken);
+      let tickets = Object.values((ticketsSnap.data || {}) as Record<string, any>);
+      // Exclude soft-deleted tickets (same filter the roster applies).
+      tickets = tickets.filter((t: any) => String(t?.status || "").toLowerCase() !== "deleted");
+      // Optional date-range filter on purchasedAt (tickets purchase timestamp).
+      if (from) tickets = tickets.filter((t: any) => String(t?.purchasedAt || t?.createdAt || "") >= String(from));
+      if (to) tickets = tickets.filter((t: any) => String(t?.purchasedAt || t?.createdAt || "") <= String(to));
+
+      // Orders are fetched only for per-order breakdowns and channel counts.
       const ordersSnap = await rtdbGet("orders", adminToken);
       let orders = Object.values((ordersSnap.data || {}) as Record<string, any>);
       if (from) orders = orders.filter((o: any) => String(o.createdAt) >= String(from));
       if (to) orders = orders.filter((o: any) => String(o.createdAt) <= String(to));
       const confirmed = orders.filter((o: any) => o.status === "confirmed");
-      const paidConfirmed = confirmed.filter((o: any) => o.paymentStatus !== "pending");
-      const pendingConfirmed = confirmed.filter((o: any) => o.paymentStatus === "pending");
-      const refunded = orders.filter((o: any) => o.status === "refunded");
 
-      const revenueByEvent = Object.values(confirmed.reduce((acc: Record<string, any>, o: any) => {
-        const key = o.eventId || "unknown";
-        if (!acc[key]) acc[key] = { eventId: key, title: eventsById[key]?.title || key, revenue: 0, pendingRevenue: 0, netRevenue: 0, orders: 0, tickets: 0 };
-        const amt = Number(o.amount) || 0;
-        if (o.paymentStatus === "pending") {
-          acc[key].pendingRevenue += amt;
-        } else {
-          acc[key].revenue += amt;
-        }
-        acc[key].netRevenue -= Number(o.refundAmount) || 0;
-        acc[key].orders += 1;
-        acc[key].tickets += Number(o.quantity) || 1;
+      // ── Summary metrics (derived from tickets) ─────────────────────────────
+      const activeTickets = tickets.filter((t: any) => {
+        const s = String(t?.status || "").toLowerCase();
+        return s !== "cancelled" && s !== "refunded" && s !== "void";
+      });
+      const paidTickets = activeTickets.filter((t: any) => String(t?.paymentStatus || "").toLowerCase() !== "pending");
+      const pendingTickets = activeTickets.filter((t: any) => String(t?.paymentStatus || "").toLowerCase() === "pending");
+      const refundedTickets = tickets.filter((t: any) => {
+        const s = String(t?.status || "").toLowerCase();
+        return s === "refunded" || s === "void";
+      });
+
+      const totalRevenue = paidTickets.reduce((sum: number, t: any) => sum + (Number(t.totalPaid) || 0), 0);
+      const pendingCollection = pendingTickets.reduce((sum: number, t: any) => sum + (Number(t.amountDue) || 0), 0);
+      const totalRefunded = refundedTickets.reduce((sum: number, t: any) => sum + (Number(t.refundAmount) || Number(t.totalPaid) || 0), 0);
+      const totalTickets = activeTickets.reduce((sum: number, t: any) => sum + (Number(t.quantity) || 1), 0);
+      const uniqueOrderIds = new Set(activeTickets.map((t: any) => t.orderId).filter(Boolean));
+      const totalOrders = uniqueOrderIds.size || activeTickets.length;
+
+      // ── Revenue by Event (derived from tickets) ─────────────────────────────
+      const revenueByEvent = Object.values(activeTickets.reduce((acc: Record<string, any>, t: any) => {
+        const key = t.eventId || "unknown";
+        if (!acc[key]) acc[key] = { eventId: key, title: eventsById[key]?.title || t.eventTitle || key, revenue: 0, netRevenue: 0, orders: 0, tickets: 0 };
+        const isPaid = String(t?.paymentStatus || "").toLowerCase() !== "pending";
+        if (isPaid) acc[key].revenue += Number(t.totalPaid) || 0;
+        acc[key].netRevenue -= Number(t.refundAmount) || 0;
+        acc[key].tickets += Number(t.quantity) || 1;
         return acc;
-      }, {}));
+      }, {})) as any[];
+      for (const ev of revenueByEvent) {
+        ev.orders = confirmed.filter((o: any) => o.eventId === ev.eventId).length;
+      }
 
-      const revenueByDate = Object.values(paidConfirmed.reduce((acc: Record<string, any>, o: any) => {
-        const key = String(o.createdAt || "").slice(0, 10);
+      // ── Revenue by Date (derived from tickets) ──────────────────────────────
+      const revenueByDate = Object.values(paidTickets.reduce((acc: Record<string, any>, t: any) => {
+        const key = String(t?.purchasedAt || t?.createdAt || "").slice(0, 10);
+        if (!key) return acc;
         if (!acc[key]) acc[key] = { date: key, revenue: 0, orders: 0 };
-        acc[key].revenue += Number(o.amount) || 0;
+        acc[key].revenue += Number(t.totalPaid) || 0;
         acc[key].orders += 1;
         return acc;
       }, {})).sort((a: any, b: any) => String(a.date).localeCompare(String(b.date)));
 
-      const attendanceVsCapacity = Object.values(confirmed.reduce((acc: Record<string, any>, o: any) => {
-        if (!o.eventId || !eventsById[o.eventId]) return acc;
-        if (!acc[o.eventId]) acc[o.eventId] = { eventId: o.eventId, title: eventsById[o.eventId].title, capacity: eventsById[o.eventId].totalCapacity || 0, sold: 0, checkedIn: 0 };
-        acc[o.eventId].sold += Number(o.quantity) || 1;
+      // ── Attendance vs Capacity (derived from tickets) ────────────────────────
+      const attendanceVsCapacity = Object.values(activeTickets.reduce((acc: Record<string, any>, t: any) => {
+        if (!t.eventId || !eventsById[t.eventId]) return acc;
+        if (!acc[t.eventId]) acc[t.eventId] = { eventId: t.eventId, title: eventsById[t.eventId].title, capacity: eventsById[t.eventId].totalCapacity || 0, sold: 0, checkedIn: 0 };
+        acc[t.eventId].sold += Number(t.quantity) || 1;
+        if (t.scannedAt) acc[t.eventId].checkedIn += 1;
         return acc;
       }, {})) as any[];
-      // Checked-in counts come from ticket scan records (scannedAt presence).
-      const ticketsSnap = await rtdbGet("tickets", adminToken);
-      const tickets = Object.values((ticketsSnap.data || {}) as Record<string, any>);
-      for (const t of tickets) {
-        const entry = attendanceVsCapacity.find((a: any) => a.eventId === t.eventId);
-        if (entry && t.scannedAt) entry.checkedIn += 1;
-      }
 
-      const channels = confirmed.reduce((acc: Record<string, number>, o: any) => {
-        acc[o.channel || "unknown"] = (acc[o.channel || "unknown"] || 0) + 1;
+      // ── Sales by Channel (from tickets) ─────────────────────────────────────
+      const channels = activeTickets.reduce((acc: Record<string, number>, t: any) => {
+        const ch = t.channel || t.paymentMethod || "online";
+        acc[ch] = (acc[ch] || 0) + 1;
         return acc;
       }, {});
 
-      const totalRevenue = paidConfirmed.reduce((sum: number, o: any) => sum + (Number(o.amount) || 0), 0);
-      const pendingCollection = pendingConfirmed.reduce((sum: number, o: any) => sum + (Number(o.amount) || 0), 0);
-      const totalRefunded = refunded.reduce((sum: number, o: any) => sum + (Number(o.refundAmount) || 0), 0);
-      const totalOrders = confirmed.length;
-      // Count only paid confirmed tickets so dashboard totals match the attendees roster.
-      const totalTickets = paidConfirmed.reduce((sum: number, o: any) => sum + (Number(o.quantity) || 1), 0);
-
-      // Counter Operator Performance is based on live attendee ticket records,
-      // not shift rows. Orders are joined only for payment/quantity fallback.
-      const ordersByTicketId = new Map<string, any>();
-      for (const order of confirmed) {
-        if (order.ticketId) ordersByTicketId.set(String(order.ticketId), order);
-      }
-      const bySubUser = tickets.reduce((acc: Record<string, { tickets: number; amount: number }>, ticket: any) => {
-        if (String(ticket?.status || '').toLowerCase() === 'deleted') return acc;
-        const ticketDate = String(ticket?.purchasedAt || ticket?.createdAt || '');
-        if (from && ticketDate < String(from)) return acc;
-        if (to && ticketDate > String(to)) return acc;
-        const order = ticket?.orderId ? confirmed.find((candidate: any) => candidate.orderId === ticket.orderId) : ordersByTicketId.get(String(ticket?.id || ''));
+      // ── Counter Operator Performance (from tickets) ──────────────────────────
+      const bySubUser = activeTickets.reduce((acc: Record<string, { tickets: number; amount: number }>, ticket: any) => {
         const isCounterTicket = Boolean(
           ticket?.counterId || ticket?.counterName || ticket?.issuedBySubUserName ||
-          order?.channel === 'counter' || String(order?.paymentMethod || '').startsWith('walkin')
+          ticket?.channel === "counter" || String(ticket?.paymentMethod || "").startsWith("walkin")
         );
         if (!isCounterTicket) return acc;
-        const operator = String(ticket?.issuedBySubUserName || order?.issuedBySubUserName || 'Main Staff');
-        const quantity = Math.max(1, Number(order?.quantity ?? ticket?.quantity ?? 1) || 1);
-        const amount = Number(order?.amountPaid ?? order?.amount ?? ticket?.totalPaid ?? ((ticket?.price || 0) * quantity)) || 0;
+        const operator = String(ticket?.issuedBySubUserName || "Main Staff");
+        const quantity = Number(ticket?.quantity ?? 1) || 1;
+        const amount = Number(ticket?.totalPaid ?? ((ticket?.price || 0) * quantity)) || 0;
         if (!acc[operator]) acc[operator] = { tickets: 0, amount: 0 };
         acc[operator].tickets += quantity;
         acc[operator].amount += amount;

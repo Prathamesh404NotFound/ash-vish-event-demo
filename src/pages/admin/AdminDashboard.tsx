@@ -86,21 +86,30 @@ export const AdminDashboard: React.FC = () => {
     return lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
-  // Live KPI Calculations
-  const totalRevenue = report?.summary?.totalRevenue ?? allTickets.reduce((sum, t) => sum + (t.totalPaid || 0), 0);
-  const ticketsSold = report?.summary?.totalTickets ?? allTickets
-    .filter(t => t.status !== 'cancelled' && t.status !== 'refunded')
-    .reduce((sum, t) => sum + (t.quantity || 1), 0);
-  
-  // Checked-In calculation: sum of checkedIn across all events in report, or count of redeemed/used tickets
-  const checkedInCount = report?.attendanceVsCapacity?.reduce((sum, item) => sum + (item.checkedIn || 0), 0) ?? 
-    allTickets.filter(t => t.status === 'redeemed' || t.status === 'used').length;
+  // Live KPI Calculations — all fallbacks derive from allTickets (RTDB tickets
+  // collection) so they match the attendees roster when the server report is
+  // unavailable. Non-deleted, non-cancelled, non-refunded, non-void tickets
+  // with a non-pending paymentStatus are considered "active & paid".
+  const activeTickets = allTickets.filter(t => {
+    const s = String(t?.status || '').toLowerCase();
+    return s !== 'deleted' && s !== 'cancelled' && s !== 'refunded' && s !== 'void';
+  });
+  const paidTickets = activeTickets.filter(t => String(t?.paymentStatus || '').toLowerCase() !== 'pending');
 
-  // Pending Collection calculation: sum of amountDue for pending reservation passes
-  const pendingCollection = report?.summary?.pendingCollection ?? 
-    allTickets
-      .filter(t => t.paymentStatus === 'pending' || t.passType === 'reservation')
-      .reduce((sum, t) => sum + (Number(t.amountDue) || 0), 0);
+  const totalRevenue = report?.summary?.totalRevenue ??
+    paidTickets.reduce((sum, t) => sum + (t.totalPaid || 0), 0);
+  const ticketsSold = report?.summary?.totalTickets ??
+    activeTickets.reduce((sum, t) => sum + (t.quantity || 1), 0);
+
+  // Checked-In: count tickets with scannedAt set (same logic as the backend report).
+  const checkedInCount = report?.attendanceVsCapacity?.reduce((sum, item) => sum + (item.checkedIn || 0), 0) ??
+    activeTickets.filter(t => (t as any).scannedAt).length;
+
+  // Pending Collection: sum of amountDue for active but unpaid (pending) tickets.
+  const pendingCollection = report?.summary?.pendingCollection ??
+    activeTickets
+      .filter(t => String(t?.paymentStatus || '').toLowerCase() === 'pending')
+      .reduce((sum, t) => sum + (Number((t as any).amountDue) || 0), 0);
 
   // 12-Day Sales Velocity Chart Data Generation
   const chartData = React.useMemo(() => {
@@ -135,8 +144,11 @@ export const AdminDashboard: React.FC = () => {
 
   const maxRevenue = Math.max(...chartData.map(d => d.revenue), 1000);
 
-  // Total refund amount for summary
-  const totalRefunded = report?.summary?.totalRefunded ?? 0;
+  // Total refund amount for summary (derived from tickets when report unavailable).
+  const totalRefunded = report?.summary?.totalRefunded ??
+    allTickets
+      .filter(t => { const s = String(t?.status || '').toLowerCase(); return s === 'refunded' || s === 'void'; })
+      .reduce((sum, t) => sum + (Number((t as any).refundAmount) || Number(t.totalPaid) || 0), 0);
   const netRevenue = totalRevenue - totalRefunded;
 
   return (
