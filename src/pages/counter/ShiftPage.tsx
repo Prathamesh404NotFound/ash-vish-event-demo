@@ -139,6 +139,33 @@ export const ShiftPage: React.FC = () => {
         if (open) writeStoredActiveShift(open);
         else if (localShift) clearStoredActiveShift(localShift);
 
+        // Auto-close shifts that have crossed midnight (new business day).
+        if (open && open.startTime) {
+          const shiftStart = new Date(open.startTime);
+          const now = new Date();
+          const midnightToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+          if (shiftStart.getTime() < midnightToday.getTime()) {
+            // Shift started before today's midnight — auto-close it.
+            try {
+              const endHeaders = await authenticatedApiHeaders();
+              const endRes = await safeFetch<{ success: boolean; error?: string }>(
+                `/api/counter/shifts/${open.shiftId}/end`,
+                { method: 'POST', headers: endHeaders, body: JSON.stringify({}) }
+              );
+              if (endRes.ok && endRes.data?.success) {
+                clearStoredActiveShift(open);
+                setSuccessBanner('Previous shift was automatically closed at midnight. Please start a new shift for today.');
+              } else {
+                setErrorBanner(endRes.data?.error || 'Could not auto-close yesterday\'s shift. Please close it manually.');
+              }
+            } catch {
+              setErrorBanner('Could not auto-close yesterday\'s shift. Please close it manually.');
+            }
+            setActiveShift(null);
+            return;
+          }
+        }
+
         setActiveShift(open || null);
       } else {
         setErrorBanner(shiftRes.data?.error || shiftRes.error || 'Failed to load shifts.');

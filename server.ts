@@ -6806,10 +6806,54 @@ async function computeShiftCashTotals(
       const existing = await fetchCounterShifts(adminToken, staffUid);
       const openShifts = Object.values(existing).filter((s: any) => s.status === "open");
       
+      // Auto-close any stale open shifts that started before today's midnight.
+      // This ensures the new business day always starts fresh, even if the
+      // previous shift was never explicitly ended.
+      const now = new Date();
+      const midnightToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+      const staleShifts = openShifts.filter((s: any) => {
+        const shiftStart = new Date(s.startTime);
+        return shiftStart.getTime() < midnightToday.getTime();
+      });
+      for (const stale of staleShifts) {
+        try {
+          const staleShiftId = stale.shiftId || (stale as any).id;
+          const totals = await computeShiftCashTotals(adminToken, { ...stale, shiftId: staleShiftId });
+          await rtdbUpdate(`counter_shifts/${staleShiftId}`, {
+            status: "closed",
+            endTime: new Date().toISOString(),
+            countedCash: Number(stale.startingCash || 0) + totals.expectedCash,
+            expectedCash: totals.expectedCash,
+            discrepancy: 0,
+            cashSalesCount: totals.cashSalesCount,
+            totalSales: totals.totalSales,
+            byMethod: totals.byMethod,
+            ticketsSold: totals.ticketsSold,
+            closedBy: "system-auto-midnight",
+            autoReconciled: true,
+          }, adminToken);
+          await writeAuditEntry({
+            actorId: "system",
+            actorRole: "system",
+            action: "shift.auto-closed-midnight",
+            entityType: "shift",
+            entityId: staleShiftId,
+            beforeState: { startTime: stale.startTime },
+            afterState: { endTime: new Date().toISOString(), totalSales: totals.totalSales },
+          });
+        } catch { /* best-effort: stale shift auto-close should not block the new shift */ }
+      }
+      // Remove stale shifts from the open list so the duplicate check below
+      // only considers genuinely open (same-business-day) shifts.
+      const nonStaleOpenShifts = openShifts.filter((s: any) => {
+        const shiftStart = new Date(s.startTime);
+        return shiftStart.getTime() >= midnightToday.getTime();
+      });
+      
       // Several assigned sub-users may work at the same physical counter at
       // the same time. Only the selected sub-user must be unique; a counter
       // itself is not a shift lock.
-      const duplicateSubUserShift = openShifts.find((s: any) => s.subUserId === subUserId);
+      const duplicateSubUserShift = nonStaleOpenShifts.find((s: any) => s.subUserId === subUserId);
       if (duplicateSubUserShift) {
         return res.status(409).json({ success: false, error: "This sub-user already has an open shift. End it before starting a new one." });
       }
