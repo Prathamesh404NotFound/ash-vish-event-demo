@@ -13,23 +13,23 @@ import { EmptyState } from './components/EmptyState';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { QRScanner } from './components/QRScanner';
 
-// Public / Customer Pages
-import { Home } from './pages/Home';
-import { SearchPage } from './pages/SearchPage';
-import { EventDetail } from './pages/EventDetail';
-import { CheckoutWizard } from './pages/CheckoutWizard';
-import { ConfirmationPage } from './pages/ConfirmationPage';
-import { MyTicketsPage } from './pages/MyTicketsPage';
-import { AuthPage } from './pages/AuthPage';
-import { ProfilePage } from './pages/ProfilePage';
-import { DigitalPassPage } from './pages/DigitalPassPage';
-import { TicketPassPage } from './pages/TicketPassPage';
-import { CityPage } from './pages/CityPage';
-import { BlogPage } from './pages/BlogPage';
-import { BlogPostPage } from './pages/BlogPostPage';
-import { TermsPage } from './pages/TermsPage';
-import { PaymentCallbackPage } from './pages/PaymentCallbackPage';
-import { NotFoundPage } from './pages/NotFoundPage';
+// Public / Customer Pages (lazy-loaded for code splitting)
+const Home = React.lazy(() => import('./pages/Home').then(m => ({ default: m.Home })));
+const SearchPage = React.lazy(() => import('./pages/SearchPage').then(m => ({ default: m.SearchPage })));
+const EventDetail = React.lazy(() => import('./pages/EventDetail').then(m => ({ default: m.EventDetail })));
+const CheckoutWizard = React.lazy(() => import('./pages/CheckoutWizard').then(m => ({ default: m.CheckoutWizard })));
+const ConfirmationPage = React.lazy(() => import('./pages/ConfirmationPage').then(m => ({ default: m.ConfirmationPage })));
+const MyTicketsPage = React.lazy(() => import('./pages/MyTicketsPage').then(m => ({ default: m.MyTicketsPage })));
+const AuthPage = React.lazy(() => import('./pages/AuthPage').then(m => ({ default: m.AuthPage })));
+const ProfilePage = React.lazy(() => import('./pages/ProfilePage').then(m => ({ default: m.ProfilePage })));
+const DigitalPassPage = React.lazy(() => import('./pages/DigitalPassPage').then(m => ({ default: m.DigitalPassPage })));
+const TicketPassPage = React.lazy(() => import('./pages/TicketPassPage').then(m => ({ default: m.TicketPassPage })));
+const CityPage = React.lazy(() => import('./pages/CityPage').then(m => ({ default: m.CityPage })));
+const BlogPage = React.lazy(() => import('./pages/BlogPage').then(m => ({ default: m.BlogPage })));
+const BlogPostPage = React.lazy(() => import('./pages/BlogPostPage').then(m => ({ default: m.BlogPostPage })));
+const TermsPage = React.lazy(() => import('./pages/TermsPage').then(m => ({ default: m.TermsPage })));
+const PaymentCallbackPage = React.lazy(() => import('./pages/PaymentCallbackPage').then(m => ({ default: m.PaymentCallbackPage })));
+const NotFoundPage = React.lazy(() => import('./pages/NotFoundPage').then(m => ({ default: m.NotFoundPage })));
 
 function HashPassRedirectHandler() {
   const navigate = useNavigate();
@@ -52,30 +52,29 @@ function HashPassRedirectHandler() {
   return null;
 }
 
-// Admin Dashboard Shell & Pages
-import { AdminLayoutPage } from './components/AdminLayoutPage';
-import { AdminDashboard } from './pages/admin/AdminDashboard';
-import { AdminEvents } from './pages/admin/AdminEvents';
-import { AdminBookings } from './pages/admin/AdminBookings';
-import { AdminSettings } from './pages/admin/AdminSettings';
-import { AdminSeatMapBuilder } from './pages/admin/AdminSeatMapBuilder';
-import { AdminCoupons } from './pages/admin/AdminCoupons';
-import { AdminReports } from './pages/admin/AdminReports';
-import { AdminReviews } from './pages/admin/AdminReviews';
-import { AdminOrganizers } from './pages/admin/AdminOrganizers';
-import { AdminCounters } from './pages/admin/AdminCounters';
-import { AdminShiftPage } from './pages/admin/AdminShiftPage';
-import { OrganizerDashboard } from './pages/OrganizerDashboard';
+// Admin Dashboard Shell & Pages (lazy-loaded for code splitting)
+const AdminLayoutPage = React.lazy(() => import('./components/AdminLayoutPage').then(m => ({ default: m.AdminLayoutPage })));
+const AdminDashboard = React.lazy(() => import('./pages/admin/AdminDashboard').then(m => ({ default: m.AdminDashboard })));
+const AdminEvents = React.lazy(() => import('./pages/admin/AdminEvents').then(m => ({ default: m.AdminEvents })));
+const AdminBookings = React.lazy(() => import('./pages/admin/AdminBookings').then(m => ({ default: m.AdminBookings })));
+const AdminSettings = React.lazy(() => import('./pages/admin/AdminSettings').then(m => ({ default: m.AdminSettings })));
+const AdminSeatMapBuilder = React.lazy(() => import('./pages/admin/AdminSeatMapBuilder').then(m => ({ default: m.AdminSeatMapBuilder })));
+const AdminCoupons = React.lazy(() => import('./pages/admin/AdminCoupons').then(m => ({ default: m.AdminCoupons })));
+const AdminReports = React.lazy(() => import('./pages/admin/AdminReports').then(m => ({ default: m.AdminReports })));
+const AdminReviews = React.lazy(() => import('./pages/admin/AdminReviews').then(m => ({ default: m.AdminReviews })));
+const AdminOrganizers = React.lazy(() => import('./pages/admin/AdminOrganizers').then(m => ({ default: m.AdminOrganizers })));
+const AdminCounters = React.lazy(() => import('./pages/admin/AdminCounters').then(m => ({ default: m.AdminCounters })));
+const AdminShiftPage = React.lazy(() => import('./pages/admin/AdminShiftPage').then(m => ({ default: m.AdminShiftPage })));
+const OrganizerDashboard = React.lazy(() => import('./pages/OrganizerDashboard').then(m => ({ default: m.OrganizerDashboard })));
+const AdminUsers = React.lazy(() => import('./pages/admin/AdminUsers').then(m => ({ default: m.AdminUsers })));
 
-import { AdminUsers } from './pages/admin/AdminUsers';
-
-// Ticket Counter Dashboard Shell & Pages
-import { CounterLayout } from './components/CounterLayout';
-import { CounterOverview } from './pages/counter/CounterOverview';
-import { WalkInPage } from './pages/counter/WalkInPage';
-import { ShiftPage } from './pages/counter/ShiftPage';
-import { CounterOrders } from './pages/counter/CounterOrders';
-import { MySalesPage } from './pages/counter/MySalesPage';
+// Ticket Counter Dashboard Shell & Pages (lazy-loaded for code splitting)
+const CounterLayout = React.lazy(() => import('./components/CounterLayout').then(m => ({ default: m.CounterLayout })));
+const CounterOverview = React.lazy(() => import('./pages/counter/CounterOverview').then(m => ({ default: m.CounterOverview })));
+const WalkInPage = React.lazy(() => import('./pages/counter/WalkInPage').then(m => ({ default: m.WalkInPage })));
+const ShiftPage = React.lazy(() => import('./pages/counter/ShiftPage').then(m => ({ default: m.ShiftPage })));
+const CounterOrders = React.lazy(() => import('./pages/counter/CounterOrders').then(m => ({ default: m.CounterOrders })));
+const MySalesPage = React.lazy(() => import('./pages/counter/MySalesPage').then(m => ({ default: m.MySalesPage })));
 import { readPreferredStoredActiveShift } from './lib/counterSession';
 
 function CounterEntryPage() {
@@ -226,6 +225,18 @@ function FavoritesRoute() {
   );
 }
 
+function SuspenseWrapper({ children }: { children: React.ReactNode }) {
+  return (
+    <React.Suspense fallback={
+      <div className="min-h-screen bg-[#070707] flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-[#D4AF37]/30 border-t-[#D4AF37] rounded-full animate-spin" />
+      </div>
+    }>
+      {children}
+    </React.Suspense>
+  );
+}
+
 export default function App() {
   return (
     <ErrorBoundary>
@@ -233,6 +244,7 @@ export default function App() {
       <BookingProvider>
         <BrowserRouter>
           <HashPassRedirectHandler />
+          <SuspenseWrapper>
           <Routes>
             {/* Secure Fullscreen Digital Pass Routes */}
             <Route path="/pass/:slug/:signature" element={<TicketPassPage />} />
@@ -323,6 +335,7 @@ export default function App() {
               <Route path="*" element={<NotFoundPage />} />
             </Route>
           </Routes>
+          </SuspenseWrapper>
         </BrowserRouter>
       </BookingProvider>
     </AuthProvider>

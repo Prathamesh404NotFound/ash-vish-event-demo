@@ -10,7 +10,7 @@ interface EventCardProps {
   onBookNow: (event: EventItem) => void;
 }
 
-export const EventCard: React.FC<EventCardProps> = ({ event, onSelectEvent, onBookNow }) => {
+export const EventCard: React.FC<EventCardProps> = React.memo(({ event, onSelectEvent, onBookNow }) => {
   const { favorites, toggleFavorite } = useBooking();
   const isFav = favorites.includes(event.id);
 
@@ -158,4 +158,4 @@ export const EventCard: React.FC<EventCardProps> = ({ event, onSelectEvent, onBo
       </div>
     </div>
   );
-};
+});

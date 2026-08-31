@@ -16,9 +16,9 @@ export const SplashScreen: React.FC<{ onComplete: () => void }> = ({ onComplete 
       const removeTimer = setTimeout(() => {
         setVisible(false);
         onComplete();
-      }, 400);
+      }, 200);
       return () => clearTimeout(removeTimer);
-    }, 600);
+    }, 300);
 
     return () => clearTimeout(minTimer);
   }, [onComplete]);
@@ -27,7 +27,7 @@ export const SplashScreen: React.FC<{ onComplete: () => void }> = ({ onComplete 
 
   return (
     <div
-      className={`fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-[#070707] transition-opacity duration-400 ${
+      className={`fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-[#070707] transition-opacity duration-200 ${
         fading ? 'opacity-0' : 'opacity-100'
       }`}
     >
