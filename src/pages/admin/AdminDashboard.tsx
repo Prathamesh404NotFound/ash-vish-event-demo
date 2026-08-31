@@ -88,7 +88,9 @@ export const AdminDashboard: React.FC = () => {
 
   // Live KPI Calculations
   const totalRevenue = report?.summary?.totalRevenue ?? allTickets.reduce((sum, t) => sum + (t.totalPaid || 0), 0);
-  const ticketsSold = report?.summary?.totalTickets ?? allTickets.reduce((sum, t) => sum + (t.quantity || 1), 0);
+  const ticketsSold = report?.summary?.totalTickets ?? allTickets
+    .filter(t => t.status !== 'cancelled' && t.status !== 'refunded')
+    .reduce((sum, t) => sum + (t.quantity || 1), 0);
   
   // Checked-In calculation: sum of checkedIn across all events in report, or count of redeemed/used tickets
   const checkedInCount = report?.attendanceVsCapacity?.reduce((sum, item) => sum + (item.checkedIn || 0), 0) ?? 

@@ -5841,7 +5841,8 @@ export async function createApp() {
       const pendingCollection = pendingConfirmed.reduce((sum: number, o: any) => sum + (Number(o.amount) || 0), 0);
       const totalRefunded = refunded.reduce((sum: number, o: any) => sum + (Number(o.refundAmount) || 0), 0);
       const totalOrders = confirmed.length;
-      const totalTickets = confirmed.reduce((sum: number, o: any) => sum + (Number(o.quantity) || 1), 0);
+      // Count only paid confirmed tickets so dashboard totals match the attendees roster.
+      const totalTickets = paidConfirmed.reduce((sum: number, o: any) => sum + (Number(o.quantity) || 1), 0);
 
       // Counter Operator Performance is based on live attendee ticket records,
       // not shift rows. Orders are joined only for payment/quantity fallback.
