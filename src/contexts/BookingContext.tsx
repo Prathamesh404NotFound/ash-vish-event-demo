@@ -6,6 +6,7 @@ import { EventItem, Ticket, TicketTier, BookingRecord, Coupon, EventReview, Orga
 import { safeFetch, getApiUrl, SafeFetchResponse } from '../lib/api';
 import { rtdbGet, rtdbSet, rtdbDelete, rtdbUpdate } from '../lib/rtdb';
 import { isSeatBasedEvent } from '../lib/seatMap';
+import { useToast } from './ToastContext';
 
 export interface CheckoutSession {
   event: EventItem;
@@ -175,16 +176,7 @@ const BookingContext = createContext<BookingContextType | undefined>(undefined);
 
 export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useAuth();
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
-
-  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
-    setToast({ message, type });
-    setTimeout(() => {
-      setToast((current) => (current?.message === message ? null : current));
-    }, 4500);
-  };
-
-  const clearToast = () => setToast(null);
+  const { showToast, clearToast } = useToast();
 
   // Firebase is the single source of truth. A clean production workspace starts
   // empty instead of restoring a legacy mock catalog from browser storage.
@@ -1616,6 +1608,8 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       value={{
         bookingStep,
         setBookingStep,
+        showToast,
+        clearToast,
         seatProjection,
         seatsConnected,
         reservation,
@@ -1640,9 +1634,7 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         coupons,
         reviews,
         organizers,
-        toast,
-        showToast,
-        clearToast,
+
         toggleFavorite,
         selectTicketsForCheckout,
         clearCheckout,
@@ -1683,28 +1675,7 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }}
     >
       {children}
-      {/* Toast Notification Banner */}
-      {toast && (
-        <div className="fixed bottom-6 right-6 z-50 max-w-md animate-in fade-in slide-in-from-bottom-4 duration-300">
-          <div
-            className={`px-4 py-3 rounded-xl shadow-2xl border flex items-center justify-between gap-3 text-sm font-medium ${
-              toast.type === 'error'
-                ? 'bg-red-950/90 border-red-800/80 text-red-200'
-                : toast.type === 'success'
-                ? 'bg-emerald-950/90 border-emerald-800/80 text-emerald-200'
-                : 'bg-zinc-900/95 border-zinc-700/80 text-zinc-100'
-            }`}
-          >
-            <span>{toast.message}</span>
-            <button
-              onClick={clearToast}
-              className="text-xs opacity-70 hover:opacity-100 ml-2 px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/20 transition-colors"
-            >
-              ✕
-            </button>
-          </div>
-        </div>
-      )}
+
     </BookingContext.Provider>
   );
 };

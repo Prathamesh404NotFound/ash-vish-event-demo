@@ -24,7 +24,7 @@ interface NavbarProps {
   onOpenSearch?: () => void;
 }
 
-export const Navbar: React.FC<NavbarProps> = ({ onOpenSearch }) => {
+export const Navbar: React.FC<NavbarProps> = React.memo(({ onOpenSearch }) => {
   const { user, isAuthenticated, logout } = useAuth();
   const { myTickets, favorites } = useBooking();
   const { isAdmin, isTicketCounter } = useRoleAuth();
@@ -327,4 +327,4 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSearch }) => {
       </div>
     </>
   );
-};
+});

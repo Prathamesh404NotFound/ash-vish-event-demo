@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useParams, Outlet } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import { BookingProvider, useBooking } from './contexts/BookingContext';
+import { ToastProvider } from './contexts/ToastContext';
 import { Navbar } from './components/Navbar';
 import { Footer } from './components/Footer';
 import { RoleRoute } from './components/RoleRoute';
@@ -11,6 +12,7 @@ import { TermsAcceptanceModal } from './components/TermsAcceptanceModal';
 import { EventCard } from './components/EventCard';
 import { EmptyState } from './components/EmptyState';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { ChunkErrorBoundary } from './components/ChunkErrorBoundary';
 import { QRScanner } from './components/QRScanner';
 
 // Public / Customer Pages (lazy-loaded for code splitting)
@@ -227,19 +229,22 @@ function FavoritesRoute() {
 
 function SuspenseWrapper({ children }: { children: React.ReactNode }) {
   return (
-    <React.Suspense fallback={
-      <div className="min-h-screen bg-[#070707] flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-[#D4AF37]/30 border-t-[#D4AF37] rounded-full animate-spin" />
-      </div>
-    }>
-      {children}
-    </React.Suspense>
+    <ChunkErrorBoundary>
+      <React.Suspense fallback={
+        <div className="min-h-screen bg-[#070707] flex items-center justify-center">
+          <div className="w-8 h-8 border-2 border-[#D4AF37]/30 border-t-[#D4AF37] rounded-full animate-spin" />
+        </div>
+      }>
+        {children}
+      </React.Suspense>
+    </ChunkErrorBoundary>
   );
 }
 
 export default function App() {
   return (
     <ErrorBoundary>
+    <ToastProvider>
     <AuthProvider>
       <BookingProvider>
         <BrowserRouter>
@@ -339,6 +344,7 @@ export default function App() {
         </BrowserRouter>
       </BookingProvider>
     </AuthProvider>
+    </ToastProvider>
     </ErrorBoundary>
   );
 }
