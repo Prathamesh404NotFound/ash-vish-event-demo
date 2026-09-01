@@ -1,6 +1,7 @@
 import React from 'react';
 import { Compass, Music, Laugh, Trophy, Film, Sparkles } from 'lucide-react';
 import { EventCategory } from '../types';
+import { CATEGORY_CONFIG } from '../config/categoryConfig';
 
 interface CategoryChipProps {
   category: EventCategory | 'all';
@@ -38,7 +39,8 @@ export const CategoryChip: React.FC<CategoryChipProps> = ({
 
   const getLabel = () => {
     if (category === 'all') return 'All Events';
-    return category.charAt(0).toUpperCase() + category.slice(1) + (category === 'comedy' ? ' Shows' : 's');
+    if (category in CATEGORY_CONFIG) return CATEGORY_CONFIG[category as EventCategory].pluralLabel;
+    return category.charAt(0).toUpperCase() + category.slice(1) + 's';
   };
 
   return (

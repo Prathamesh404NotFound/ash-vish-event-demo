@@ -25,6 +25,8 @@ import { CategoryChip } from '../components/CategoryChip';
 import { formatINR } from '../utils/formatters';
 import { useSEO } from '../hooks/useSEO';
 import { generateOrganizationSchema } from '../utils/structuredData';
+import { getCategoryBadgeText } from '../config/categoryConfig';
+import { Button } from '../components/Button';
 
 interface HomeProps {
   onSelectEvent: (event: EventItem) => void;
@@ -184,13 +186,14 @@ export const Home: React.FC<HomeProps> = ({
                 We are preparing upcoming concerts, comedy nights, theatre shows, sports events and more.
               </p>
 
-              <button
+              <Button
                 onClick={() => onNavigateToSearch('all')}
-                className="mt-8 inline-flex items-center justify-center gap-2 rounded-xl bg-[#D4AF37] px-6 py-3.5 text-sm font-bold text-black transition hover:bg-[#E2C45A]"
+                size="lg"
+                className="mt-8"
               >
                 Explore Events
                 <ArrowRight className="h-4 w-4" />
-              </button>
+              </Button>
             </div>
           </div>
         </section>
@@ -223,9 +226,7 @@ export const Home: React.FC<HomeProps> = ({
               <div className="flex items-center gap-2">
                 <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#D4AF37]/10 text-[#D4AF37] border border-[#D4AF37]/30 text-[11px] font-semibold tracking-wider uppercase">
                   <Sparkles className="w-3 h-3 text-[#D4AF37]" />
-                  {currentHeroEvent.category === 'concert'
-                    ? 'LIVE MUSICAL NIGHT'
-                    : `${currentHeroEvent.category.toUpperCase()} SHOW`}
+                  {getCategoryBadgeText(currentHeroEvent.category)}
                 </span>
               </div>
 

@@ -2,6 +2,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MapPin, Calendar, Sparkles, CheckCircle2, ShieldCheck, Star, ArrowRight, Building, Music, PartyPopper } from 'lucide-react';
 import { useSEO } from '../hooks/useSEO';
+import { Button } from '../components/Button';
 import { useBooking } from '../contexts/BookingContext';
 import { generateBreadcrumbSchema, generateFAQSchema } from '../utils/structuredData';
 
@@ -106,13 +107,13 @@ export function CityPage({ city }: CityPageProps) {
         </p>
 
         <div className="flex flex-wrap justify-center gap-4 pt-2">
-          <button
+          <Button
             onClick={() => navigate('/events')}
-            className="px-8 py-4 rounded-2xl bg-[#D4AF37] hover:bg-[#F3E5AB] text-black font-extrabold text-sm flex items-center gap-2 shadow-xl shadow-[#D4AF37]/20 transition-all cursor-pointer"
+            size="lg"
           >
             <span>Explore All Shows</span>
             <ArrowRight className="w-4 h-4 stroke-[2.5]" />
-          </button>
+          </Button>
           <a
             href="https://wa.me/919822000000?text=Hi%2C%20I%20would%20like%20to%20book%20event%20planning%20services%20in%20"
             target="_blank"
@@ -168,12 +169,12 @@ export function CityPage({ city }: CityPageProps) {
         {cityEvents.length === 0 ? (
           <div className="p-12 text-center rounded-3xl bg-[#111] border border-white/10 space-y-4">
             <p className="text-gray-400 text-sm">No specific events listed for {details.name} right now. Explore all upcoming shows on our events portal!</p>
-            <button
+            <Button
               onClick={() => navigate('/events')}
-              className="px-6 py-2.5 rounded-xl bg-[#D4AF37] text-black font-bold text-xs"
+              size="sm"
             >
               Browse All Events
-            </button>
+            </Button>
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
