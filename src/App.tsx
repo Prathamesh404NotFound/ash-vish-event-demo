@@ -139,7 +139,8 @@ function EventDetailRoute() {
 
   const event = getEventById(eventId || '');
 
-  if (!event) {
+  // Hide completed, cancelled, and draft events from public view
+  if (!event || event.status === 'completed' || event.status === 'cancelled' || event.status === 'draft') {
     return (
       <div className="pt-28 pb-20 text-center">
         <EmptyState

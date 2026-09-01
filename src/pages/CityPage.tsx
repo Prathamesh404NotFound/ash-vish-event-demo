@@ -68,6 +68,8 @@ export function CityPage({ city }: CityPageProps) {
   const details = cityDetails[city] || cityDetails.kolhapur;
 
   const cityEvents = events.filter(e => {
+    // Hide draft, cancelled, and completed events
+    if (e.status === 'draft' || e.status === 'cancelled' || e.status === 'completed') return false;
     if (city === 'india' || city === 'maharashtra') return true;
     return e.city?.toLowerCase() === details.name.toLowerCase();
   });

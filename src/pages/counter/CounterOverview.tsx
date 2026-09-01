@@ -19,15 +19,17 @@ export const CounterOverview: React.FC = () => {
     return { total, scanned, walkIn, valid, progress };
   }, [allTickets]);
 
-  // Memoize per-event stats
+  // Memoize per-event stats — only show active (published/sold_out) events
   const eventStats = useMemo(() => {
-    return events.map((evt) => {
-      const tiers = normalizeTiers(evt.ticketTiers);
-      const eventTickets = allTickets.filter((t) => t.eventId === evt.id);
-      const eventScanned = eventTickets.filter((t) => t.status === 'redeemed' || t.status === 'used').length;
-      const remaining = tiers.reduce((sum, t) => sum + (t.remainingInventory ?? (t.totalInventory || 0)), 0);
-      return { ...evt, eventTickets, eventScanned, remaining, tierCount: tiers.length };
-    });
+    return events
+      .filter((evt) => evt.status !== 'draft' && evt.status !== 'cancelled' && evt.status !== 'completed')
+      .map((evt) => {
+        const tiers = normalizeTiers(evt.ticketTiers);
+        const eventTickets = allTickets.filter((t) => t.eventId === evt.id);
+        const eventScanned = eventTickets.filter((t) => t.status === 'redeemed' || t.status === 'used').length;
+        const remaining = tiers.reduce((sum, t) => sum + (t.remainingInventory ?? (t.totalInventory || 0)), 0);
+        return { ...evt, eventTickets, eventScanned, remaining, tierCount: tiers.length };
+      });
   }, [events, allTickets]);
 
   // Loading state: show skeleton while context is populating

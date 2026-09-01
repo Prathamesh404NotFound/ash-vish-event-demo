@@ -1,5 +1,5 @@
 export type EventCategory = 'concert' | 'comedy' | 'sports' | 'theatre' | 'festival';
-export type EventStatus = 'draft' | 'published' | 'sold_out' | 'cancelled';
+export type EventStatus = 'draft' | 'published' | 'sold_out' | 'cancelled' | 'completed';
 
 export interface Artist {
   id: string;

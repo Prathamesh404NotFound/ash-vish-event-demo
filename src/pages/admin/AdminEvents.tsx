@@ -727,7 +727,7 @@ export const AdminEvents: React.FC = () => {
       <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-4 bg-[#141414] border border-white/10 p-3 sm:p-4 rounded-2xl">
         {/* Status Tabs */}
         <div className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
-          {(['all', 'published', 'draft', 'sold_out', 'cancelled'] as const).map((tab) => {
+          {(['all', 'published', 'draft', 'sold_out', 'completed', 'cancelled'] as const).map((tab) => {
             const count = events.filter((e) => (tab === 'all' ? true : (e.status || 'published') === tab)).length;
             const isActive = activeTab === tab;
             return (
@@ -860,6 +860,8 @@ export const AdminEvents: React.FC = () => {
                               ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
                               : currentStatus === 'sold_out'
                               ? 'bg-purple-500/10 border-purple-500/30 text-purple-400'
+                              : currentStatus === 'completed'
+                              ? 'bg-blue-500/10 border-blue-500/30 text-blue-400'
                               : 'bg-red-500/10 border-red-500/30 text-red-400'
                           }`}
                         >
@@ -871,6 +873,9 @@ export const AdminEvents: React.FC = () => {
                           </option>
                           <option value="sold_out" className="bg-[#1A1A1A] text-purple-400">
                             🟣 Sold Out
+                          </option>
+                          <option value="completed" className="bg-[#1A1A1A] text-blue-400">
+                            🔵 Completed
                           </option>
                           <option value="cancelled" className="bg-[#1A1A1A] text-red-400">
                             🔴 Cancelled
@@ -1052,6 +1057,7 @@ export const AdminEvents: React.FC = () => {
                       <option value="published">🟢 Published (Live on Public Portal)</option>
                       <option value="draft">🟡 Draft (Admin Only - Hidden)</option>
                       <option value="sold_out">🟣 Sold Out</option>
+                      <option value="completed">🔵 Completed (Hidden from Website & Counters)</option>
                       <option value="cancelled">🔴 Cancelled</option>
                     </select>
                   </div>

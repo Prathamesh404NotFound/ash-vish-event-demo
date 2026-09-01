@@ -66,6 +66,7 @@ export const Home: React.FC<HomeProps> = ({
         typeof event.status === 'string' &&
         event.status !== 'draft' &&
         event.status !== 'cancelled' &&
+        event.status !== 'completed' &&
         event.isEventPublic !== false
     );
   }, [events]);

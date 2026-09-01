@@ -60,8 +60,8 @@ export const SearchPage: React.FC<SearchPageProps> = ({
   // Filtered & Sorted events computation
   const filteredEvents = useMemo(() => {
     return events.filter((evt) => {
-      // Exclude draft events from public search
-      if (evt.status === 'draft') return false;
+      // Exclude draft, cancelled, and completed events from public search
+      if (evt.status === 'draft' || evt.status === 'cancelled' || evt.status === 'completed') return false;
 
       // Search query match
       if (
