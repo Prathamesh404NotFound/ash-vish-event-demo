@@ -82,6 +82,15 @@ export const Home: React.FC<HomeProps> = ({
 
   const heroEvents = featuredEvents.length ? featuredEvents : publicEvents;
 
+  // Auto-advance hero carousel every 6 seconds
+  React.useEffect(() => {
+    if (heroEvents.length <= 1) return;
+    const timer = setInterval(() => {
+      setHeroIndex((prev) => (prev + 1) % heroEvents.length);
+    }, 6000);
+    return () => clearInterval(timer);
+  }, [heroEvents.length]);
+
   const currentHeroEvent: EventItem | undefined =
     heroEvents.length > 0
       ? heroEvents[Math.min(heroIndex, heroEvents.length - 1)]
@@ -157,7 +166,7 @@ export const Home: React.FC<HomeProps> = ({
     return (
       <main className="min-h-screen bg-[#070707] text-white">
         <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20">
-          <div className="relative overflow-hidden rounded-[28px] border border-white/10 bg-[#101010] px-6 py-16 sm:px-10 lg:px-16">
+          <div className="relative overflow-hidden rounded-[28px] border border-white/10 bg-[#0D0D10] px-6 py-16 sm:px-10 lg:px-16">
             <div className="absolute -top-32 -right-32 h-80 w-80 rounded-full bg-[#D4AF37]/10 blur-3xl" />
 
             <div className="relative max-w-2xl">
@@ -231,36 +240,36 @@ export const Home: React.FC<HomeProps> = ({
               </div>
 
               {/* Metadata 3-Item Row */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3.5 sm:p-4 rounded-2xl bg-[#141418]/90 border border-white/10 shadow-inner">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3.5 sm:p-4 rounded-2xl bg-[#141414]/90 border border-white/10 shadow-inner">
                 {/* DATE */}
                 <div className="flex items-center gap-3 px-2 py-1.5">
-                  <div className="w-8 h-8 rounded-xl bg-[#1C1C22] border border-white/10 flex items-center justify-center shrink-0">
+                  <div className="w-8 h-8 rounded-xl bg-[#1C1C1C] border border-white/10 flex items-center justify-center shrink-0">
                     <Calendar className="w-4 h-4 text-[#D4AF37]" />
                   </div>
                   <div className="min-w-0">
                     <span className="block text-[10px] font-bold uppercase tracking-wider text-gray-500">Date</span>
                     <span className="text-xs sm:text-sm font-semibold text-gray-100 truncate block">
-                      {currentHeroEvent.date || '06 Sep 2026'}
+                      {currentHeroEvent.date || 'Date TBD'}
                     </span>
                   </div>
                 </div>
 
                 {/* TIME */}
                 <div className="flex items-center gap-3 px-2 py-1.5 sm:border-l sm:border-white/10">
-                  <div className="w-8 h-8 rounded-xl bg-[#1C1C22] border border-white/10 flex items-center justify-center shrink-0">
+                  <div className="w-8 h-8 rounded-xl bg-[#1C1C1C] border border-white/10 flex items-center justify-center shrink-0">
                     <Clock className="w-4 h-4 text-[#D4AF37]" />
                   </div>
                   <div className="min-w-0">
                     <span className="block text-[10px] font-bold uppercase tracking-wider text-gray-500">Time</span>
                     <span className="text-xs sm:text-sm font-semibold text-gray-100 truncate block">
-                      {currentHeroEvent.time || '08:00 PM'}
+                      {currentHeroEvent.time || 'Time TBD'}
                     </span>
                   </div>
                 </div>
 
                 {/* VENUE */}
                 <div className="flex items-center gap-3 px-2 py-1.5 sm:border-l sm:border-white/10">
-                  <div className="w-8 h-8 rounded-xl bg-[#1C1C22] border border-white/10 flex items-center justify-center shrink-0">
+                  <div className="w-8 h-8 rounded-xl bg-[#1C1C1C] border border-white/10 flex items-center justify-center shrink-0">
                     <MapPin className="w-4 h-4 text-[#D4AF37]" />
                   </div>
                   <div className="min-w-0">
@@ -269,7 +278,7 @@ export const Home: React.FC<HomeProps> = ({
                       className="text-xs sm:text-sm font-semibold text-gray-100 truncate block"
                       title={currentHeroEvent.venue}
                     >
-                      {currentHeroEvent.venue || 'Sayaji Hotel, Kolhapur'}
+                      {currentHeroEvent.venue || 'Venue TBD'}
                     </span>
                   </div>
                 </div>
@@ -367,14 +376,14 @@ export const Home: React.FC<HomeProps> = ({
 
             {/* RIGHT COLUMN: Dominant Artist / Event Poster Artwork */}
             <div className="lg:col-span-5 relative flex items-center justify-center">
-              <div className="relative w-full max-w-md mx-auto aspect-[4/5] rounded-2xl sm:rounded-3xl overflow-hidden border border-white/10 shadow-2xl bg-[#141418] group">
+              <div className="relative w-full max-w-md mx-auto aspect-[4/5] rounded-2xl sm:rounded-3xl overflow-hidden border border-white/10 shadow-2xl bg-[#141414] group">
                 <img
-                  src={currentHeroEvent.posterUrl || currentHeroEvent.coverUrl || '/sufiyana-shaam-poster.jpg'}
+                  src={currentHeroEvent.posterUrl || currentHeroEvent.coverUrl || ''}
                   alt={currentHeroEvent.title}
                   className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-700 ease-out filter brightness-[0.95] contrast-[1.05]"
                   fetchPriority="high"
                   onError={(e) => {
-                    e.currentTarget.src = '/sufiyana-shaam-poster.jpg';
+                    e.currentTarget.style.display = 'none';
                   }}
                 />
 
@@ -384,7 +393,7 @@ export const Home: React.FC<HomeProps> = ({
                 {/* Bottom tag */}
                 <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between pointer-events-none">
                   <span className="text-[11px] font-semibold text-gray-200 bg-black/60 backdrop-blur-md px-3 py-1 rounded-lg border border-white/10">
-                    Official Ash-vish Production
+                    {currentHeroEvent.organizer || 'Ash-vish Events'}
                   </span>
                   <span className="text-[11px] font-bold text-[#F3E5AB] bg-[#D4AF37]/20 backdrop-blur-md px-2.5 py-1 rounded-lg border border-[#D4AF37]/30">
                     ★ {currentHeroEvent.rating || '4.9'}
@@ -414,7 +423,7 @@ export const Home: React.FC<HomeProps> = ({
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="p-6 sm:p-7 rounded-2xl bg-[#0D0D10] border border-white/10 hover:border-[#D4AF37]/30 transition-all duration-300 space-y-4">
-            <div className="w-11 h-11 rounded-xl bg-[#18181D] border border-white/10 flex items-center justify-center text-[#D4AF37]">
+            <div className="w-11 h-11 rounded-xl bg-[#141414] border border-white/10 flex items-center justify-center text-[#D4AF37]">
               <Music2 className="w-5 h-5" />
             </div>
             <div className="space-y-1.5">
@@ -426,7 +435,7 @@ export const Home: React.FC<HomeProps> = ({
           </div>
 
           <div className="p-6 sm:p-7 rounded-2xl bg-[#0D0D10] border border-white/10 hover:border-[#D4AF37]/30 transition-all duration-300 space-y-4">
-            <div className="w-11 h-11 rounded-xl bg-[#18181D] border border-white/10 flex items-center justify-center text-[#D4AF37]">
+            <div className="w-11 h-11 rounded-xl bg-[#141414] border border-white/10 flex items-center justify-center text-[#D4AF37]">
               <Users2 className="w-5 h-5" />
             </div>
             <div className="space-y-1.5">
@@ -438,7 +447,7 @@ export const Home: React.FC<HomeProps> = ({
           </div>
 
           <div className="p-6 sm:p-7 rounded-2xl bg-[#0D0D10] border border-white/10 hover:border-[#D4AF37]/30 transition-all duration-300 space-y-4">
-            <div className="w-11 h-11 rounded-xl bg-[#18181D] border border-white/10 flex items-center justify-center text-[#D4AF37]">
+            <div className="w-11 h-11 rounded-xl bg-[#141414] border border-white/10 flex items-center justify-center text-[#D4AF37]">
               <Sparkles className="w-5 h-5" />
             </div>
             <div className="space-y-1.5">
@@ -493,7 +502,7 @@ export const Home: React.FC<HomeProps> = ({
             </div>
 
             {/* Right: Key Event Facts & Calendar Action */}
-            <div className="lg:col-span-5 bg-[#141418] border border-white/10 rounded-2xl p-6 space-y-5">
+            <div className="lg:col-span-5 bg-[#141414] border border-white/10 rounded-2xl p-6 space-y-5">
               <h3 className="font-heading font-bold text-base text-white border-b border-white/10 pb-3">
                 Key Event Information
               </h3>
@@ -529,7 +538,7 @@ export const Home: React.FC<HomeProps> = ({
               <div className="pt-2 border-t border-white/10 flex flex-col gap-2.5">
                 <button
                   onClick={handleAddToCalendar}
-                  className="w-full py-3 rounded-xl bg-[#1C1C22] hover:bg-[#25252D] border border-white/10 text-gray-200 hover:text-white text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer"
+                  className="w-full py-3 rounded-xl bg-[#1C1C1C] hover:bg-[#262626] border border-white/10 text-gray-200 hover:text-white text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer"
                 >
                   <CalendarPlus className="w-4 h-4 text-[#D4AF37]" />
                   <span>Add to Google Calendar</span>
@@ -704,7 +713,7 @@ export const Home: React.FC<HomeProps> = ({
       ====================================================== */}
 
       <section className="mx-auto max-w-[1320px] px-4 pt-16 sm:px-6 lg:px-8 lg:pt-20">
-        <div className="relative overflow-hidden rounded-[28px] border border-[#D4AF37]/15 bg-gradient-to-br from-[#15120a] via-[#0f0f0f] to-[#080808] px-6 py-12 sm:px-10 lg:px-14">
+        <div className="relative overflow-hidden rounded-[28px] border border-[#D4AF37]/15 bg-gradient-to-br from-[#141414] via-[#0D0D10] to-[#070707] px-6 py-12 sm:px-10 lg:px-14">
           <div className="absolute -right-24 -top-24 h-64 w-64 rounded-full bg-[#D4AF37]/10 blur-3xl" />
 
           <div className="relative flex flex-col gap-7 lg:flex-row lg:items-center lg:justify-between">
@@ -851,7 +860,7 @@ const CategoryFeature: React.FC<CategoryFeatureProps> = ({
   return (
     <button
       onClick={onClick}
-      className="group relative overflow-hidden rounded-[22px] border border-white/10 bg-[#101010] p-6 text-left transition duration-300 hover:-translate-y-1 hover:border-[#D4AF37]/30 hover:bg-[#141414]"
+      className="group relative overflow-hidden rounded-[22px] border border-white/10 bg-[#0D0D10] p-6 text-left transition duration-300 hover:-translate-y-1 hover:border-[#D4AF37]/30 hover:bg-[#141414]"
     >
       <div className="absolute right-0 top-0 h-28 w-28 rounded-full bg-[#D4AF37]/5 blur-3xl transition group-hover:bg-[#D4AF37]/10" />
 

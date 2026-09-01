@@ -165,40 +165,33 @@ export const AuthPage: React.FC = () => {
 
           <div className="relative z-10 space-y-4">
             <span className="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-[#D4AF37]/20 text-[#D4AF37] border border-[#D4AF37]/30 inline-flex items-center gap-1">
-              <Sparkles className="w-3 h-3" /> VIP MEMBER ACCESS
+              <Sparkles className="w-3 h-3" /> ASH-VISH EVENTS
             </span>
             <h2 className="font-heading font-extrabold text-3xl text-white leading-tight">
-              {mode === 'forgot-password' ? 'Secure Account Recovery' : 'Unlock Priority Pre-sales & Verified Pass Wallet'}
+              {mode === 'forgot-password' ? 'Secure Account Recovery' : 'Your gateway to live events'}
             </h2>
             <p className="text-xs text-gray-300 leading-relaxed max-w-md">
-              {mode === 'forgot-password' 
-                ? 'Use your registered WhatsApp number to receive a secure one-time password and regain access to your tickets.'
-                : 'Join thousands of music lovers, comedy fans, and sports enthusiasts enjoying instant mobile entry to world tours.'}
+              {mode === 'forgot-password'
+                ? 'Use your registered WhatsApp number to receive a one-time password and regain access to your account.'
+                : 'Sign in to view your tickets, manage bookings, and get instant QR entry at events.'}
             </p>
           </div>
 
           <div className="relative z-10 flex items-center gap-2 text-xs text-gray-400">
             <ShieldCheck className="w-4 h-4 text-emerald-400" />
-            <span>Firebase Authentication Secured</span>
+            <span>Encrypted &amp; secure</span>
           </div>
         </div>
 
         {/* Right Side: Auth Form */}
         <div className="lg:col-span-6 p-8 sm:p-12 flex flex-col justify-center bg-[#141414]">
-          {/* Mobile Event Poster Header */}
-          <div className="lg:hidden mb-8 rounded-2xl overflow-hidden border border-white/10 relative group">
-            <img 
-              src="/sufiyana-shaam-poster.jpg" 
-              alt="Sufiyana Shaam Event Poster" 
-              className="w-full h-48 object-cover object-top"
-            />
-            <div className="absolute inset-0 bg-gradient-to-t from-[#141414] via-transparent to-transparent" />
-            <div className="absolute bottom-4 left-4 right-4">
-              <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-[#D4AF37] text-black inline-flex items-center gap-1 mb-1">
-                <Sparkles className="w-2.5 h-2.5" /> Featured Event
-              </span>
-              <h3 className="text-white font-heading font-bold text-sm">Sufiyana Shaam at Sayaji</h3>
+          {/* Mobile brand header */}
+          <div className="lg:hidden mb-8 rounded-2xl overflow-hidden border border-white/10 bg-gradient-to-br from-[#D4AF37]/10 via-[#141414] to-[#141414] p-6 text-center">
+            <div className="w-12 h-12 mx-auto rounded-2xl bg-[#D4AF37]/15 border border-[#D4AF37]/30 flex items-center justify-center text-[#D4AF37] mb-3">
+              <Sparkles className="w-6 h-6" />
             </div>
+            <h3 className="text-white font-heading font-bold text-lg">Discover Live Events</h3>
+            <p className="text-gray-400 text-xs mt-1">Concerts, comedy, theatre &amp; more</p>
           </div>
 
           <div className="max-w-md w-full mx-auto space-y-6">
