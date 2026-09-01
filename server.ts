@@ -5898,7 +5898,10 @@ export async function createApp() {
     try {
       const { bookingId, eventId, seatId, ticketId } = req.body;
       const issuedAt = new Date().toISOString();
-      const payloadString = `${bookingId || 'bkg_demo'}|${eventId || 'evt_001'}|${seatId || 'S1'}|${ticketId || 'tkt_demo'}|${issuedAt}`;
+      if (!bookingId || !eventId || !ticketId) {
+        return res.status(400).json({ success: false, error: 'bookingId, eventId, and ticketId are required.' });
+      }
+      const payloadString = `${bookingId}|${eventId}|${seatId || ''}|${ticketId}|${issuedAt}`;
       
       const signature = signHmac(payloadString);
 

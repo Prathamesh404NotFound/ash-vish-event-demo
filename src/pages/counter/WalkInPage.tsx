@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   UserPlus,
   CheckCircle2,
@@ -194,14 +194,16 @@ export const WalkInPage: React.FC = () => {
     (e.status === 'published' || e.status === 'sold_out') &&
     e.isEventPublic !== false;
 
-  const filteredEvents = events.filter((e) => isEventVisible(e) && (
-    e.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    e.city.toLowerCase().includes(searchQuery.toLowerCase())
-  ));
+  const filteredEvents = useMemo(() => {
+    const q = searchQuery.toLowerCase();
+    return events.filter((e) => isEventVisible(e) && (
+      !q || e.title.toLowerCase().includes(q) || e.city.toLowerCase().includes(q)
+    ));
+  }, [events, searchQuery]);
 
-  const selectedEvent = events.find((e) => e.id === selectedEventId) || events[0];
-  const selectedEventTiers = normalizeTiers(selectedEvent?.ticketTiers);
-  const selectedTier = selectedEventTiers.find((t) => t.id === selectedTierId) || selectedEventTiers[0];
+  const selectedEvent = useMemo(() => events.find((e) => e.id === selectedEventId) || events[0], [events, selectedEventId]);
+  const selectedEventTiers = useMemo(() => normalizeTiers(selectedEvent?.ticketTiers), [selectedEvent?.ticketTiers]);
+  const selectedTier = useMemo(() => selectedEventTiers.find((t) => t.id === selectedTierId) || selectedEventTiers[0], [selectedEventTiers, selectedTierId]);
 
   // Remember the last event + tier for fast repeat issuance.
   useEffect(() => {
@@ -340,7 +342,7 @@ export const WalkInPage: React.FC = () => {
         setSeatRefreshKey((k) => k + 1);
         setLastLiveRefresh(Date.now());
       }
-    }, 5000);
+    }, 15000);
     return () => window.clearInterval(interval);
   }, [isSeatBasedEvent(selectedEvent), selectedEvent?.id]);
 
@@ -348,7 +350,7 @@ export const WalkInPage: React.FC = () => {
   useEffect(() => {
     const interval = window.setInterval(() => {
       setSecondsAgo(Math.max(0, Math.floor((Date.now() - lastLiveRefresh) / 1000)));
-    }, 1000);
+    }, 5000);
     return () => window.clearInterval(interval);
   }, [lastLiveRefresh]);
 
@@ -429,13 +431,18 @@ export const WalkInPage: React.FC = () => {
     loadShifts();
     return () => { cancelled = true; };
     }, [user?.uid, user?.id, selectedCounterId]);
-  // ---------- Totals ----------
+  // ---------- Totals (memoized to avoid recalculation on every render) ----------
 
-  const seatCount = selectedSeats.length;
-  const unitCount = isSeatBasedEvent(selectedEvent) ? seatCount : quantity;
-  const grossTotal = (selectedTier?.price || 0) * unitCount;
+  const totals = useMemo(() => {
+    const seatCount = selectedSeats.length;
+    const unitCount = isSeatBasedEvent(selectedEvent) ? seatCount : quantity;
+    const grossTotal = (selectedTier?.price || 0) * unitCount;
+    const netTotal = Math.max(0, grossTotal - discountAmount);
+    return { seatCount, unitCount, grossTotal, netTotal };
+  }, [selectedSeats.length, selectedEvent, quantity, selectedTier?.price, discountAmount]);
+
+  const { seatCount, unitCount, grossTotal, netTotal } = totals;
   const paymentsSum = payments.reduce((acc, p) => acc + p.amount, 0);
-  const netTotal = Math.max(0, grossTotal - discountAmount);
   const paymentsValid = payments.length > 0 && Math.abs(paymentsSum - netTotal) < 0.01 && payments.every((p) => p.amount > 0);
   const splitUpiRowsAllVerified = !showSplit || payments.every((p, idx) => p.method !== 'upi' || verifiedUpiRows[idx]);
   const upiUri = paymentMethod === 'upi' && validateUpiParam({

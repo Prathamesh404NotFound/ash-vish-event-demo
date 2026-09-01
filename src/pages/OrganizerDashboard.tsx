@@ -27,7 +27,7 @@ export const OrganizerDashboard: React.FC = () => {
   const [city, setCity] = useState('');
   const [date, setDate] = useState('');
   const [time, setTime] = useState('');
-  const [price, setPrice] = useState<number>(1499);
+  const [price, setPrice] = useState<number>(0);
   const [imageUrl, setImageUrl] = useState('https://images.unsplash.com/photo-1540039155733-5bb30b53aa14?auto=format&fit=crop&q=80&w=1200');
 
   // Find organizer account for current user

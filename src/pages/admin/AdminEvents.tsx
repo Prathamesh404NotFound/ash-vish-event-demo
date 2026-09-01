@@ -64,12 +64,8 @@ export const AdminEvents: React.FC = () => {
   const [city, setCity] = useState('Mumbai');
   const [address, setAddress] = useState('');
   const [organizer, setOrganizer] = useState('Ash-vish Events');
-  const [posterUrl, setPosterUrl] = useState(
-    'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&q=80&w=800'
-  );
-  const [coverUrl, setCoverUrl] = useState(
-    'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?auto=format&fit=crop&q=80&w=1200'
-  );
+  const [posterUrl, setPosterUrl] = useState('');
+  const [coverUrl, setCoverUrl] = useState('');
   const [cardImageUrl, setCardImageUrl] = useState('');
 
   // Ticket Tiers State
@@ -77,20 +73,11 @@ export const AdminEvents: React.FC = () => {
     {
       id: 'tier_gen_' + Date.now(),
       name: 'General Access',
-      price: 1499,
-      description: 'Standard floor admission pass',
-      totalInventory: 500,
-      remainingInventory: 500,
-      perksText: 'General Entry, Express Security',
-    },
-    {
-      id: 'tier_vip_' + Date.now(),
-      name: 'VIP Front Lounge',
-      price: 3999,
-      description: 'Elevated view with complimentary beverage',
-      totalInventory: 100,
-      remainingInventory: 100,
-      perksText: 'VIP Lounge, Free Beverage, Priority Parking',
+      price: 0,
+      description: '',
+      totalInventory: 0,
+      remainingInventory: 0,
+      perksText: '',
     },
   ]);
 
@@ -237,8 +224,8 @@ export const AdminEvents: React.FC = () => {
     setCity('Mumbai');
     setAddress('BKC, Bandra East, Mumbai, Maharashtra');
     setOrganizer('Ash-vish Events Official');
-    setPosterUrl('https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&q=80&w=800');
-    setCoverUrl('https://images.unsplash.com/photo-1470225620780-dba8ba36b745?auto=format&fit=crop&q=80&w=1200');
+    setPosterUrl('');
+    setCoverUrl('');
     setCardImageUrl('');
     setUsesSeatMap(true);
     setPerksText('Complimentary Welcome Kit, Live DJ After-Party, Free Parking');
@@ -247,20 +234,11 @@ export const AdminEvents: React.FC = () => {
       {
         id: 'tier_gen_' + Date.now(),
         name: 'General Access',
-        price: 1499,
-        description: 'Standard floor admission pass',
-        totalInventory: 500,
-        remainingInventory: 500,
-        perksText: 'General Entry, Express Security',
-      },
-      {
-        id: 'tier_vip_' + Date.now(),
-        name: 'VIP Lounge Pass',
-        price: 3999,
-        description: 'Elevated viewing lounge access',
-        totalInventory: 100,
-        remainingInventory: 100,
-        perksText: 'VIP Lounge, Dedicated Bar, Reserved Parking',
+        price: 0,
+        description: '',
+        totalInventory: 0,
+        remainingInventory: 0,
+        perksText: '',
       },
     ]);
     setScheduleText('');
@@ -358,11 +336,11 @@ export const AdminEvents: React.FC = () => {
         {
           id: 'tier_gen_' + Date.now(),
           name: 'General Pass',
-          price: evt.startingPrice || 999,
-          description: 'Standard Pass',
-          totalInventory: 300,
-          remainingInventory: 300,
-          perksText: 'Standard Entry',
+          price: evt.startingPrice || 0,
+          description: '',
+          totalInventory: 0,
+          remainingInventory: 0,
+          perksText: '',
         },
       ]);
     }

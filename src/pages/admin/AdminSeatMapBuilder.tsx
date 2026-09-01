@@ -44,7 +44,7 @@ export const AdminSeatMapBuilder: React.FC = () => {
     {
       id: 'sec_vip',
       name: 'VIP Recliner Zone',
-      price: 3999,
+      price: 0,
       rowsCount: 2,
       seatsPerRow: 8,
       color: '#D4AF37', // Gold
@@ -54,7 +54,7 @@ export const AdminSeatMapBuilder: React.FC = () => {
     {
       id: 'sec_gen',
       name: 'General Floor',
-      price: 1499,
+      price: 0,
       rowsCount: 4,
       seatsPerRow: 10,
       color: '#3B82F6', // Blue
@@ -135,7 +135,7 @@ export const AdminSeatMapBuilder: React.FC = () => {
       {
         id: newId,
         name: `Section ${String.fromCharCode(65 + prev.length)}`,
-        price: 1999,
+        price: 0,
         rowsCount: 3,
         seatsPerRow: 8,
         color: randomColor,
@@ -166,7 +166,7 @@ export const AdminSeatMapBuilder: React.FC = () => {
         {
           id: 'sec_recliner',
           name: 'VIP Recliner',
-          price: 2499,
+          price: 0,
           rowsCount: 2,
           seatsPerRow: 8,
           color: '#D4AF37',
@@ -176,7 +176,7 @@ export const AdminSeatMapBuilder: React.FC = () => {
         {
           id: 'sec_prime',
           name: 'Prime Seats',
-          price: 1299,
+          price: 0,
           rowsCount: 4,
           seatsPerRow: 10,
           color: '#10B981',
@@ -186,7 +186,7 @@ export const AdminSeatMapBuilder: React.FC = () => {
         {
           id: 'sec_classic',
           name: 'Classic Ground',
-          price: 799,
+          price: 0,
           rowsCount: 3,
           seatsPerRow: 10,
           color: '#3B82F6',
@@ -200,7 +200,7 @@ export const AdminSeatMapBuilder: React.FC = () => {
         {
           id: 'sec_platinum',
           name: 'Platinum Pavilion',
-          price: 4999,
+          price: 0,
           rowsCount: 3,
           seatsPerRow: 12,
           color: '#8B5CF6',
@@ -210,7 +210,7 @@ export const AdminSeatMapBuilder: React.FC = () => {
         {
           id: 'sec_gold',
           name: 'Gold Tier',
-          price: 2999,
+          price: 0,
           rowsCount: 5,
           seatsPerRow: 12,
           color: '#F59E0B',
@@ -220,7 +220,7 @@ export const AdminSeatMapBuilder: React.FC = () => {
         {
           id: 'sec_silver',
           name: 'Silver Gallery',
-          price: 1499,
+          price: 0,
           rowsCount: 6,
           seatsPerRow: 12,
           color: '#64748B',
@@ -234,7 +234,7 @@ export const AdminSeatMapBuilder: React.FC = () => {
         {
           id: 'sec_front',
           name: 'Front Row Experience',
-          price: 1999,
+          price: 0,
           rowsCount: 2,
           seatsPerRow: 6,
           color: '#EC4899',
@@ -244,7 +244,7 @@ export const AdminSeatMapBuilder: React.FC = () => {
         {
           id: 'sec_main',
           name: 'Main Auditorium',
-          price: 999,
+          price: 0,
           rowsCount: 4,
           seatsPerRow: 8,
           color: '#3B82F6',
