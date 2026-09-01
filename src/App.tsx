@@ -105,10 +105,16 @@ function MainLayout() {
 
   return (
     <div className="min-h-screen bg-[#090909] text-gray-100 font-sans flex flex-col justify-between selection:bg-[#D4AF37] selection:text-black">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-[100] focus:px-4 focus:py-2 focus:rounded-lg focus:bg-[#D4AF37] focus:text-black focus:font-bold focus:shadow-lg"
+      >
+        Skip to main content
+      </a>
       <Navbar onOpenSearch={() => navigate('/events')} />
       {/* The navbar is a fixed floating card; reserve clearance so no page
           content ever renders underneath it regardless of its own padding. */}
-      <main className="flex-1 pt-[100px] sm:pt-[104px]">
+      <main id="main-content" className="flex-1 pt-[100px] sm:pt-[104px]">
         <Outlet />
       </main>
       <Footer setActiveTab={(path) => navigate(path === 'home' ? '/' : `/${path}`)} />

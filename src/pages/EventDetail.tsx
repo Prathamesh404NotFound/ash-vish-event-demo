@@ -335,7 +335,7 @@ export const EventDetail: React.FC<EventDetailProps> = ({
               <div className="p-5 rounded-2xl bg-[#141414] border border-[#D4AF37]/20 grid grid-cols-1 sm:grid-cols-2 gap-5">
                 {event.perks && event.perks.length > 0 && (
                   <div className="space-y-2">
-                    <span className="text-[10px] uppercase tracking-widest font-bold text-gray-500 flex items-center gap-1.5">
+                    <span className="text-[10px] uppercase tracking-widest font-bold text-gray-400 flex items-center gap-1.5">
                       <Sparkles className="w-3 h-3 text-[#D4AF37]" /> Event Perks
                     </span>
                     <ul className="space-y-2">
@@ -350,7 +350,7 @@ export const EventDetail: React.FC<EventDetailProps> = ({
                 )}
                 {showPublicTicketInfo && selectedTier?.perks?.length > 0 && (
                   <div className="space-y-2">
-                    <span className="text-[10px] uppercase tracking-widest font-bold text-gray-500 flex items-center gap-1.5">
+                    <span className="text-[10px] uppercase tracking-widest font-bold text-gray-400 flex items-center gap-1.5">
                       <Star className="w-3 h-3 text-[#D4AF37]" /> {selectedTier.name} Benefits
 
                     </span>

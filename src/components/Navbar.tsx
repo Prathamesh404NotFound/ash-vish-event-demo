@@ -83,6 +83,7 @@ export const Navbar: React.FC<NavbarProps> = React.memo(({ onOpenSearch }) => {
                   <Link
                     key={item.path}
                     to={item.path}
+                    aria-current={isActive ? 'page' : undefined}
                     className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 ${
                       isActive
                         ? 'bg-[#D4AF37]/15 text-[#F3E5AB] border border-[#D4AF37]/30 font-semibold'

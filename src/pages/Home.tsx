@@ -105,14 +105,18 @@ export const Home: React.FC<HomeProps> = ({
     [publicEvents]
   );
 
+  const trendingIds = useMemo(() => new Set(trendingEvents.map((e) => e.id)), [trendingEvents]);
+
   const popularEvents = useMemo(
-    () => publicEvents.filter((event) => event.isPopularThisWeek).slice(0, 8),
-    [publicEvents]
+    () => publicEvents.filter((event) => event.isPopularThisWeek && !trendingIds.has(event.id)).slice(0, 8),
+    [publicEvents, trendingIds]
   );
 
+  const popularIds = useMemo(() => new Set(popularEvents.map((e) => e.id)), [popularEvents]);
+
   const musicEvents = useMemo(
-    () => publicEvents.filter((e) => e.category === 'concert'),
-    [publicEvents]
+    () => publicEvents.filter((e) => e.category === 'concert' && !trendingIds.has(e.id) && !popularIds.has(e.id)),
+    [publicEvents, trendingIds, popularIds]
   );
 
   const categories: (EventCategory | 'all')[] = [
@@ -166,8 +170,8 @@ export const Home: React.FC<HomeProps> = ({
 
   if (!currentHeroEvent) {
     return (
-      <main className="min-h-screen bg-[#070707] text-white">
-        <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20">
+      <div className="min-h-screen bg-[#070707] text-white" role="main">
+        <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 sm:py-20">
           <div className="relative overflow-hidden rounded-[28px] border border-white/10 bg-[#0D0D10] px-6 py-16 sm:px-10 lg:px-16">
             <div className="absolute -top-32 -right-32 h-80 w-80 rounded-full bg-[#D4AF37]/10 blur-3xl" />
 
@@ -197,7 +201,7 @@ export const Home: React.FC<HomeProps> = ({
             </div>
           </div>
         </section>
-      </main>
+      </div>
     );
   }
 
@@ -208,16 +212,16 @@ export const Home: React.FC<HomeProps> = ({
    */
 
   return (
-    <main className="min-h-screen bg-[#070707] pb-20 text-white">
+    <div className="min-h-screen bg-[#070707] pb-16 sm:pb-20 text-white">
 
       {/* ======================================================
           1. HERO SECTION
       ====================================================== */}
 
       <section className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 sm:pt-6">
-        <div className="bg-[#0D0D10] border border-white/10 rounded-3xl sm:rounded-[32px] overflow-hidden p-6 sm:p-10 lg:p-12 shadow-2xl relative">
+        <div className="bg-[#0D0D10] border border-white/10 rounded-3xl sm:rounded-[32px] overflow-hidden p-4 sm:p-8 lg:p-12 shadow-2xl relative">
 
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-12 items-center">
 
             {/* LEFT COLUMN: Editorial & Event Information */}
             <div className="lg:col-span-7 flex flex-col justify-center space-y-6 sm:space-y-8 z-10">
@@ -248,7 +252,7 @@ export const Home: React.FC<HomeProps> = ({
                     <Calendar className="w-4 h-4 text-[#D4AF37]" />
                   </div>
                   <div className="min-w-0">
-                    <span className="block text-[10px] font-bold uppercase tracking-wider text-gray-500">Date</span>
+                    <span className="block text-[10px] font-bold uppercase tracking-wider text-gray-400">Date</span>
                     <span className="text-xs sm:text-sm font-semibold text-gray-100 truncate block">
                       {currentHeroEvent.date || 'Date TBD'}
                     </span>
@@ -261,7 +265,7 @@ export const Home: React.FC<HomeProps> = ({
                     <Clock className="w-4 h-4 text-[#D4AF37]" />
                   </div>
                   <div className="min-w-0">
-                    <span className="block text-[10px] font-bold uppercase tracking-wider text-gray-500">Time</span>
+                    <span className="block text-[10px] font-bold uppercase tracking-wider text-gray-400">Time</span>
                     <span className="text-xs sm:text-sm font-semibold text-gray-100 truncate block">
                       {currentHeroEvent.time || 'Time TBD'}
                     </span>
@@ -274,7 +278,7 @@ export const Home: React.FC<HomeProps> = ({
                     <MapPin className="w-4 h-4 text-[#D4AF37]" />
                   </div>
                   <div className="min-w-0">
-                    <span className="block text-[10px] font-bold uppercase tracking-wider text-gray-500">Venue</span>
+                    <span className="block text-[10px] font-bold uppercase tracking-wider text-gray-400">Venue</span>
                     <span
                       className="text-xs sm:text-sm font-semibold text-gray-100 truncate block"
                       title={currentHeroEvent.venue}
@@ -467,8 +471,8 @@ export const Home: React.FC<HomeProps> = ({
       ====================================================== */}
 
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-16 sm:pt-20">
-        <div className="bg-[#0D0D10] border border-white/10 rounded-3xl p-6 sm:p-10 lg:p-12">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-start">
+        <div className="bg-[#0D0D10] border border-white/10 rounded-3xl p-4 sm:p-8 lg:p-12">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-12 items-start">
 
             {/* Left: Editorial Description */}
             <div className="lg:col-span-7 space-y-4">
@@ -737,7 +741,7 @@ export const Home: React.FC<HomeProps> = ({
         </div>
       </section>
 
-    </main>
+    </div>
   );
 };
 
@@ -871,7 +875,7 @@ const CategoryFeature: React.FC<CategoryFeatureProps> = ({
         <p className="mt-3 max-w-sm text-sm leading-6 text-gray-400">{description}</p>
 
         <div className="mt-6 flex items-center justify-between">
-          <span className="text-xs font-semibold text-gray-500">
+          <span className="text-xs font-semibold text-gray-400">
             {count} {count === 1 ? 'event' : 'events'}
           </span>
           <span className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/[0.03] text-gray-400 transition group-hover:border-[#D4AF37]/20 group-hover:bg-[#D4AF37]/10 group-hover:text-[#D4AF37]">

@@ -137,7 +137,7 @@ export const Footer: React.FC<FooterProps> = ({ setActiveTab }) => {
         </div>
 
         {/* Bottom copyright bar */}
-        <div className="pt-8 flex flex-col sm:flex-row items-center justify-between text-xs text-gray-500 gap-4">
+        <div className="pt-8 flex flex-col sm:flex-row items-center justify-between text-xs text-gray-400 gap-4">
           <p>© 2026 AV Events. All rights reserved. T&C Apply.</p>
           <div className="flex items-center gap-6">
             <button onClick={() => setActiveTab('terms')} className="hover:text-[#D4AF37] transition-colors">Terms & Conditions</button>
