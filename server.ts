@@ -794,7 +794,7 @@ async function claimSeatsAtomically(
 // Admin Panel (Prompt B) — Item 1: Event lifecycle helpers
 // ============================================================
 
-const EVENT_LIFECYCLE_STATUSES = ["draft", "published", "archived", "cancelled", "sold_out"] as const;
+const EVENT_LIFECYCLE_STATUSES = ["draft", "published", "archived", "cancelled", "sold_out", "completed"] as const;
 
 /**
  * Apply scheduled publish/unpublish transitions to a single event. Idempotent:
@@ -2594,8 +2594,9 @@ export async function createApp() {
       if (eventData.isAdvertiseOnly) {
         return res.status(400).json({ success: false, error: "This event is advertise-only. Online booking is disabled. Tickets are available at physical ticket counters." });
       }
-      if ((eventData.status || "published") === "cancelled" || (eventData.status || "published") === "sold_out") {
-        return res.status(409).json({ success: false, error: `Event is ${eventData.status || "unavailable"}.` });
+      const evStatus = eventData.status || "published";
+      if (evStatus === "cancelled" || evStatus === "sold_out" || evStatus === "completed") {
+        return res.status(409).json({ success: false, error: `Event is ${evStatus}.` });
       }
 
       let normalizedSeats = normalizeSeatIds(seatIds || []);
@@ -4261,6 +4262,11 @@ export async function createApp() {
       const tier = normalizeTiers(event?.ticketTiers).find((candidate: any) => candidate.id === tierId);
       if (!event || !tier) {
         return res.status(404).json({ success: false, error: "Event or ticket tier not found." });
+      }
+      // Block walk-in sales for completed, cancelled, or sold_out events
+      const walkInStatus = event.status || "published";
+      if (walkInStatus === "completed" || walkInStatus === "cancelled" || walkInStatus === "sold_out") {
+        return res.status(409).json({ success: false, error: `Event is ${walkInStatus}. Walk-in sales are not available.` });
       }
       // Admin toggle: usesSeatMap=false forces general admission — no seats.
       // Quantity for GA walk-ins comes from the client (default 1); seat-based
