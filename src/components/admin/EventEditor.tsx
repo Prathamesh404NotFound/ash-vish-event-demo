@@ -89,7 +89,7 @@ export const EventEditor: React.FC<EventEditorProps> = ({ mode, existing, onSave
       {
         id: `tier_${uid()}`,
         name: 'General Entry',
-        price: draft.startingPrice || 2500,
+        price: 0,
         description: 'General admission pass.',
         totalInventory: 500,
         remainingInventory: 500,

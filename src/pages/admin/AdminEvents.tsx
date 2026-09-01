@@ -417,11 +417,11 @@ export const AdminEvents: React.FC = () => {
       {
         id: 'tier_' + Date.now(),
         name: 'VIP Category ' + (prev.length + 1),
-        price: 2500,
-        description: 'Exclusive tier pass',
-        totalInventory: 150,
-        remainingInventory: 150,
-        perksText: 'Express Access, Dedicated Zone',
+        price: 0,
+        description: '',
+        totalInventory: 0,
+        remainingInventory: 0,
+        perksText: '',
       },
     ]);
   };
