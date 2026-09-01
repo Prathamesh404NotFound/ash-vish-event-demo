@@ -14,9 +14,12 @@ export function ChunkErrorBoundary({ children }: Props) {
       if (
         event.message?.includes('Failed to fetch dynamically imported module') ||
         event.message?.includes('Loading chunk') ||
-        event.message?.includes('Importing a module script failed')
+        event.message?.includes('Importing a module script failed') ||
+        event.message?.includes('not a valid JavaScript MIME type')
       ) {
         console.warn('[ChunkErrorBoundary] Route chunk failed to load:', event.message);
+        // Auto-reload after a short delay to pick up the latest deployed assets
+        setTimeout(() => window.location.reload(), 1500);
         setHasError(true);
         event.preventDefault();
       }

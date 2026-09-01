@@ -384,6 +384,35 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
     );
 
+    // Force a one-time server read to bypass Firebase's local
+    // persistence cache. Some devices serve stale event data from
+    // IndexedDB. The onValue listener may initially deliver cached
+    // data before the server sync completes.
+    get(eventsRef).then((snap) => {
+      if (snap.exists()) {
+        const val = snap.val();
+        let serverList: EventItem[] = Array.isArray(val)
+          ? val.filter(Boolean)
+          : (typeof val === 'object' && val !== null ? Object.values(val) : []);
+        if (serverList.length > 0) {
+          const sanitized = serverList.map((e: any) => ({
+            ...e,
+            status: e.status || 'published',
+            posterUrl: sanitizeImageUrl(e.posterUrl),
+            coverUrl: isInternalUrl(e.coverUrl) || !e.coverUrl ? sanitizeImageUrl(e.posterUrl) : e.coverUrl,
+            cardImageUrl: e.cardImageUrl || null,
+            ticketTiers: normalizeEventTicketTiers((e as any).ticketTiers),
+            title: e.title || 'Untitled Event',
+            startingPrice: typeof e.startingPrice === 'number' ? e.startingPrice : 0,
+            rating: typeof e.rating === 'number' ? e.rating : 0,
+            reviewsCount: typeof e.reviewsCount === 'number' ? e.reviewsCount : 0,
+          }));
+          setEvents(sanitized);
+          localStorage.setItem('ash_vish_events_db', JSON.stringify(sanitized));
+        }
+      }
+    }).catch(() => { /* one-time read is best-effort */ });
+
     return () => unsubscribe();
   }, []);
 
