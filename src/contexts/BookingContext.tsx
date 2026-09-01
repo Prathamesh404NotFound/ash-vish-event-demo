@@ -384,46 +384,16 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
     );
 
-    // Force a direct REST fetch to bypass Firebase SDK's local
-    // persistence cache entirely. The SDK's onValue and get() both
-    // read from IndexedDB first, which can serve stale event data
-    // (old prices like ₹999) on devices that haven't fully synced.
-    // A raw fetch to the RTDB REST API goes directly to the server.
-    const dbUrl = import.meta.env.VITE_FIREBASE_DATABASE_URL;
-    if (dbUrl) {
-      const restUrl = dbUrl.replace(/\/$/, '') + '/events.json';
-      // Use auth token if user is signed in (RTDB rules may require it)
-      const currentUser = auth.currentUser;
-      const authPromise = currentUser ? currentUser.getIdToken() : Promise.resolve('');
-      authPromise.then((token) => {
-        const url = token ? `${restUrl}?auth=${token}` : restUrl;
-        return fetch(url, { cache: 'no-store' });
-      })
-        .then((r) => r && r.json())
-        .then((val) => {
-          if (!val || typeof val !== 'object') return;
-          const serverList: EventItem[] = Array.isArray(val)
-            ? val.filter(Boolean)
-            : Object.values(val);
-          if (serverList.length > 0) {
-            const sanitized = serverList.map((e: any) => ({
-              ...e,
-              status: e.status || 'published',
-              posterUrl: sanitizeImageUrl(e.posterUrl),
-              coverUrl: isInternalUrl(e.coverUrl) || !e.coverUrl ? sanitizeImageUrl(e.posterUrl) : e.coverUrl,
-              cardImageUrl: e.cardImageUrl || null,
-              ticketTiers: normalizeEventTicketTiers((e as any).ticketTiers),
-              title: e.title || 'Untitled Event',
-              startingPrice: typeof e.startingPrice === 'number' ? e.startingPrice : 0,
-              rating: typeof e.rating === 'number' ? e.rating : 0,
-              reviewsCount: typeof e.reviewsCount === 'number' ? e.reviewsCount : 0,
-            }));
-            setEvents(sanitized);
-            localStorage.setItem('ash_vish_events_db', JSON.stringify(sanitized));
-          }
-        })
-        .catch(() => { /* REST fetch is best-effort */ });
-    }
+    // Force a fresh server sync by briefly disconnecting and reconnecting.
+    // Firebase RTDB's onValue listener may deliver stale in-memory cached
+    // data (old prices like ₹999) before the server sync completes.
+    // goOffline/goOnline resets the connection and forces a clean re-fetch.
+    import('firebase/database').then(({ goOffline, goOnline }) => {
+      goOffline(rtdb);
+      // Reconnect after 200ms — the onValue listener will re-fire with
+      // fresh server data once the connection is re-established.
+      setTimeout(() => goOnline(rtdb), 200);
+    }).catch(() => { /* dynamic import is best-effort */ });
 
     return () => unsubscribe();
   }, []);
