@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Search,
   Printer,
@@ -59,6 +59,13 @@ interface OrderItem {
 export const CounterOrders: React.FC = () => {
   const { events } = useBooking();
   const { user } = useAuth();
+
+  // Pre-build event lookup map to avoid O(n*m) events.find inside orders.map
+  const eventsMap = useMemo(() => {
+    const map = new Map<string, any>();
+    events.forEach((e) => map.set(e.id, e));
+    return map;
+  }, [events]);
 
   const [orders, setOrders] = useState<OrderItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -248,7 +255,7 @@ export const CounterOrders: React.FC = () => {
     }
   };
 
-  const exchangeTargetEvent = exchangeOrder ? events.find((e) => e.id === exchangeOrder.eventId) : null;
+  const exchangeTargetEvent = exchangeOrder ? eventsMap.get(exchangeOrder.eventId) || null : null;
   const exchangeSeatsList = exchangeOrder ? (exchangeOrder.seatIds || exchangeOrder.ticket?.selectedSeats || []) : [];
 
   return (
@@ -383,7 +390,7 @@ export const CounterOrders: React.FC = () => {
               </thead>
               <tbody className="divide-y divide-white/5">
                 {orders.map((order) => {
-                  const eventObj = events.find((e) => e.id === order.eventId);
+                  const eventObj = eventsMap.get(order.eventId);
                   const seats = order.seatIds || order.ticket?.selectedSeats || [];
                   const isPending = order.status === 'pending';
 

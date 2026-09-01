@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
   Search, Filter, Calendar, Edit3, Trash2, Send, CheckCircle, XCircle, 
   Download, RefreshCw, AlertCircle, ChevronLeft, ChevronRight, X 
@@ -48,6 +48,12 @@ function normalizeEditTiers(ticketTiers: any): any[] {
 export const MySalesPage: React.FC = () => {
   const { user, firebaseUser } = useAuth();
   const { events, editOrder } = useBooking();
+
+  const eventsMap = useMemo(() => {
+    const map = new Map<string, any>();
+    events.forEach((e) => map.set(e.id, e));
+    return map;
+  }, [events]);
 
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [total, setTotal] = useState(0);
