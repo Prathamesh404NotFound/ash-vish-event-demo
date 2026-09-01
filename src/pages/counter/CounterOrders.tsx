@@ -57,7 +57,24 @@ interface OrderItem {
 }
 
 export const CounterOrders: React.FC = () => {
-  const { events } = useBooking();
+  const { events: contextEvents } = useBooking();
+  const [serverEvents, setServerEvents] = useState<any[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const headers = await authenticatedApiHeaders();
+        const res = await safeFetch<{ success: boolean; events: any[] }>(
+          '/api/counter/events', { headers }
+        );
+        if (!cancelled && res.ok && res.data?.success && res.data.events?.length) {
+          setServerEvents(res.data.events);
+        }
+      } catch { /* fall back to context events */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+  const events = serverEvents.length > 0 ? serverEvents : contextEvents;
   const { user } = useAuth();
 
   // Pre-build event lookup map to avoid O(n*m) events.find inside orders.map

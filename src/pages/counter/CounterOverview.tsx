@@ -1,13 +1,32 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Ticket, QrCode, UserPlus, CheckCircle2, Clock, Users, ShieldCheck, RefreshCw } from 'lucide-react';
 import { useBooking } from '../../contexts/BookingContext';
+import { safeFetch } from '../../lib/api';
+import { authenticatedApiHeaders } from '../../lib/authHeaders';
 import { normalizeTiers } from '../../types';
 import { CounterOverviewSkeleton } from '../../components/counter/CounterSkeletons';
 
 export const CounterOverview: React.FC = () => {
   const navigate = useNavigate();
-  const { events, allTickets } = useBooking();
+  const { events: contextEvents, allTickets } = useBooking();
+  const [serverEvents, setServerEvents] = useState<any[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const headers = await authenticatedApiHeaders();
+        const res = await safeFetch<{ success: boolean; events: any[] }>(
+          '/api/counter/events', { headers }
+        );
+        if (!cancelled && res.ok && res.data?.success && res.data.events?.length) {
+          setServerEvents(res.data.events);
+        }
+      } catch { /* fall back to context events */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+  const events = serverEvents.length > 0 ? serverEvents : contextEvents;
 
   // Memoize all ticket statistics to avoid recalculating on every render
   const stats = useMemo(() => {

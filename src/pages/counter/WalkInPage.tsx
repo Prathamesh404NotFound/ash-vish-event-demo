@@ -80,9 +80,31 @@ const readMemory = (): PosMemory => {
 };
 
 export const WalkInPage: React.FC = () => {
-  const { events, createWalkInBooking } = useBooking();
+  const { events: contextEvents, createWalkInBooking } = useBooking();
   const navigate = useNavigate();
   const { user } = useAuth();
+
+  // Server-fetched events bypass Firebase SDK caching to ensure
+  // accurate prices on all devices (fixes ₹999 stale price bug)
+  const [serverEvents, setServerEvents] = useState<any[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const headers = await authenticatedApiHeaders();
+        const res = await safeFetch<{ success: boolean; events: any[] }>(
+          '/api/counter/events',
+          { headers }
+        );
+        if (!cancelled && res.ok && res.data?.success && res.data.events?.length) {
+          setServerEvents(res.data.events);
+        }
+      } catch { /* fall back to context events */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+  // Prefer server-fetched data (always fresh); fall back to context (may be cached)
+  const events = serverEvents.length > 0 ? serverEvents : contextEvents;
 
   // ---------- Selection ----------
   const [searchQuery, setSearchQuery] = useState('');

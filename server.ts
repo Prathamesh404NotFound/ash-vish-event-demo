@@ -8169,6 +8169,45 @@ app.get("/api/counter/list", requireRole(["counter_staff", "event_manager", "sup
   }
 });
 
+// Server-fresh events for counter panels — bypasses all client-side Firebase
+// SDK caching. Returns only published/sold_out events (visible to counters).
+app.get("/api/counter/events", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
+  try {
+    const authToken = (await getAdminAuthToken()) || req.user.idToken;
+    const snap = await rtdbGet("events", authToken);
+    const nodes = (snap.data || {}) as Record<string, any>;
+    const events = Object.entries(nodes)
+      .map(([id, e]: [string, any]) => ({
+        id,
+        title: e.title || "Untitled Event",
+        subtitle: e.subtitle || "",
+        category: e.category || "concert",
+        status: e.status || "published",
+        date: e.date || "",
+        time: e.time || "",
+        venue: e.venue || "",
+        city: e.city || "",
+        address: e.address || "",
+        posterUrl: e.posterUrl || "",
+        coverUrl: e.coverUrl || "",
+        cardImageUrl: e.cardImageUrl || null,
+        ticketTiers: Array.isArray(e.ticketTiers)
+          ? e.ticketTiers
+          : (typeof e.ticketTiers === "object" && e.ticketTiers ? Object.values(e.ticketTiers) : []),
+        startingPrice: typeof e.startingPrice === "number" ? e.startingPrice : 0,
+        usesSeatMap: e.usesSeatMap !== false,
+        seatMap: e.seatMap || null,
+        isEventPublic: e.isEventPublic !== false,
+        isFeatured: e.isFeatured === true,
+        isTrending: e.isTrending === true,
+      }))
+      .filter((e) => (e.status === "published" || e.status === "sold_out") && e.isEventPublic !== false);
+    return res.status(200).json({ success: true, events });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || "Could not fetch events." });
+  }
+});
+
 app.get("/api/admin/counters", requireRole(["event_manager", "super_admin"]), async (req: any, res) => {
   try {
     const authToken = (await getAdminAuthToken()) || req.user.idToken;
