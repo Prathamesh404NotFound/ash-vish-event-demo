@@ -71,32 +71,28 @@ export const Navbar: React.FC<NavbarProps> = React.memo(({ onOpenSearch }) => {
   return (
     <>
       {/* ─── Top Navbar ─── */}
-      <header className="fixed top-0 inset-x-0 z-50">
-        <div className="max-w-7xl mx-auto px-3 sm:px-6 pt-2 sm:pt-3">
-          <nav className="bg-[#0A0A0C]/90 backdrop-blur-xl rounded-2xl px-3 py-2 sm:px-5 sm:py-2.5 flex items-center justify-between border border-white/10 shadow-[0_4px_24px_rgba(0,0,0,0.6)]">
+      <header className="fixed top-0 inset-x-0 z-50 bg-[#0A0A0C] border-b border-white/10">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6">
+          <nav className="h-14 sm:h-16 flex items-center justify-between gap-4">
 
-            {/* Logo */}
-            <Link to="/" className="flex items-center gap-2.5 cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D4AF37] rounded-xl shrink-0">
-              <div className="relative w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-[#141417] border border-white/10 overflow-hidden flex items-center justify-center group-hover:border-[#D4AF37]/30 transition-colors">
-                <img
-                  src="/ashvish-logo.png"
-                  alt="Ash-vish Events"
-                  onError={(e) => {
-                    const t = e.currentTarget;
-                    if (t.src.includes('ashvish-logo.png')) t.src = '/favicon-192.png';
-                  }}
-                  className="w-full h-full object-cover"
-                />
-              </div>
-              <div className="hidden sm:flex flex-col">
-                <span className="font-heading font-bold text-sm sm:text-base tracking-tight text-white leading-tight">
-                  Ash-vish <span className="text-[#D4AF37]">Events</span>
-                </span>
-              </div>
+            {/* Logo — full size, no crop */}
+            <Link to="/" className="flex items-center gap-3 cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D4AF37] rounded-lg shrink-0">
+              <img
+                src="/ashvish-logo.png"
+                alt="Ash-vish Events"
+                onError={(e) => {
+                  const t = e.currentTarget;
+                  if (t.src.includes('ashvish-logo.png')) t.src = '/favicon-192.png';
+                }}
+                className="h-8 sm:h-9 w-auto object-contain"
+              />
+              <span className="font-heading font-bold text-sm sm:text-base tracking-tight text-white leading-tight">
+                Ash-vish <span className="text-[#D4AF37]">Events</span>
+              </span>
             </Link>
 
             {/* Desktop Nav Links */}
-            <div className="hidden md:flex items-center gap-1 bg-[#121214]/60 px-1.5 py-1 rounded-xl border border-white/5">
+            <div className="hidden md:flex items-center gap-1">
               {navItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = location.pathname === item.path;
@@ -107,8 +103,8 @@ export const Navbar: React.FC<NavbarProps> = React.memo(({ onOpenSearch }) => {
                     aria-current={isActive ? 'page' : undefined}
                     className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 ${
                       isActive
-                        ? 'bg-[#D4AF37]/15 text-[#F3E5AB] border border-[#D4AF37]/30'
-                        : 'text-gray-400 hover:text-gray-200 hover:bg-white/5 border border-transparent'
+                        ? 'bg-[#D4AF37]/15 text-[#F3E5AB]'
+                        : 'text-gray-400 hover:text-gray-200 hover:bg-white/5'
                     }`}
                   >
                     <Icon className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-[#D4AF37]' : ''}`} />
@@ -124,16 +120,15 @@ export const Navbar: React.FC<NavbarProps> = React.memo(({ onOpenSearch }) => {
             </div>
 
             {/* Right Actions */}
-            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <div className="flex items-center gap-2 shrink-0">
               {/* Search */}
               {onOpenSearch && (
                 <button
                   onClick={onOpenSearch}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-[#141417]/80 hover:bg-[#1C1C20] border border-white/10 text-gray-400 hover:text-gray-200 text-xs transition-all active:scale-95 cursor-pointer"
+                  className="p-2 rounded-lg hover:bg-white/5 text-gray-400 hover:text-white transition-all active:scale-95 cursor-pointer"
                   aria-label="Search events"
                 >
-                  <Search className="w-3.5 h-3.5 text-[#D4AF37] shrink-0" />
-                  <span className="hidden sm:inline">Search</span>
+                  <Search className="w-5 h-5" />
                 </button>
               )}
 
@@ -143,20 +138,20 @@ export const Navbar: React.FC<NavbarProps> = React.memo(({ onOpenSearch }) => {
                   {/* Desktop: avatar button → dropdown */}
                   <button
                     onClick={() => setUserDropdownOpen(!userDropdownOpen)}
-                    className="hidden md:flex items-center gap-2 p-1 rounded-xl bg-[#141417] hover:bg-[#1E1E22] border border-white/10 transition-all active:scale-95 cursor-pointer"
+                    className="hidden md:flex items-center gap-2 p-1 rounded-lg hover:bg-white/5 transition-all active:scale-95 cursor-pointer"
                     aria-label="Account menu"
                     aria-expanded={userDropdownOpen}
                   >
-                    <UserAvatar src={user?.photoUrl} name={user?.name} size="w-7 h-7" className="border border-[#D4AF37]/30" />
+                    <UserAvatar src={user?.photoUrl} name={user?.name} size="w-8 h-8" className="border border-[#D4AF37]/30" />
                   </button>
 
                   {/* Mobile: hamburger → opens slide-in */}
                   <button
                     onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                    className="md:hidden w-8 h-8 flex items-center justify-center rounded-xl bg-[#141417] text-gray-300 hover:text-white border border-white/10 active:scale-95 transition-all cursor-pointer"
+                    className="md:hidden p-2 rounded-lg hover:bg-white/5 text-gray-300 hover:text-white active:scale-95 transition-all cursor-pointer"
                     aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
                   >
-                    {mobileMenuOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
+                    {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
                   </button>
 
                   {/* Desktop Dropdown */}
