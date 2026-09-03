@@ -21,6 +21,7 @@ import {
   QrCode,
   Tag,
 } from 'lucide-react';
+import { RowActions } from '../../components/admin/RowActions';
 import { useBooking } from '../../contexts/BookingContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { safeFetch } from '../../lib/api';
@@ -471,38 +472,27 @@ export const CounterOrders: React.FC = () => {
 
                       {/* Actions */}
                       <td className="py-3.5 px-3 text-right">
-                        <div className="inline-flex items-center gap-1.5">
-                          {/* Reprint */}
-                          <button
-                            onClick={() => setReprintOrder(order)}
-                            title="Reprint Gate Pass"
-                            className="p-1.5 rounded-lg bg-white/5 hover:bg-white/15 text-gray-300 hover:text-white transition-all cursor-pointer"
-                          >
-                            <Printer className="w-3.5 h-3.5 text-[#D4AF37]" />
-                          </button>
-
-                          {/* Exchange Seat (only if event has seat map) */}
-                          {seats.length > 0 && eventObj?.seatMap && (
-                            <button
-                              onClick={() => openExchangeModal(order)}
-                              title="Exchange Seat"
-                              className="p-1.5 rounded-lg bg-white/5 hover:bg-white/15 text-gray-300 hover:text-white transition-all cursor-pointer"
-                            >
-                              <ArrowLeftRight className="w-3.5 h-3.5 text-blue-400" />
-                            </button>
-                          )}
-
-                          {/* Void (for in-flight / pending sales) */}
-                          {isPending && (
-                            <button
-                              onClick={() => setVoidOrder(order)}
-                              title="Void In-Flight Sale"
-                              className="p-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 transition-all cursor-pointer"
-                            >
-                              <Ban className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </div>
+                        <RowActions
+                          closeKey={order.id || order.orderId}
+                          actions={[
+                            {
+                              label: 'Reprint Gate Pass',
+                              icon: <Printer className="w-4 h-4" />,
+                              onClick: () => setReprintOrder(order),
+                            },
+                            ...(seats.length > 0 && eventObj?.seatMap ? [{
+                              label: 'Exchange Seat',
+                              icon: <ArrowLeftRight className="w-4 h-4" />,
+                              onClick: () => openExchangeModal(order),
+                            }] : []),
+                            ...(isPending ? [{
+                              label: 'Void Sale',
+                              icon: <Ban className="w-4 h-4" />,
+                              onClick: () => setVoidOrder(order),
+                              variant: 'danger' as const,
+                            }] : []),
+                          ]}
+                        />
                       </td>
                     </tr>
                   );

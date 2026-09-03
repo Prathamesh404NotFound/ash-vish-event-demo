@@ -3,6 +3,7 @@ import {
   Search, Filter, Calendar, Edit3, Trash2, Send, CheckCircle, XCircle, 
   Download, RefreshCw, AlertCircle, ChevronLeft, ChevronRight, X 
 } from 'lucide-react';
+import { RowActions } from '../../components/admin/RowActions';
 import { useAuth } from '../../contexts/AuthContext';
 import { useBooking } from '../../contexts/BookingContext';
 import { readPreferredStoredActiveShift } from '../../lib/counterSession';
@@ -573,69 +574,39 @@ export const MySalesPage: React.FC = () => {
                       <p className="text-xs font-bold text-white">{t.issuedBySubUserName || 'Main Staff'}</p>
                     </td>
                     <td className="p-4 text-right">
-                      <div className="flex items-center justify-end gap-1.5">
-                        {/* Toggle Check In */}
-                        {t.status !== 'cancelled' && (
-                          <button
-                            onClick={() => handleToggleCheckIn(t)}
-                            disabled={actionLoading !== null}
-                            className={`p-1.5 rounded-lg border text-[10px] font-bold flex items-center gap-1 transition-all ${
-                              t.status === 'redeemed' 
-                                ? 'bg-amber-500/10 border-amber-500/20 text-amber-400 hover:bg-amber-500/20' 
-                                : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20'
-                            }`}
-                            title={t.status === 'redeemed' ? "Undo check-in" : "Mark as checked in"}
-                          >
-                            {actionLoading === t.id ? (
-                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                            ) : t.status === 'redeemed' ? (
-                              <span>Undo In</span>
-                            ) : (
-                              <span>Check In</span>
-                            )}
-                          </button>
-                        )}
-
-                        {/* Edit details */}
-                        {t.status !== 'cancelled' && (
-                          <button
-                            onClick={() => handleOpenEditModal(t)}
-                            disabled={actionLoading !== null}
-                            className="p-1.5 rounded-lg bg-white/5 border border-white/10 text-gray-300 hover:text-white hover:bg-white/10 transition-all"
-                            title="Edit Attendee Details"
-                          >
-                            <Edit3 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-
-                        {/* WhatsApp Resend */}
-                        {t.status !== 'cancelled' && t.attendeePhone && (
-                          <button
-                            onClick={() => handleResendWhatsApp(t)}
-                            disabled={actionLoading !== null}
-                            className="p-1.5 rounded-lg bg-[#D4AF37]/10 border border-[#D4AF37]/20 text-[#D4AF37] hover:bg-[#D4AF37]/20 transition-all"
-                            title="Resend Pass over WhatsApp"
-                          >
-                            {actionLoading === `wa-${t.id}` ? (
-                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                            ) : (
-                              <Send className="w-3.5 h-3.5" />
-                            )}
-                          </button>
-                        )}
-
-                        {/* Void Ticket */}
-                        {t.status !== 'cancelled' && (
-                          <button
-                            onClick={() => setVoidingTicket(t)}
-                            disabled={actionLoading !== null}
-                            className="p-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500/20 transition-all"
-                            title="Void Ticket"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
+                      <RowActions
+                        closeKey={t.id}
+                        actions={[
+                          ...(t.status !== 'cancelled' ? [
+                            {
+                              label: t.status === 'redeemed' ? 'Undo Check-In' : 'Check In',
+                              icon: actionLoading === t.id ? <RefreshCw className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />,
+                              onClick: () => handleToggleCheckIn(t),
+                              variant: t.status === 'redeemed' ? 'warning' as const : 'success' as const,
+                              disabled: actionLoading !== null,
+                            },
+                            {
+                              label: 'Edit Details',
+                              icon: <Edit3 className="w-4 h-4" />,
+                              onClick: () => handleOpenEditModal(t),
+                              disabled: actionLoading !== null,
+                            },
+                            ...(t.attendeePhone ? [{
+                              label: 'Resend via WhatsApp',
+                              icon: actionLoading === `wa-${t.id}` ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />,
+                              onClick: () => handleResendWhatsApp(t),
+                              disabled: actionLoading !== null,
+                            }] : []),
+                            {
+                              label: 'Void Ticket',
+                              icon: <Trash2 className="w-4 h-4" />,
+                              onClick: () => setVoidingTicket(t),
+                              variant: 'danger' as const,
+                              disabled: actionLoading !== null,
+                            },
+                          ] : []),
+                        ]}
+                      />
                     </td>
                   </tr>
                 ))}

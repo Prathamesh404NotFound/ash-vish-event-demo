@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Users, CheckCircle2, XCircle, ShieldAlert, Building2, Mail, Phone, Calendar, ArrowUpRight } from 'lucide-react';
+import { RowActions } from '../../components/admin/RowActions';
 import { useBooking } from '../../contexts/BookingContext';
 
 export const AdminOrganizers: React.FC = () => {
@@ -86,23 +87,24 @@ export const AdminOrganizers: React.FC = () => {
                       </span>
                     </td>
 
-                    <td className="px-6 py-4 text-right space-x-2">
-                      {org.status !== 'approved' && (
-                        <button
-                          onClick={() => updateOrganizerStatus(org.id, 'approved')}
-                          className="px-3 py-1.5 rounded-xl bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500 hover:text-black font-bold transition-all cursor-pointer inline-flex items-center gap-1"
-                        >
-                          <CheckCircle2 className="w-3.5 h-3.5" /> Approve
-                        </button>
-                      )}
-                      {org.status !== 'rejected' && (
-                        <button
-                          onClick={() => updateOrganizerStatus(org.id, 'rejected')}
-                          className="px-3 py-1.5 rounded-xl bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white font-bold transition-all cursor-pointer inline-flex items-center gap-1"
-                        >
-                          <XCircle className="w-3.5 h-3.5" /> Reject
-                        </button>
-                      )}
+                    <td className="px-6 py-4 text-right">
+                      <RowActions
+                        closeKey={org.id + org.status}
+                        actions={[
+                          ...(org.status !== 'approved' ? [{
+                            label: 'Approve',
+                            icon: <CheckCircle2 className="w-4 h-4" />,
+                            onClick: () => updateOrganizerStatus(org.id, 'approved'),
+                            variant: 'success' as const,
+                          }] : []),
+                          ...(org.status !== 'rejected' ? [{
+                            label: 'Reject',
+                            icon: <XCircle className="w-4 h-4" />,
+                            onClick: () => updateOrganizerStatus(org.id, 'rejected'),
+                            variant: 'danger' as const,
+                          }] : []),
+                        ]}
+                      />
                     </td>
                   </tr>
                 ))
