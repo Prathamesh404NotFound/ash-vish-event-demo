@@ -1035,7 +1035,7 @@ export const WalkInPage: React.FC = () => {
             </button>
             <button
               onClick={handleReset}
-              className="py-3 px-6 rounded-xl bg-[#D4AF37] text-black font-extrabold text-xs flex items-center gap-2 transition-all shadow-lg shadow-[#D4AF37]/25 cursor-pointer"
+              className="py-3 px-6 rounded-xl bg-[#D4AF37] hover:bg-[#E3C456] text-black font-extrabold text-xs flex items-center gap-2 transition-all cursor-pointer"
             >
               <span>Issue Next Walk-In</span>
               <ArrowRight className="w-4 h-4 stroke-[2.5]" />
@@ -1115,7 +1115,7 @@ export const WalkInPage: React.FC = () => {
                       }}
                       className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer ${
                         selectedTierId === tier.id
-                          ? 'bg-[#D4AF37]/10 border-[#D4AF37] text-white shadow-lg shadow-[#D4AF37]/10'
+                          ? 'bg-[#D4AF37]/10 border-[#D4AF37] text-white'
                           : 'bg-[#1C1C1C] border-white/5 text-gray-400 hover:border-white/20'
                       }`}
                     >
@@ -1418,7 +1418,7 @@ export const WalkInPage: React.FC = () => {
                     onClick={() => setPaymentMethod(m.key)}
                     className={`py-3 rounded-xl border text-xs font-bold flex flex-col items-center gap-1.5 transition-all cursor-pointer ${
                       paymentMethod === m.key
-                        ? 'bg-[#D4AF37]/15 border-[#D4AF37] text-white shadow-lg shadow-[#D4AF37]/10'
+                        ? 'bg-[#D4AF37]/15 border-[#D4AF37] text-white'
                         : 'bg-[#1C1C1C] border-white/10 text-gray-400 hover:border-white/25'
                     }`}
                   >
@@ -1778,7 +1778,7 @@ export const WalkInPage: React.FC = () => {
               type="button"
               onClick={() => handleIssueWalkIn()}
               disabled={confirmDisabled}
-              className="w-full py-4 rounded-2xl bg-[#D4AF37] disabled:opacity-50 disabled:brightness-100 text-black font-extrabold text-sm shadow-lg shadow-[#D4AF37]/25 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:cursor-not-allowed"
+              className="w-full py-4 rounded-2xl bg-[#D4AF37] hover:bg-[#E3C456] disabled:opacity-50 disabled:brightness-100 text-black font-extrabold text-sm transition-all flex items-center justify-center gap-2 cursor-pointer disabled:cursor-not-allowed"
             >
               {isSubmitting ? (
                 <><RefreshCw className="w-4 h-4 animate-spin" /> Processing...</>

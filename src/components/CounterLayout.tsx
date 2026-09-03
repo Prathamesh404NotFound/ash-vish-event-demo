@@ -62,7 +62,7 @@ export const CounterLayout: React.FC = () => {
                   target.src = '/favicon-192.png';
                 }
               }}
-              className="w-8 h-8 rounded-lg object-cover shadow-lg shadow-[#D4AF37]/25"
+              className="h-8 w-auto object-contain"
             />
             <div>
               <span className="font-heading font-extrabold text-base tracking-tight text-white block leading-none">

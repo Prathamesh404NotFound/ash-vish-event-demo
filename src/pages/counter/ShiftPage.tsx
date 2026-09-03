@@ -488,7 +488,7 @@ export const ShiftPage: React.FC = () => {
                           }}
                           className={`min-h-20 p-4 rounded-2xl border text-left transition-all cursor-pointer ${
                             isSelected
-                              ? 'bg-[#D4AF37]/15 border-[#D4AF37] shadow-lg shadow-[#D4AF37]/10'
+                              ? 'bg-[#D4AF37]/15 border-[#D4AF37]'
                               : 'bg-[#1A1A1A] border-white/10 hover:border-[#D4AF37]/50'
                           }`}
                         >
@@ -515,7 +515,7 @@ export const ShiftPage: React.FC = () => {
                           onClick={() => { setSelectedSubUserId(subUser.id); setPin(''); setErrorBanner(''); }}
                           className={`min-h-20 p-4 rounded-2xl border text-left transition-all cursor-pointer ${
                             isSelected
-                              ? 'bg-[#D4AF37]/15 border-[#D4AF37] shadow-lg shadow-[#D4AF37]/10'
+                              ? 'bg-[#D4AF37]/15 border-[#D4AF37]'
                               : 'bg-[#1A1A1A] border-white/10 hover:border-[#D4AF37]/50'
                           }`}
                         >
@@ -555,7 +555,7 @@ export const ShiftPage: React.FC = () => {
               <button
                 type="submit"
                 disabled={isSubmitting || pin.length !== 4}
-                className="w-full py-3 px-6 rounded-xl bg-[#D4AF37] text-black font-extrabold text-xs flex items-center justify-center gap-2 shadow-lg shadow-[#D4AF37]/25 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                className="w-full py-3 px-6 rounded-xl bg-[#D4AF37] hover:bg-[#E3C456] text-black font-extrabold text-xs flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
               >
                 {isSubmitting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Unlock className="w-4 h-4 stroke-[2.5]" />}
                 <span>Verify PIN & Start Ticket Issuance</span>

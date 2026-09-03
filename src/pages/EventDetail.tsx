@@ -812,10 +812,10 @@ export const EventDetail: React.FC<EventDetailProps> = ({
                   onClick={handleBookNow}
                   disabled={(selectedTier?.remainingInventory ?? 0) <= 0 || !selectedTier || isLoadingTickets}
                   className={`
-                    w-full py-4 rounded-2xl font-extrabold text-base flex items-center justify-center gap-2 shadow-xl transition-all
+                    w-full py-4 rounded-2xl font-extrabold text-base flex items-center justify-center gap-2 transition-all
                     ${isLoadingTickets || !selectedTier || (selectedTier?.remainingInventory ?? 0) <= 0
                       ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
-                      : 'bg-[#D4AF37] text-black hover:scale-[1.02] active:scale-[0.98] shadow-[#D4AF37]/20'
+                      : 'bg-[#D4AF37] hover:bg-[#E3C456] text-black active:scale-[0.98]'
                     }
                   `}
                 >
@@ -855,7 +855,7 @@ export const EventDetail: React.FC<EventDetailProps> = ({
                 key={evt.id}
                 event={evt}
                 onSelectEvent={onSelectEvent}
-                onBookNow={(e) => onProceedToCheckout(e, e.ticketTiers[0], 1)}
+                onBookNow={(e) => onSelectEvent(e)}
               />
             ))}
           </div>

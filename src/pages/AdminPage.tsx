@@ -222,7 +222,7 @@ export const AdminPage: React.FC = () => {
               {[45, 68, 30, 95, 80, 110, 85, 130, 90, 145].map((val, idx) => (
                 <div key={idx} className="flex-1 flex flex-col items-center gap-2 h-full justify-end">
                   <div
-                    className="w-full bg-gradient-to-t from-[#F3E5AB] to-[#D4AF37] rounded-t-lg transition-all duration-500 hover:brightness-125"
+                    className="w-full bg-[#D4AF37] rounded-t-lg transition-all duration-500 hover:bg-[#E3C456]"
                     style={{ height: `${(val / 150) * 100}%` }}
                   />
                   <span className="text-[10px] text-gray-400 font-mono">D{idx + 1}</span>

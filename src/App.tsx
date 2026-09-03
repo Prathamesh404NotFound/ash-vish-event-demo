@@ -112,9 +112,9 @@ function MainLayout() {
         Skip to main content
       </a>
       <Navbar onOpenSearch={() => navigate('/events')} />
-      {/* The navbar is a fixed floating card; reserve clearance so no page
-          content ever renders underneath it regardless of its own padding. */}
-      <main id="main-content" className="flex-1 pt-[100px] sm:pt-[104px]">
+      {/* The navbar is a fixed solid bar (h-14 sm:h-16); reserve exactly its
+          height so no page content ever renders underneath it. */}
+      <main id="main-content" className="flex-1 pt-14 sm:pt-16">
         <Outlet />
       </main>
       <Footer setActiveTab={(path) => navigate(path === 'home' ? '/' : `/${path}`)} />

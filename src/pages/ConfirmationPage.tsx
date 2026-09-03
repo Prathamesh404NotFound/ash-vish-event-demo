@@ -148,7 +148,7 @@ export const ConfirmationPage: React.FC<ConfirmationPageProps> = ({
       <div className="flex flex-col sm:flex-row items-center gap-4">
         <button
           onClick={() => sendTicketToWhatsApp(latestTicket)}
-          className="w-full sm:flex-1 py-3.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black font-extrabold text-sm flex items-center justify-center gap-2 shadow-xl shadow-emerald-500/25 transition-all cursor-pointer"
+          className="w-full sm:flex-1 py-3.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black font-extrabold text-sm flex items-center justify-center gap-2 transition-all cursor-pointer"
         >
           <MessageSquareCode className="w-5 h-5 stroke-[2.5]" />
           <span>Send QR Pass to WhatsApp</span>
@@ -156,7 +156,7 @@ export const ConfirmationPage: React.FC<ConfirmationPageProps> = ({
 
         <button
           onClick={onGoToMyTickets}
-          className="w-full sm:flex-1 py-3.5 rounded-2xl bg-[#D4AF37] hover:bg-[#F3E5AB] text-black font-extrabold text-sm flex items-center justify-center gap-2 shadow-xl shadow-[#D4AF37]/20 transition-all cursor-pointer"
+          className="w-full sm:flex-1 py-3.5 rounded-2xl bg-[#D4AF37] hover:bg-[#F3E5AB] text-black font-extrabold text-sm flex items-center justify-center gap-2 transition-all cursor-pointer"
         >
           <TicketIcon className="w-4 h-4 stroke-[2.5]" />
           <span>View In My Tickets</span>

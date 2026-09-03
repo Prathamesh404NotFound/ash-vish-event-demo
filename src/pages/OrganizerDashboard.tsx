@@ -536,7 +536,7 @@ export const OrganizerDashboard: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-[#D4AF37] text-black font-extrabold cursor-pointer hover:brightness-110"
+                  className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-[#D4AF37] hover:bg-[#E3C456] text-black font-extrabold cursor-pointer"
                 >
                   Publish Event
                 </button>

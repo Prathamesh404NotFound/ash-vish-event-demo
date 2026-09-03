@@ -191,7 +191,7 @@ export const AdminDashboard: React.FC = () => {
           </button>
           <button
             onClick={() => navigate('/admin/events')}
-            className="py-3 px-5 rounded-2xl bg-[#D4AF37] text-black font-extrabold text-xs flex items-center gap-2 shadow-lg shadow-[#D4AF37]/25 transition-all"
+            className="py-3 px-5 rounded-2xl bg-[#D4AF37] hover:bg-[#E3C456] text-black font-extrabold text-xs flex items-center gap-2 transition-all"
           >
             <span>Manage Events ({events.length})</span>
             <ArrowRight className="w-4 h-4 stroke-[2.5]" />
@@ -334,7 +334,7 @@ export const AdminDashboard: React.FC = () => {
                   </div>
 
                   <div
-                    className="w-full bg-gradient-to-t from-[#F3E5AB] to-[#D4AF37] rounded-t-lg transition-all duration-300 hover:brightness-125 hover:shadow-lg hover:shadow-[#D4AF37]/10"
+                    className="w-full bg-[#D4AF37] rounded-t-lg transition-all duration-300 hover:bg-[#E3C456]"
                     style={{ height: `${percentage > 0 ? Math.max(percentage, 4) : 2}%` }}
                   />
                   <span className="text-[9px] text-gray-400 font-medium whitespace-nowrap hidden sm:block">{day.displayLabel}</span>

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { User, Mail, Phone, Shield, ShieldCheck, Ticket, Heart, LogOut, CheckCircle, Camera, Save, ArrowRight, QrCode } from 'lucide-react';
+import { User, Mail, Phone, Shield, ShieldCheck, Ticket, Heart, LogOut, CheckCircle, Save, ArrowRight, QrCode } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useBooking } from '../contexts/BookingContext';
 import { useRoleAuth } from '../hooks/useRoleAuth';
@@ -42,16 +42,13 @@ export const ProfilePage: React.FC = () => {
         
         {/* Left Column: Avatar & Overview */}
         <div className="md:col-span-5 bg-[#141414] border border-white/10 rounded-3xl p-6 flex flex-col items-center text-center space-y-4">
-          <div className="relative group">
+          <div className="relative">
             <UserAvatar
               src={photoUrl || undefined}
               name={user?.name}
               size="w-28 h-28"
-              className="border-4 border-[#D4AF37] shadow-xl"
+              className="border-4 border-[#D4AF37]"
             />
-            <div className="absolute inset-0 bg-black/50 rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white cursor-pointer">
-              <Camera className="w-6 h-6" />
-            </div>
           </div>
 
           <div>
@@ -91,7 +88,7 @@ export const ProfilePage: React.FC = () => {
                 </p>
                 <Link
                   to="/counter"
-                  className="w-full py-2 px-3 rounded-xl bg-[#D4AF37] text-black font-extrabold text-xs flex items-center justify-center gap-1.5 transition-all shadow-md shadow-[#D4AF37]/25"
+                  className="w-full py-2 px-3 rounded-xl bg-[#D4AF37] hover:bg-[#E3C456] text-black font-extrabold text-xs flex items-center justify-center gap-1.5 transition-all"
                 >
                   <span>Launch Ticket Counter</span>
                   <ArrowRight className="w-3.5 h-3.5 stroke-[2.5]" />
@@ -115,7 +112,7 @@ export const ProfilePage: React.FC = () => {
                 </p>
                 <Link
                   to="/admin"
-                  className="w-full py-2 px-3 rounded-xl bg-[#D4AF37] text-black font-extrabold text-xs flex items-center justify-center gap-1.5 transition-all shadow-md shadow-[#D4AF37]/25"
+                  className="w-full py-2 px-3 rounded-xl bg-[#D4AF37] hover:bg-[#E3C456] text-black font-extrabold text-xs flex items-center justify-center gap-1.5 transition-all"
                 >
                   <span>Launch Admin Console</span>
                   <ArrowRight className="w-3.5 h-3.5 stroke-[2.5]" />
@@ -213,7 +210,7 @@ export const ProfilePage: React.FC = () => {
 
             <button
               type="submit"
-              className="w-full py-3 rounded-xl bg-[#D4AF37] text-black font-extrabold text-xs flex items-center justify-center gap-2 shadow-lg shadow-[#D4AF37]/25 transition-all"
+              className="w-full py-3 rounded-xl bg-[#D4AF37] hover:bg-[#E3C456] text-black font-extrabold text-xs flex items-center justify-center gap-2 transition-all"
             >
               {isSaved ? (
                 <>

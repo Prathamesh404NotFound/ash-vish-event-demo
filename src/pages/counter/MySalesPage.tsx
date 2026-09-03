@@ -357,7 +357,7 @@ export const MySalesPage: React.FC = () => {
           </button>
           <button
             onClick={handleExportCSV}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#D4AF37] hover:bg-[#F3E5AB] text-black text-xs font-bold transition-all shadow-md shadow-[#D4AF37]/10"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#D4AF37] hover:bg-[#F3E5AB] text-black text-xs font-bold transition-all"
           >
             <Download className="w-4 h-4" />
             <span>Export CSV</span>

@@ -9,7 +9,7 @@ import { TermsAcceptanceModal } from '../components/TermsAcceptanceModal';
 type AuthMode = 'login' | 'signup' | 'forgot-password';
 
 export const AuthPage: React.FC = () => {
-  const { loginWithGoogle, loginWithEmail, signupWithEmail, isLoading } = useAuth();
+  const { loginWithGoogle, loginWithEmail, signupWithEmail, sendOtp, resetPasswordWithOtp, isLoading } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -29,16 +29,6 @@ export const AuthPage: React.FC = () => {
   const [otpSent, setOtpSent] = useState(false);
   const [resendTimer, setResendTimer] = useState(0);
   const [showTerms, setShowTerms] = useState(false);
-
-  const handleSuccess = (userProfile?: any) => {
-    // Check if user needs to accept terms
-    const targetUser = userProfile || useAuth().user;
-    if (targetUser && !targetUser.termsAccepted) {
-      setShowTerms(true);
-      return;
-    }
-    navigate(redirectPath, { replace: true });
-  };
 
   const { user: authUser } = useAuth();
   const handleGoogleSignIn = async () => {
@@ -97,8 +87,7 @@ export const AuthPage: React.FC = () => {
       return;
     }
 
-    const auth = useAuth();
-    const ok = await auth.sendOtp(sanitizedPhone);
+    const ok = await sendOtp(sanitizedPhone);
     if (ok) {
       setOtpSent(true);
       setSuccessMsg('OTP sent to your WhatsApp!');
@@ -129,8 +118,7 @@ export const AuthPage: React.FC = () => {
       return;
     }
 
-    const auth = useAuth();
-    const ok = await auth.resetPasswordWithOtp(phone, otp, newPassword);
+    const ok = await resetPasswordWithOtp(phone, otp, newPassword);
     if (ok) {
       setSuccessMsg('Password reset successful! You can now log in.');
       setMode('login');

@@ -308,7 +308,7 @@ export const AdminUsers: React.FC = () => {
               setLookupEmail('');
               setResolvedUser(null);
             }}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#D4AF37] text-black font-extrabold text-xs shadow-lg shadow-[#D4AF37]/25 transition-all cursor-pointer"
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#D4AF37] hover:bg-[#E3C456] text-black font-extrabold text-xs transition-all cursor-pointer"
           >
             <UserPlus className="w-4 h-4 stroke-[2.5]" />
             <span>Add Staff Member</span>

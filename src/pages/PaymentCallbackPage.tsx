@@ -367,7 +367,7 @@ export function PaymentCallbackPage() {
             </div>
             <button
               onClick={() => navigate('/confirmation', { replace: true })}
-              className="w-full py-3.5 px-6 rounded-xl bg-gradient-to-r from-[#D4AF37] to-[#F3E5AB] text-black font-bold uppercase tracking-wider text-sm flex items-center justify-center gap-2 hover:opacity-95 transition-opacity"
+              className="w-full py-3.5 px-6 rounded-xl bg-[#D4AF37] hover:bg-[#E3C456] text-black font-bold uppercase tracking-wider text-sm flex items-center justify-center gap-2 transition-colors"
             >
               <span>View My Tickets</span>
               <ArrowRight className="w-4 h-4" />

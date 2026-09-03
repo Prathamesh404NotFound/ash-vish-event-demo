@@ -297,7 +297,7 @@ export function DigitalPassPage() {
                 };
                 sendTicketToWhatsApp(dummyTicket);
               }}
-              className="py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-black font-extrabold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-lg shadow-emerald-600/20"
+              className="py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-black font-extrabold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
             >
               <MessageSquareCode className="w-4 h-4 stroke-[2.5]" />
               <span>WhatsApp</span>

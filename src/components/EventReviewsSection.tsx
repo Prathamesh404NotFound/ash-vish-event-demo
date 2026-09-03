@@ -73,7 +73,7 @@ export const EventReviewsSection: React.FC<EventReviewsSectionProps> = ({ eventI
 
         <button
           onClick={() => setShowReviewForm(!showReviewForm)}
-          className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#D4AF37] text-black font-extrabold text-xs transition-all cursor-pointer shadow-lg shadow-[#D4AF37]/10 self-start md:self-auto"
+          className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#D4AF37] hover:bg-[#E3C456] text-black font-extrabold text-xs transition-all cursor-pointer self-start md:self-auto"
         >
           <MessageSquarePlus className="w-4 h-4 stroke-[2.5]" />
           <span>{showReviewForm ? 'Cancel Review' : 'Write a Review'}</span>

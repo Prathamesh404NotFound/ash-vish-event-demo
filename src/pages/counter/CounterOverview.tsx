@@ -75,7 +75,7 @@ export const CounterOverview: React.FC = () => {
         <div className="flex items-center gap-3 w-full md:w-auto">
           <button
             onClick={() => navigate('/counter/scan')}
-            className="flex-1 md:flex-initial py-3 px-5 rounded-2xl bg-[#D4AF37] text-black font-extrabold text-xs flex items-center justify-center gap-2 shadow-lg shadow-[#D4AF37]/25 transition-all active:scale-[0.98]"
+            className="flex-1 md:flex-initial py-3 px-5 rounded-2xl bg-[#D4AF37] hover:bg-[#E3C456] text-black font-extrabold text-xs flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
           >
             <QrCode className="w-4 h-4 stroke-[2.5]" />
             <span>Scan QR Pass</span>

@@ -60,7 +60,7 @@ export function TicketPassPage() {
         if (!res.ok || !data.success) {
           if (res.status === 503 || data.error === 'PASS_SERVICE_UNAVAILABLE' || res.status === 500) {
             setState('server_error');
-            setErrorMessage('Technical issue — pull down to retry or call +91-9876543210');
+            setErrorMessage('Technical issue — pull down to retry or call +91 77459 98497');
             return;
           }
           if (res.status === 410 || data.error === 'PASS_CANCELLED') {
@@ -88,7 +88,7 @@ export function TicketPassPage() {
       })
       .catch(() => {
         setState('server_error');
-        setErrorMessage('Technical issue — pull down to retry or call +91-9876543210');
+        setErrorMessage('Technical issue — pull down to retry or call +91 77459 98497');
       });
   }, [slug, signature, passId, querySig]);
 
@@ -178,7 +178,7 @@ export function TicketPassPage() {
         </div>
         <h1 className="text-2xl font-extrabold tracking-tight text-white mb-2">Temporary Network Issue</h1>
         <p className="text-sm text-gray-400 max-w-md mb-8 leading-relaxed">
-          {errorMessage || 'Technical issue — pull down to retry or call +91-9876543210'}
+          {errorMessage || 'Technical issue — pull down to retry or call +91 77459 98497'}
         </p>
         <button
           onClick={() => window.location.reload()}
@@ -254,12 +254,14 @@ export function TicketPassPage() {
 
           {/* Poster Header */}
           <div className="relative h-44 overflow-hidden bg-gray-900">
-            <img 
-              src={ticket?.eventPoster || "/sufiyana-shaam-poster.jpg"} 
-              alt={ticket?.eventTitle}
-              className="w-full h-full object-cover"
-              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-            />
+            {ticket?.eventPoster && (
+              <img 
+                src={ticket.eventPoster} 
+                alt={ticket.eventTitle}
+                className="w-full h-full object-cover"
+                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+              />
+            )}
             <div className="absolute inset-0 bg-gradient-to-t from-[#111] via-transparent to-black/40" />
             <div className="absolute top-3 right-3 flex flex-col gap-1.5 items-end">
               {isPaid ? (
@@ -334,7 +336,7 @@ export function TicketPassPage() {
               <button
                 onClick={handleOpenMaps}
                 aria-label="Get directions to the venue on Google Maps"
-                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-[#D4AF37] to-[#F3E5AB] text-black font-extrabold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer  active:scale-[0.98]"
+                className="w-full py-3 px-4 rounded-xl bg-[#D4AF37] hover:bg-[#E3C456] text-black font-extrabold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer active:scale-[0.98]"
               >
                 <MapPin className="w-4 h-4" />
                 <span>Get Directions on Google Maps</span>

@@ -104,7 +104,7 @@ export const RoleRoute: React.FC<RoleRouteProps> = ({ allow, children }) => {
           <Link
             to="/login"
             state={{ from: location }}
-            className="w-full py-3 px-6 rounded-xl bg-[#D4AF37] text-black font-extrabold text-sm flex items-center justify-center gap-2 transition-all shadow-lg shadow-[#D4AF37]/25"
+            className="w-full py-3 px-6 rounded-xl bg-[#D4AF37] hover:bg-[#E3C456] text-black font-extrabold text-sm flex items-center justify-center gap-2 transition-all"
           >
             <LogIn className="w-4 h-4 stroke-[2.5]" />
             <span>Go to Sign In</span>
