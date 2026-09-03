@@ -1,182 +1,209 @@
-import React from 'react';
-import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Ticket, ShieldCheck, LayoutDashboard, Calendar, Users, QrCode, Settings, ArrowLeft, Tag, MessageSquare, Armchair, Building2, BarChart3, UserCheck, Clock } from 'lucide-react';
+import React, { useState } from 'react';
+import { Link, NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
+import { Ticket, ShieldCheck, LayoutDashboard, Calendar, Users, QrCode, Settings, ArrowLeft, Tag, MessageSquare, Armchair, Building2, BarChart3, UserCheck, Clock, ChevronLeft, ChevronRight, Menu, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 export const AdminLayoutPage: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
   const isSuperAdmin = user?.role === 'admin' || user?.role === 'super_admin' || (user as any)?.rbacRole === 'super_admin';
 
   const navItems = [
-    {
-      title: "Overview",
-      path: "/admin",
-      icon: LayoutDashboard,
-      description: "Metrics & revenue analytics"
-    },
-    {
-      title: "Users & Roles",
-      path: "/admin/users",
-      icon: UserCheck,
-      description: "Manage staff accounts & RBAC",
-      superAdminOnly: true,
-    },
-    {
-      title: "Event CRUD Inventory",
-      path: "/admin/events",
-      icon: Calendar,
-      description: "Manage live shows & tickets"
-    },
-    {
-      title: "Organizer Accounts",
-      path: "/admin/organizers",
-      icon: Building2,
-      description: "Approve & oversee event organizers"
-    },
-    {
-      title: "Seat-Map Builder",
-      path: "/admin/seatmap",
-      icon: Armchair,
-      description: "Custom layout & pricing builder"
-    },
-    {
-      title: "Attendee Roster",
-      path: "/admin/bookings",
-      icon: Users,
-      description: "View all booked tickets"
-    },
-    {
-      title: "Shift Management",
-      path: "/admin/shifts",
-      icon: Clock,
-      description: "Monitor terminals & cash audit"
-    },
-    {
-      title: "Coupons & Discounts",
-      path: "/admin/coupons",
-      icon: Tag,
-      description: "Promos & discount codes"
-    },
-    {
-      title: "Reports",
-      path: "/admin/reports",
-      icon: BarChart3,
-      description: "Revenue, attendance & channels"
-    },
-    {
-      title: "Fan Review Moderation",
-      path: "/admin/reviews",
-      icon: MessageSquare,
-      description: "Moderate ratings & reviews"
-    },
-    {
-      title: "Gate Pass Scanner",
-      path: "/admin/scan",
-      icon: QrCode,
-      description: "Verify event entry tickets"
-    },
-    {
-      title: "Ticket Counters",
-      path: "/admin/counters",
-      icon: Armchair,
-      description: "Counter stations, staff & merchant UPI",
-      superAdminOnly: true,
-    },
-    {
-      title: "Console Settings",
-      path: "/admin/settings",
-      icon: Settings,
-      description: "Permissions & configurations"
-    }
+    { title: 'Overview', path: '/admin', icon: LayoutDashboard },
+    { title: 'Users', path: '/admin/users', icon: UserCheck, superAdminOnly: true },
+    { title: 'Events', path: '/admin/events', icon: Calendar },
+    { title: 'Organizers', path: '/admin/organizers', icon: Building2 },
+    { title: 'Seat Map', path: '/admin/seatmap', icon: Armchair },
+    { title: 'Bookings', path: '/admin/bookings', icon: Users },
+    { title: 'Shifts', path: '/admin/shifts', icon: Clock },
+    { title: 'Coupons', path: '/admin/coupons', icon: Tag },
+    { title: 'Reports', path: '/admin/reports', icon: BarChart3 },
+    { title: 'Reviews', path: '/admin/reviews', icon: MessageSquare },
+    { title: 'Scanner', path: '/admin/scan', icon: QrCode },
+    { title: 'Counters', path: '/admin/counters', icon: Armchair, superAdminOnly: true },
+    { title: 'Settings', path: '/admin/settings', icon: Settings },
   ].filter((item) => !item.superAdminOnly || isSuperAdmin);
 
+  const currentTitle = navItems.find((item) =>
+    item.path === '/admin' ? location.pathname === '/admin' : location.pathname.startsWith(item.path)
+  )?.title || 'Admin';
+
   return (
-    <div className="min-h-screen bg-[#0A0A0A] text-white flex flex-col md:flex-row">
-      {/* Admin Persistent Sidebar */}
-      <aside className="w-full lg:w-64 bg-[#121212] border-b lg:border-b-0 lg:border-r border-white/10 flex-shrink-0 p-3 sm:p-5 space-y-3 sm:space-y-6">
-        <div className="flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-2.5">
+    <div className="min-h-screen bg-[#0A0A0A] text-white">
+
+      {/* ─── Mobile Top Bar ─── */}
+      <div className="lg:hidden fixed top-0 inset-x-0 z-50 bg-[#121212] border-b border-white/10 px-3 py-2.5 flex items-center justify-between">
+        <div className="flex items-center gap-2.5">
+          <button
+            onClick={() => setMobileNavOpen(!mobileNavOpen)}
+            className="p-2 rounded-lg bg-white/5 text-gray-400 hover:text-white cursor-pointer"
+          >
+            {mobileNavOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
+          </button>
+          <Link to="/" className="flex items-center gap-2">
             <img
               src="/ashvish-logo.png"
-              alt="Ash-vish Events Logo"
-              onError={(e) => {
-                const target = e.currentTarget;
-                if (target.src.includes('ashvish-logo.png')) {
-                  target.src = '/favicon-192.png';
-                }
-              }}
-              className="w-8 h-8 rounded-lg object-cover shadow-lg shadow-[#D4AF37]/25"
+              alt="Ash-vish"
+              onError={(e) => { if (e.currentTarget.src.includes('ashvish-logo.png')) e.currentTarget.src = '/favicon-192.png'; }}
+              className="w-7 h-7 rounded-lg object-cover"
             />
             <div>
-              <span className="font-heading font-extrabold text-base tracking-tight text-white block leading-none">
-                Ash-vish<span className="text-[#D4AF37]"> admin</span>
-              </span>
-              <span className="text-[10px] uppercase tracking-widest text-gray-400 font-medium">
-                Super Admin Portal
+              <span className="font-heading font-bold text-xs text-white leading-none block">
+                Ash-vish <span className="text-[#D4AF37]">admin</span>
               </span>
             </div>
           </Link>
-          <button
-            onClick={() => navigate('/')}
-            className="md:hidden p-2 rounded-lg bg-white/5 text-gray-400 hover:text-white"
-            title="Exit to Main Website"
-          >
-            <ArrowLeft className="w-4 h-4" />
-          </button>
         </div>
+        <span className="text-[10px] font-bold text-[#D4AF37] uppercase tracking-wider">{currentTitle}</span>
+      </div>
 
-        {/* User Card */}
-        <div className="hidden sm:flex p-3.5 rounded-2xl bg-[#1A1A1A] border border-white/10 items-center gap-3">
-          <img
-            src={user?.photoUrl || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=300'}
-            alt={user?.name}
-            className="w-9 h-9 rounded-xl object-cover border border-[#D4AF37]/40"
-          />
-          <div className="overflow-hidden">
-            <p className="text-xs font-bold text-white truncate">{user?.name || 'Administrator'}</p>
-            <span className="inline-flex items-center gap-1 text-[10px] text-[#D4AF37] font-semibold uppercase tracking-wider">
-              <ShieldCheck className="w-3 h-3" /> System Super Admin
-            </span>
+      {/* ─── Mobile Slide-Down Nav ─── */}
+      {mobileNavOpen && (
+        <div className="lg:hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm" onClick={() => setMobileNavOpen(false)}>
+          <div className="absolute top-12 inset-x-0 bg-[#121212] border-b border-white/10 max-h-[70vh] overflow-y-auto shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="p-2 space-y-0.5">
+              {navItems.map((item) => {
+                const isActive = item.path === '/admin' ? location.pathname === '/admin' : location.pathname.startsWith(item.path);
+                return (
+                  <NavLink
+                    key={item.path}
+                    to={item.path}
+                    end={item.path === '/admin'}
+                    onClick={() => setMobileNavOpen(false)}
+                    className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+                      isActive
+                        ? 'bg-[#D4AF37] text-black'
+                        : 'text-gray-400 hover:text-white hover:bg-white/5'
+                    }`}
+                  >
+                    <item.icon className="w-4 h-4" />
+                    <span>{item.title}</span>
+                  </NavLink>
+                );
+              })}
+            </div>
+            <div className="p-2 border-t border-white/10">
+              <button onClick={() => { setMobileNavOpen(false); navigate('/'); }} className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-white/5 text-gray-400 text-xs font-semibold hover:bg-white/10 transition-colors cursor-pointer">
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span>Back to Site</span>
+              </button>
+            </div>
           </div>
         </div>
+      )}
 
-        {/* Navigation */}
-        <nav className="flex lg:block gap-1.5 overflow-x-auto no-scrollbar lg:space-y-1.5 pb-1 lg:pb-0" aria-label="Admin sections">
-          {navItems.map((item) => (
-            <NavLink
-              key={item.path}
-              to={item.path}
-              end={item.path === '/admin'}
-              className={({ isActive }) =>
-                `shrink-0 flex items-center gap-2 lg:gap-3 px-3 py-2.5 lg:p-3 rounded-xl lg:rounded-2xl transition-all text-xs font-bold ${
-                  isActive
-                    ? 'bg-[#D4AF37] text-black '
-                    : 'text-gray-400 hover:text-white hover:bg-[#1C1C1C]'
-                }`
-              }
-            >
-              <item.icon className="w-4 h-4 stroke-[2.5]" />
-              <div className="whitespace-nowrap">
-                <span className="block leading-tight">{item.title}</span>
+      {/* ─── Desktop Layout ─── */}
+      <div className="hidden lg:flex min-h-screen">
+        {/* Sidebar */}
+        <aside className={`flex-shrink-0 bg-[#121212] border-r border-white/10 flex flex-col transition-all duration-300 ${sidebarOpen ? 'w-60' : 'w-16'}`}>
+          {/* Sidebar Header */}
+          <div className={`p-3 border-b border-white/10 flex items-center ${sidebarOpen ? 'justify-between' : 'justify-center'}`}>
+            {sidebarOpen ? (
+              <>
+                <Link to="/" className="flex items-center gap-2.5 min-w-0">
+                  <img
+                    src="/ashvish-logo.png"
+                    alt="Ash-vish"
+                    onError={(e) => { if (e.currentTarget.src.includes('ashvish-logo.png')) e.currentTarget.src = '/favicon-192.png'; }}
+                    className="w-8 h-8 rounded-lg object-cover shrink-0"
+                  />
+                  <div className="min-w-0">
+                    <span className="font-heading font-bold text-xs text-white block leading-none truncate">
+                      Ash-vish <span className="text-[#D4AF37]">admin</span>
+                    </span>
+                    <span className="text-[9px] uppercase tracking-widest text-gray-500 font-medium">Portal</span>
+                  </div>
+                </Link>
+                <button onClick={() => setSidebarOpen(false)} className="p-1.5 rounded-lg hover:bg-white/10 text-gray-500 hover:text-white transition-colors cursor-pointer" title="Collapse sidebar">
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+              </>
+            ) : (
+              <button onClick={() => setSidebarOpen(true)} className="p-1.5 rounded-lg hover:bg-white/10 text-gray-500 hover:text-white transition-colors cursor-pointer" title="Expand sidebar">
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+
+          {/* User Card (collapsed state) */}
+          {!sidebarOpen && (
+            <div className="p-2 flex justify-center border-b border-white/10">
+              <img
+                src={user?.photoUrl || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=300'}
+                alt={user?.name}
+                className="w-8 h-8 rounded-lg object-cover border border-[#D4AF37]/40"
+              />
+            </div>
+          )}
+
+          {/* User Card (expanded) */}
+          {sidebarOpen && (
+            <div className="p-3 border-b border-white/10">
+              <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-[#1A1A1A] border border-white/5">
+                <img
+                  src={user?.photoUrl || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=300'}
+                  alt={user?.name}
+                  className="w-8 h-8 rounded-lg object-cover border border-[#D4AF37]/40 shrink-0"
+                />
+                <div className="min-w-0">
+                  <p className="text-[11px] font-bold text-white truncate">{user?.name || 'Admin'}</p>
+                  <span className="text-[9px] text-[#D4AF37] font-semibold uppercase tracking-wider">Super Admin</span>
+                </div>
               </div>
-            </NavLink>
-          ))}
-        </nav>
+            </div>
+          )}
 
-        <div className="hidden lg:block pt-4 border-t border-white/10">
-          <button
-            onClick={() => navigate('/')}
-            className="w-full py-2.5 px-3 rounded-xl bg-[#1C1C1C] hover:bg-[#262626] text-gray-300 hover:text-white text-xs font-semibold flex items-center justify-center gap-2 transition-all border border-white/5"
-          >
-            <ArrowLeft className="w-3.5 h-3.5" />
-            <span>Return to Customer View</span>
-          </button>
-        </div>
-      </aside>
+          {/* Nav Items */}
+          <nav className="flex-1 overflow-y-auto p-2 space-y-0.5" aria-label="Admin sections">
+            {navItems.map((item) => (
+              <NavLink
+                key={item.path}
+                to={item.path}
+                end={item.path === '/admin'}
+                className={({ isActive }) =>
+                  `flex items-center gap-2.5 rounded-xl transition-all text-xs font-semibold ${
+                    sidebarOpen ? 'px-3 py-2.5' : 'justify-center px-0 py-2.5'
+                  } ${
+                    isActive
+                      ? 'bg-[#D4AF37] text-black'
+                      : 'text-gray-400 hover:text-white hover:bg-[#1C1C1C]'
+                  }`
+                }
+                title={item.title}
+              >
+                <item.icon className="w-4 h-4 shrink-0" />
+                {sidebarOpen && <span className="truncate">{item.title}</span>}
+              </NavLink>
+            ))}
+          </nav>
 
-      {/* Main Content Shell */}
-      <main className="min-w-0 flex-1 p-3 sm:p-4 lg:p-8 pb-20 lg:pb-8 overflow-y-auto">
+          {/* Footer */}
+          <div className="p-2 border-t border-white/10">
+            <button
+              onClick={() => navigate('/')}
+              className={`w-full rounded-xl bg-[#1C1C1C] hover:bg-[#262626] text-gray-400 hover:text-white text-xs font-semibold transition-all border border-white/5 cursor-pointer ${
+                sidebarOpen ? 'flex items-center justify-center gap-2 py-2.5 px-3' : 'flex items-center justify-center py-2.5'
+              }`}
+              title="Return to Site"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              {sidebarOpen && <span>Back to Site</span>}
+            </button>
+          </div>
+        </aside>
+
+        {/* Main Content */}
+        <main className="flex-1 min-w-0 p-6 lg:p-8 overflow-y-auto">
+          <Outlet />
+        </main>
+      </div>
+
+      {/* ─── Tablet/Mobile Content ─── */}
+      <main className="lg:hidden min-h-screen pt-12 pb-4 px-3 sm:px-4 overflow-y-auto">
         <Outlet />
       </main>
     </div>
