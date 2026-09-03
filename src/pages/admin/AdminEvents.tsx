@@ -904,60 +904,46 @@ export const AdminEvents: React.FC = () => {
 
                       {/* Actions */}
                       <td className="p-4 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            onClick={() => handleQuickSeatMapToggle(evt)}
-                            className={`p-2 rounded-xl border transition-all cursor-pointer flex items-center gap-1 text-[11px] font-bold ${
-                              evt.usesSeatMap !== false
-                                ? 'bg-[#D4AF37]/10 hover:bg-[#D4AF37]/20 border-[#D4AF37]/30 text-[#D4AF37]'
-                                : 'bg-white/5 hover:bg-white/10 border-white/10 text-gray-400 hover:text-gray-200'
-                            }`}
-                            title={evt.usesSeatMap !== false ? 'Seat selection is ON — click to switch this event to general admission (quantity only)' : 'General admission is ON — click to restore seat selection'}
-                          >
-                            <Armchair className="w-3.5 h-3.5" />
-                            <span className="hidden sm:inline">{evt.usesSeatMap !== false ? 'Seats ON' : 'GA Only'}</span>
-                          </button>
-                          <button
-                            onClick={() => navigate('/admin/seatmap')}
-                            className="p-2 rounded-xl bg-[#D4AF37]/10 hover:bg-[#D4AF37]/20 border border-[#D4AF37]/30 text-[#D4AF37] transition-all cursor-pointer flex items-center gap-1 text-[11px] font-bold"
-                            title="Configure Event Seat Map"
-                          >
-                            <Armchair className="w-3.5 h-3.5" />
-                            <span className="hidden sm:inline">Seat Map</span>
-                          </button>
-                          <button
-                            onClick={() => handleOpenEditModal(evt)}
-                            className="p-2 rounded-xl bg-white/5 hover:bg-[#D4AF37]/20 text-gray-300 hover:text-[#D4AF37] transition-all cursor-pointer"
-                            title="Edit Event"
-                          >
-                            <Edit className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => handleOpenCloneModal(evt)}
-                            className="p-2 rounded-xl bg-white/5 hover:bg-sky-500/20 text-gray-300 hover:text-sky-400 transition-all cursor-pointer"
-                            title="Clone Event into a New Listing"
-                          >
-                            <Copy className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => handleOpenNotifyModal(evt)}
-                            className="p-2 rounded-xl bg-white/5 hover:bg-emerald-500/20 text-gray-300 hover:text-emerald-400 transition-all cursor-pointer"
-                            title="Email All Ticket Holders"
-                          >
-                            <Mail className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => {
-                              if (confirm(`This will permanently remove event "${evt.title}" from listings. This action cannot be undone. Sales history for this event is retained in the audit log and booking records.`)) {
-                                deleteEvent(evt.id);
-                              }
-                            }}
-                            className="p-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 transition-all cursor-pointer"
-                            title="Delete Event"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
+                        <RowActions
+                          closeKey={evt.id}
+                          actions={[
+                            {
+                              label: evt.usesSeatMap !== false ? 'Disable Seats (GA Only)' : 'Enable Seats',
+                              icon: <Armchair className="w-4 h-4" />,
+                              onClick: () => handleQuickSeatMapToggle(evt),
+                            },
+                            {
+                              label: 'Seat Map Builder',
+                              icon: <Armchair className="w-4 h-4" />,
+                              onClick: () => navigate('/admin/seatmap'),
+                            },
+                            {
+                              label: 'Edit Event',
+                              icon: <Edit className="w-4 h-4" />,
+                              onClick: () => handleOpenEditModal(evt),
+                            },
+                            {
+                              label: 'Clone Event',
+                              icon: <Copy className="w-4 h-4" />,
+                              onClick: () => handleOpenCloneModal(evt),
+                            },
+                            {
+                              label: 'Notify Ticket Holders',
+                              icon: <Mail className="w-4 h-4" />,
+                              onClick: () => handleOpenNotifyModal(evt),
+                            },
+                            {
+                              label: 'Delete Event',
+                              icon: <Trash2 className="w-4 h-4" />,
+                              onClick: () => {
+                                if (confirm(`This will permanently remove event "${evt.title}" from listings. This action cannot be undone. Sales history for this event is retained in the audit log and booking records.`)) {
+                                  deleteEvent(evt.id);
+                                }
+                              },
+                              variant: 'danger',
+                            },
+                          ]}
+                        />
                       </td>
                     </tr>
                   );
