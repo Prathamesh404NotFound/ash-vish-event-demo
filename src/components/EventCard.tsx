@@ -2,7 +2,6 @@ import React from 'react';
 import { Calendar, MapPin, Heart, Star, Ticket, Info } from 'lucide-react';
 import { EventItem } from '../types';
 import { useBooking } from '../contexts/BookingContext';
-import { formatINR } from '../utils/formatters';
 
 interface EventCardProps {
   event: EventItem;
@@ -120,24 +119,15 @@ export const EventCard: React.FC<EventCardProps> = React.memo(({ event, onSelect
           </div>
         </div>
 
-        {/* Footer Row: Price & Book Button */}
-        <div className="pt-3 border-t border-white/10 flex items-center justify-between mt-auto gap-2">
-          <div>
-            <span className="text-[10px] text-gray-400 uppercase tracking-wider block font-medium">
-              From
-            </span>
-            <span className="font-heading text-base sm:text-lg font-bold text-white">
-              {formatINR(event.startingPrice)}
-            </span>
-          </div>
-
+        {/* Footer Row: Book Button */}
+        <div className="pt-3 border-t border-white/10 mt-auto">
           {event.isAdvertiseOnly ? (
             <button
               onClick={(e) => {
                 e.stopPropagation();
                 onSelectEvent(event);
               }}
-              className="flex items-center justify-center gap-1.5 px-3.5 sm:px-4 py-2 min-h-[44px] rounded-xl bg-white/10 hover:bg-white/20 border border-white/15 text-white font-bold text-xs transition-all cursor-pointer whitespace-nowrap"
+              className="w-full flex items-center justify-center gap-1.5 py-2.5 min-h-[44px] rounded-xl bg-white/10 hover:bg-white/20 border border-white/15 text-white font-bold text-xs transition-all cursor-pointer"
             >
               <Info className="w-3.5 h-3.5 text-[#D4AF37] stroke-[2.5]" />
               <span>View Details</span>
@@ -148,7 +138,7 @@ export const EventCard: React.FC<EventCardProps> = React.memo(({ event, onSelect
                 e.stopPropagation();
                 onBookNow(event);
               }}
-              className="flex items-center justify-center gap-1.5 px-3.5 sm:px-4 py-2 min-h-[44px] rounded-xl bg-[#D4AF37] hover:bg-[#E3C456] text-black font-bold text-xs transition-all cursor-pointer whitespace-nowrap"
+              className="w-full flex items-center justify-center gap-1.5 py-2.5 min-h-[44px] rounded-xl bg-[#D4AF37] hover:bg-[#E3C456] text-black font-bold text-xs transition-all cursor-pointer"
             >
               <Ticket className="w-3.5 h-3.5 stroke-[2.5]" />
               <span>Book Now</span>

@@ -203,6 +203,76 @@ export const CounterOverview: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* ─── Ticket Inventory Overview ─── */}
+      <div className="p-6 rounded-3xl bg-[#141414] border border-white/10 space-y-4">
+        <h2 className="font-heading font-extrabold text-lg text-white flex items-center gap-2">
+          <Ticket className="w-5 h-5 text-[#D4AF37]" />
+          <span>Ticket Inventory</span>
+        </h2>
+        <p className="text-xs text-gray-400">Sold and available ticket counts across all active events.</p>
+
+        {eventStats.length === 0 ? (
+          <div className="text-center py-8">
+            <Ticket className="w-10 h-10 text-white/10 mx-auto mb-3" />
+            <p className="text-sm text-gray-500">No events to display</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {eventStats.map((evt) => {
+              const totalCapacity = (normalizeTiers(evt.ticketTiers) || []).reduce(
+                (sum: number, t: any) => sum + (t.totalInventory || 0), 0
+              );
+              const sold = totalCapacity - evt.remaining;
+              const soldPct = totalCapacity > 0 ? Math.round((sold / totalCapacity) * 100) : 0;
+
+              return (
+                <div key={evt.id} className="p-4 rounded-2xl bg-[#1C1C1C] border border-white/5 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <h3 className="font-heading font-bold text-sm text-white truncate">{evt.title}</h3>
+                      <p className="text-[10px] text-gray-500 mt-0.5">{evt.date} • {evt.tierCount} tier{evt.tierCount !== 1 ? 's' : ''}</p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <span className="text-[10px] text-gray-400 uppercase tracking-wider block">Sold</span>
+                      <span className="font-heading font-extrabold text-lg text-white">{sold}</span>
+                    </div>
+                  </div>
+
+                  {/* Progress bar */}
+                  <div className="space-y-1.5">
+                    <div className="w-full h-2 rounded-full bg-[#222] overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-500 ${soldPct >= 90 ? 'bg-red-500' : soldPct >= 60 ? 'bg-amber-500' : 'bg-emerald-500'}`}
+                        style={{ width: `${Math.min(soldPct, 100)}%` }}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between text-[10px]">
+                      <span className="text-emerald-400 font-semibold">{sold} sold ({soldPct}%)</span>
+                      <span className="text-gray-400 font-semibold">{evt.remaining} available</span>
+                    </div>
+                  </div>
+
+                  {/* Tier breakdown */}
+                  {(normalizeTiers(evt.ticketTiers) || []).length > 1 && (
+                    <div className="pt-2 border-t border-white/5 flex flex-wrap gap-2">
+                      {(normalizeTiers(evt.ticketTiers) || []).map((tier: any) => {
+                        const tierSold = (tier.totalInventory || 0) - (tier.remainingInventory ?? tier.totalInventory ?? 0);
+                        return (
+                          <span key={tier.id} className="px-2 py-1 rounded-lg bg-white/5 text-[10px] text-gray-400 border border-white/5">
+                            <span className="font-semibold text-white">{tier.name}</span>
+                            {' '}{tierSold}/{tier.totalInventory || 0}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 };
