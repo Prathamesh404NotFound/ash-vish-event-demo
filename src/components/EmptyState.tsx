@@ -63,10 +63,10 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
           {actionLabel && onAction && (
             <button
               onClick={onAction}
-              className="group px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black font-bold text-xs flex items-center gap-2 shadow-lg shadow-[#D4AF37]/20 transition-all duration-200 hover:shadow-[#D4AF37]/30 hover:scale-[1.02] active:scale-[0.98]"
+              className="group px-5 py-2.5 rounded-xl bg-[#D4AF37] hover:bg-[#E3C456] text-black font-bold text-xs flex items-center gap-2 transition-all duration-200"
             >
               <span>{actionLabel}</span>
-              <RefreshCw className="w-3.5 h-3.5 group-hover:rotate-90 transition-transform duration-300" />
+
             </button>
           )}
           {secondaryActionLabel && onSecondaryAction && (

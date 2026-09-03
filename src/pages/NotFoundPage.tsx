@@ -39,7 +39,7 @@ export const NotFoundPage: React.FC = () => {
         <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
           <button
             onClick={() => navigate('/')}
-            className="group w-full sm:w-auto px-6 py-3 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-[#D4AF37]/15 transition-all duration-200 hover:shadow-[#D4AF37]/25 hover:scale-[1.02] active:scale-[0.98]"
+            className="group w-full sm:w-auto px-6 py-3 rounded-xl bg-[#D4AF37] text-black font-bold text-sm flex items-center justify-center gap-2  transition-all duration-200 hover:shadow-[#D4AF37]/25 hover:scale-[1.02] active:scale-[0.98]"
           >
             <Home className="w-4 h-4" />
             Go to Homepage

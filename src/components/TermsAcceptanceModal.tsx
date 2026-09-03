@@ -101,7 +101,7 @@ export const TermsAcceptanceModal: React.FC = () => {
               disabled={!hasAgreed || isAccepting}
               className={`w-full py-4 rounded-2xl font-bold text-sm tracking-wide transition-all flex items-center justify-center gap-2 ${
                 hasAgreed && !isAccepting
-                  ? 'bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black shadow-lg shadow-[#D4AF37]/20 hover:scale-[1.02] active:scale-[0.98]'
+                  ? 'bg-[#D4AF37] text-black  hover:scale-[1.02] active:scale-[0.98]'
                   : 'bg-white/5 text-gray-500 cursor-not-allowed border border-white/5'
               }`}
             >

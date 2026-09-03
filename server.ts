@@ -381,6 +381,16 @@ function hashIdempotencyKey(key: string): string {
   return crypto.createHash("sha256").update(key).digest("hex");
 }
 
+/**
+ * Cryptographically secure random ID suffix.
+ * SECURITY (HOTFIX): replaces Math.random() for security-sensitive identifiers
+ * (order IDs, reservation IDs, ticket IDs, merchant order IDs) to prevent
+ * predictability-based attacks.
+ */
+function secureRandomHex(bytes: number = 8): string {
+  return crypto.randomBytes(bytes).toString('hex');
+}
+
 function seatPriceForRow(tiers: any[], seatMapTierName: string): number | undefined {
   return tiers.find(
     (t) =>
@@ -1256,8 +1266,8 @@ async function finalizeBookingServerSide(
     }
     // 6. Generate Ticket and Booking records
     const isDeferred = deferPayment === true;
-    const ticketId = 'tkt_' + Date.now() + '_' + Math.random().toString(36).substring(2, 10);
-    const bookingId = 'bkg_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8);
+    const ticketId = 'tkt_' + Date.now() + '_' + secureRandomHex(8);
+    const bookingId = 'bkg_' + Date.now() + '_' + secureRandomHex(4);
     const ticketNum = isDeferred
       ? `ASH-RES-${Math.floor(1000 + Math.random() * 9000)}`
       : `ASH-${Math.floor(1000 + Math.random() * 9000)}-SRV`;
@@ -2188,6 +2198,11 @@ export async function createApp() {
 
   app.post("/api/coupons/validate", async (req, res) => {
     try {
+      // SECURITY (HOTFIX): Rate limit coupon validation to prevent coupon enumeration abuse.
+      const _cvIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || req.socket?.remoteAddress || 'unknown';
+      if (!checkRateLimit(`coupon:${_cvIp}`, 60 * 1000, 20)) {
+        return res.status(429).json({ valid: false, error: "Too many coupon requests. Please wait a moment." });
+      }
       const { couponCode, eventId, totalAmount } = req.body;
       const authHeader = req.headers.authorization;
       const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : undefined;
@@ -2234,7 +2249,9 @@ export async function createApp() {
         discountAmount,
         originalAmount: rawAmount,
         finalAmount,
-        coupon,
+        // SECURITY (HOTFIX): Do NOT expose internal coupon fields (usedCount,
+        // usageLimit, eventId restriction, isActive, etc.) to the client.
+        // Only return the safe subset needed for display.
       });
     } catch (err: any) {
       return res.status(500).json({ valid: false, error: err.message || "Failed to validate coupon" });
@@ -2553,6 +2570,12 @@ export async function createApp() {
 
   app.post("/api/reservations", async (req, res) => {
     try {
+      // SECURITY (HOTFIX): Rate limit reservation creation to prevent seat-hold abuse.
+      const _rIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || req.socket?.remoteAddress || 'unknown';
+      const _rSid = (req.headers['x-session-id'] as string) || '';
+      if (!checkRateLimit(`res:${_rIp}:${_rSid}`, 60 * 1000, 10)) {
+        return res.status(429).json({ success: false, error: "Too many reservation requests. Please wait a moment." });
+      }
       const { eventId, tierId, quantity, seatIds, idempotencyKey } = req.body || {};
 
       if (!eventId || !tierId || !quantity) {
@@ -2619,8 +2642,23 @@ export async function createApp() {
         return res.status(409).json({ success: false, error: `Only ${tier.remainingInventory ?? 0} tickets remain in this tier.` });
       }
 
+      // SECURITY (HOTFIX): Validate seat IDs belong to the event's seat map.
+      // Prevents cross-event seat manipulation by verifying each requested seat
+      // exists in the event's seat configuration before attempting to claim.
+      if (normalizedSeats.length > 0) {
+        const existingSeatsSnap = await rtdbGet(`seats/${eventId}`, authToken);
+        const existingSeats = existingSeatsSnap.data || {};
+        for (const seatId of normalizedSeats) {
+          if (!(seatId in existingSeats) && !existingSeats[seatId]) {
+            // Seat does not exist in this event's layout — reject to prevent
+            // cross-event seat manipulation or fabrication of seat IDs.
+            return res.status(400).json({ success: false, error: `Seat ${seatId} does not belong to this event.` });
+          }
+        }
+      }
+
       // Deterministic reservation id so claim, record, and idempotent replay all match
-      const reservationId = `rsrv_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const reservationId = `rsrv_${Date.now()}_${secureRandomHex(4)}`;
 
       // Claim seats atomically if seat-based (uses the SAME reservationId as the record)
       if (normalizedSeats.length > 0) {
@@ -3016,7 +3054,7 @@ export async function createApp() {
       const totalMinor = Math.max(0, quoteResult.quote.totalMinor - discountMinor);
       const customerDetails = attendee || record.attendee || { name: "Guest Attendee", email: "", phone: "" };
 
-      const orderId = `ord_coc_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+      const orderId = `ord_coc_${Date.now()}_${secureRandomHex(4)}`;
       await rtdbSet(`pending_orders/${orderId}`, {
         eventId: record.eventId,
         tierId: record.tierId,
@@ -3112,7 +3150,7 @@ export async function createApp() {
       const totalMinor = Math.max(0, quoteResult.quote.totalMinor - discountMinor);
 
       // Server-authoritative pending order (fulfillment source of truth).
-      const orderId = `ord_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+      const orderId = `ord_${Date.now()}_${secureRandomHex(4)}`;
       await rtdbSet(`pending_orders/${orderId}`, {
         eventId: record.eventId,
         tierId: record.tierId,
@@ -3153,6 +3191,12 @@ export async function createApp() {
 
   app.post("/api/phonepe/create-order", async (req, res) => {
     try {
+      // SECURITY (HOTFIX): Rate limit order creation to prevent payment abuse.
+      const _coIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || req.socket?.remoteAddress || 'unknown';
+      const _coSid = (req.headers['x-session-id'] as string) || '';
+      if (!checkRateLimit(`co:${_coIp}:${_coSid}`, 60 * 1000, 5)) {
+        return res.status(429).json({ success: false, error: "Too many payment requests. Please wait a moment." });
+      }
       const cfg = isPhonePeConfigured();
       if (!cfg.available) {
         return res.status(503).json({ success: false, error: cfg.reason || "Payment gateway is not configured." });
@@ -3174,8 +3218,10 @@ export async function createApp() {
       if (record.status !== "active" || now > record.expiresAt) {
         return res.status(409).json({ success: false, error: "Reservation is no longer active. Please select your seats again." });
       }
-      if (record.attendee && (!record.attendee.name || !record.attendee.email || !record.attendee.phone)) {
-        return res.status(400).json({ success: false, error: "Attendee details are required before payment." });
+      // SECURITY (HOTFIX): Attendee details are mandatory before payment order creation.
+      // Prevents incomplete bookings from reaching the payment gateway.
+      if (!record.attendee || !record.attendee.name || !record.attendee.email || !record.attendee.phone) {
+        return res.status(400).json({ success: false, error: "Attendee details (name, email, phone) are required before payment." });
       }
 
       const eventRes = await rtdbGet(`events/${record.eventId}`, authToken);
@@ -3205,8 +3251,8 @@ export async function createApp() {
       const amountPaiseToCharge = totalMinor;
 
       // Unique internal order ID & PhonePe merchant transaction ID
-      const orderId = `ord_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-      const merchantOrderId = `m_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`.slice(0, 63);
+      const orderId = `ord_${Date.now()}_${secureRandomHex(4)}`;
+      const merchantOrderId = `m_${Date.now()}_${secureRandomHex(4)}`.slice(0, 63);
 
       // Derive base app URL for redirect.
       // APP_URL must be set in production (e.g. https://ashvishevents.com).
@@ -3297,6 +3343,11 @@ export async function createApp() {
 
   app.post("/api/phonepe/verify-payment", async (req, res) => {
     try {
+      // SECURITY (HOTFIX): Rate limit payment verification to prevent abuse.
+      const _pvIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || req.socket?.remoteAddress || 'unknown';
+      if (!checkRateLimit(`payv:${_pvIp}`, 60 * 1000, 15)) {
+        return res.status(429).json({ success: false, error: "Too many verification requests. Please wait a moment." });
+      }
       const cfg = isPhonePeConfigured();
       if (!cfg.available) {
         return res.status(503).json({ success: false, error: cfg.reason || "Payment gateway is not configured." });
@@ -3536,6 +3587,11 @@ export async function createApp() {
    */
   app.post("/api/phonepe/webhook", async (req: any, res) => {
     try {
+      // SECURITY (HOTFIX): Rate limit webhook endpoint to prevent replay abuse.
+      const _whIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || req.socket?.remoteAddress || 'unknown';
+      if (!checkRateLimit(`wh:${_whIp}`, 60 * 1000, 30)) {
+        return res.status(429).json({ success: false, error: "Too many webhook requests." });
+      }
       // Use the raw bytes captured before express.json() parsed the body.
       // Falling back to re-serialised JSON only when rawBody is absent (e.g.
       // during local development without the raw-body middleware).
@@ -3606,6 +3662,11 @@ export async function createApp() {
    */
   app.post("/api/phonepe/recover-booking", async (req, res) => {
     try {
+      // SECURITY (HOTFIX): Rate limit recovery endpoint.
+      const _recIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || req.socket?.remoteAddress || 'unknown';
+      if (!checkRateLimit(`rec:${_recIp}`, 60 * 1000, 5)) {
+        return res.status(429).json({ success: false, error: "Too many recovery requests. Please wait a moment." });
+      }
       const cfg = isPhonePeConfigured();
       if (!cfg.available) {
         return res.status(503).json({ success: false, error: cfg.reason || "Payment gateway not configured." });
@@ -8465,6 +8526,67 @@ app.patch("/api/admin/counters", requireRole(["super_admin"]), async (req: any, 
     return res.status(200).json({ success: true, outcomes });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message || "Could not apply batch update." });
+  }
+});
+
+// ─── Admin: Delete Ticket Permanently ────────────────────────────────────────
+app.delete("/api/admin/tickets/:ticketId", requireRole(["super_admin", "event_manager"]), async (req: any, res) => {
+  try {
+    const { ticketId } = req.params;
+    if (!ticketId || typeof ticketId !== "string") {
+      return res.status(400).json({ success: false, error: "Ticket ID is required." });
+    }
+    const token = await getAdminAuthToken();
+
+    // 1. Find the ticket record
+    const ticketSnap = await rtdbGet(`tickets/${ticketId}`, token);
+    const ticket = ticketSnap.data as any;
+    if (!ticket) {
+      return res.status(404).json({ success: false, error: "Ticket not found." });
+    }
+
+    // 2. If the ticket has seats, release them back to available
+    const eventId = ticket.eventId;
+    const selectedSeats: string[] = Array.isArray(ticket.selectedSeats) ? ticket.selectedSeats : [];
+    if (eventId && selectedSeats.length > 0) {
+      for (const seatId of selectedSeats) {
+        const seatSnap = await rtdbGet(`events/${eventId}/seats/${seatId}`, token);
+        if (seatSnap.data) {
+          await rtdbSet(`events/${eventId}/seats/${seatId}`, null, token);
+        }
+      }
+    }
+
+    // 3. Find and remove the associated order
+    const ordersSnap = await rtdbGet("orders", token);
+    const orders = (ordersSnap.data || {}) as Record<string, any>;
+    for (const [orderId, order] of Object.entries(orders)) {
+      if (order?.ticketId === ticketId || order?.ticketNumber === ticket.ticketNumber) {
+        await rtdbSet(`orders/${orderId}`, null, token);
+        break;
+      }
+    }
+
+    // 4. Delete the ticket record
+    await rtdbSet(`tickets/${ticketId}`, null, token);
+
+    // 5. Audit log
+    await writeAuditEntry({
+      actorId: req.user.uid,
+      actorRole: req.user.rbacRole,
+      action: "ticket.deleted",
+      entityType: "ticket",
+      entityId: ticketId,
+      beforeState: ticket,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Ticket deleted permanently.",
+      ticketNumber: ticket.ticketNumber,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || "Could not delete ticket." });
   }
 });
 

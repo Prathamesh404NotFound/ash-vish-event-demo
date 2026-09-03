@@ -456,7 +456,7 @@ export const SeatMap: React.FC<SeatMapProps> = ({ compact = false,
           <span className="font-medium text-gray-300">Available</span>
         </div>
         <div className="flex items-center gap-2">
-          <div className="w-5 h-5 rounded-md bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] flex items-center justify-center text-black font-extrabold text-[10px]">
+          <div className="w-5 h-5 rounded-md bg-[#D4AF37] flex items-center justify-center text-black font-extrabold text-[10px]">
             ✓
           </div>
           <span className="font-medium text-gray-300">Selected</span>
@@ -509,7 +509,7 @@ export const SeatMap: React.FC<SeatMapProps> = ({ compact = false,
             disabled={localHeldSeats.length < requiredQuantity}
             className={`w-full sm:w-auto px-8 py-3.5 rounded-2xl font-extrabold text-sm sm:text-base flex items-center justify-center gap-2 shadow-xl transition-all ${
               localHeldSeats.length >= requiredQuantity
-                ? 'bg-gradient-to-r from-[#F3E5AB] via-[#D4AF37] to-[#C5A059] hover:brightness-110 text-black shadow-[#D4AF37]/20 border border-[#F3E5AB]/30 cursor-pointer scale-100 hover:scale-[1.02]'
+                ? 'bg-[#D4AF37] text-black shadow-[#D4AF37]/20 border border-[#F3E5AB]/30 cursor-pointer scale-100 hover:scale-[1.02]'
                 : 'bg-[#1A1A1A] border border-[#2A2A2A] text-gray-500 cursor-not-allowed opacity-60'
             }`}
           >

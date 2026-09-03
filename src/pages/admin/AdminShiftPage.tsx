@@ -17,6 +17,7 @@ import {
   Trash2,
   Save
 } from 'lucide-react';
+import { RowActions } from '../../components/admin/RowActions';
 import { safeFetch } from '../../lib/api';
 import type { CounterShiftRecord } from '../../types';
 import { authenticatedApiHeaders } from '../../lib/authHeaders';
@@ -357,38 +358,30 @@ export const AdminShiftPage: React.FC = () => {
                       )}
                     </td>
                     <td className="px-6 py-4 text-center">
-                      <div className="flex items-center justify-center gap-1.5">
-                        <button
-                          onClick={() => setSelectedShift(s)}
-                          className="p-2 rounded-xl bg-white/5 text-gray-400 hover:text-[#D4AF37] hover:bg-[#D4AF37]/10 transition-all"
-                          title="View Details"
-                        >
-                          <ExternalLink className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => openEditModal(s)}
-                          className="p-2 rounded-xl bg-white/5 text-gray-400 hover:text-blue-300 hover:bg-blue-500/10 transition-all"
-                          title="Edit shift"
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => void handleDeleteShift(s.shiftId)}
-                          disabled={isDeletingShift}
-                          className={`p-2 rounded-xl transition-all disabled:opacity-50 ${deleteConfirmId === s.shiftId ? 'bg-red-500 text-white hover:bg-red-600' : 'bg-white/5 text-gray-400 hover:text-red-300 hover:bg-red-500/10'}`}
-                          title={deleteConfirmId === s.shiftId ? 'Click again to confirm deletion' : 'Delete shift'}
-                        >
-                          {deleteConfirmId === s.shiftId ? <span className="text-[9px] font-extrabold px-0.5">Confirm</span> : <Trash2 className="w-4 h-4" />}
-                        </button>
+                      <div className="flex justify-center">
+                        <RowActions
+                          closeKey={s.shiftId + s.status}
+                          actions={[
+                            {
+                              label: 'View Details',
+                              icon: <ExternalLink className="w-4 h-4" />,
+                              onClick: () => setSelectedShift(s),
+                            },
+                            {
+                              label: 'Edit Shift',
+                              icon: <Pencil className="w-4 h-4" />,
+                              onClick: () => openEditModal(s),
+                            },
+                            {
+                              label: deleteConfirmId === s.shiftId ? 'Confirm Delete' : 'Delete Shift',
+                              icon: <Trash2 className="w-4 h-4" />,
+                              onClick: () => void handleDeleteShift(s.shiftId),
+                              variant: 'danger',
+                              disabled: isDeletingShift,
+                            },
+                          ]}
+                        />
                       </div>
-                      {deleteConfirmId === s.shiftId && (
-                        <button
-                          onClick={() => setDeleteConfirmId(null)}
-                          className="mt-1 text-[9px] text-gray-500 hover:text-white"
-                        >
-                          Cancel
-                        </button>
-                      )}
                     </td>
                   </tr>
                 ))

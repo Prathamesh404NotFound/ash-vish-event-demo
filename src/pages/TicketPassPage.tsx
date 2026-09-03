@@ -334,7 +334,7 @@ export function TicketPassPage() {
               <button
                 onClick={handleOpenMaps}
                 aria-label="Get directions to the venue on Google Maps"
-                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-[#D4AF37] to-[#F3E5AB] hover:brightness-110 text-black font-extrabold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-lg shadow-[#D4AF37]/20 active:scale-[0.98]"
+                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-[#D4AF37] to-[#F3E5AB] text-black font-extrabold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer  active:scale-[0.98]"
               >
                 <MapPin className="w-4 h-4" />
                 <span>Get Directions on Google Maps</span>

@@ -73,7 +73,7 @@ export const EventReviewsSection: React.FC<EventReviewsSectionProps> = ({ eventI
 
         <button
           onClick={() => setShowReviewForm(!showReviewForm)}
-          className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] hover:brightness-110 text-black font-extrabold text-xs transition-all cursor-pointer shadow-lg shadow-[#D4AF37]/10 self-start md:self-auto"
+          className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#D4AF37] text-black font-extrabold text-xs transition-all cursor-pointer shadow-lg shadow-[#D4AF37]/10 self-start md:self-auto"
         >
           <MessageSquarePlus className="w-4 h-4 stroke-[2.5]" />
           <span>{showReviewForm ? 'Cancel Review' : 'Write a Review'}</span>
@@ -139,7 +139,7 @@ export const EventReviewsSection: React.FC<EventReviewsSectionProps> = ({ eventI
             <button
               type="submit"
               disabled={isSubmitting || !comment.trim()}
-              className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black font-extrabold text-xs flex items-center gap-2 cursor-pointer disabled:opacity-50"
+              className="px-5 py-2 rounded-xl bg-[#D4AF37] text-black font-extrabold text-xs flex items-center gap-2 cursor-pointer disabled:opacity-50"
             >
               <Send className="w-3.5 h-3.5" />
               <span>{isSubmitting ? 'Posting...' : 'Post Review'}</span>
@@ -175,7 +175,7 @@ export const EventReviewsSection: React.FC<EventReviewsSectionProps> = ({ eventI
               </span>
               <div className="flex-1 h-2.5 bg-black/50 rounded-full overflow-hidden border border-white/5">
                 <div
-                  className="h-full bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] rounded-full transition-all duration-500"
+                  className="h-full bg-[#D4AF37] rounded-full transition-all duration-500"
                   style={{ width: `${percentage}%` }}
                 />
               </div>

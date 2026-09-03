@@ -23,7 +23,9 @@ import {
   Copy,
   Mail,
   Building2,
+  Send,
 } from 'lucide-react';
+import { RowActions } from '../../components/admin/RowActions';
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { storage } from '../../lib/firebase';
 import { useBooking } from '../../contexts/BookingContext';
@@ -716,7 +718,7 @@ export const AdminEvents: React.FC = () => {
 
         <button
           onClick={handleOpenCreateModal}
-          className="py-3.5 px-6 rounded-2xl bg-gradient-to-r from-[#F3E5AB] via-[#D4AF37] to-[#AA7C11] hover:brightness-110 active:scale-95 text-black font-extrabold text-xs sm:text-sm flex items-center gap-2.5 shadow-xl shadow-[#D4AF37]/20 transition-all cursor-pointer shrink-0"
+          className="py-3.5 px-6 rounded-2xl bg-gradient-to-r from-[#F3E5AB] via-[#D4AF37] to-[#AA7C11] active:scale-95 text-black font-extrabold text-xs sm:text-sm flex items-center gap-2.5 shadow-xl shadow-[#D4AF37]/20 transition-all cursor-pointer shrink-0"
         >
           <Plus className="w-4 h-4 stroke-[3]" />
           <span>Create New Event</span>
@@ -1900,7 +1902,7 @@ export const AdminEvents: React.FC = () => {
                 <button
                   type="submit"
                   disabled={isUploading || isSaving}
-                  className="w-full sm:w-auto py-3 px-7 rounded-xl bg-gradient-to-r from-[#F3E5AB] via-[#D4AF37] to-[#AA7C11] hover:brightness-110 active:scale-95 text-black font-extrabold text-xs shadow-xl shadow-[#D4AF37]/20 transition-all cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
+                  className="w-full sm:w-auto py-3 px-7 rounded-xl bg-gradient-to-r from-[#F3E5AB] via-[#D4AF37] to-[#AA7C11] active:scale-95 text-black font-extrabold text-xs shadow-xl shadow-[#D4AF37]/20 transition-all cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {isSaving ? (
                     <>
@@ -1987,7 +1989,7 @@ export const AdminEvents: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  className="py-2.5 px-5 rounded-xl bg-gradient-to-r from-[#F3E5AB] via-[#D4AF37] to-[#AA7C11] hover:brightness-110 active:scale-95 text-black font-extrabold text-xs cursor-pointer"
+                  className="py-2.5 px-5 rounded-xl bg-gradient-to-r from-[#F3E5AB] via-[#D4AF37] to-[#AA7C11] active:scale-95 text-black font-extrabold text-xs cursor-pointer"
                 >
                   Clone Event
                 </button>
@@ -2059,7 +2061,7 @@ export const AdminEvents: React.FC = () => {
                 <button
                   type="submit"
                   disabled={notifySending}
-                  className="py-2.5 px-5 rounded-xl bg-gradient-to-r from-[#F3E5AB] via-[#D4AF37] to-[#AA7C11] hover:brightness-110 active:scale-95 text-black font-extrabold text-xs cursor-pointer disabled:opacity-50"
+                  className="py-2.5 px-5 rounded-xl bg-gradient-to-r from-[#F3E5AB] via-[#D4AF37] to-[#AA7C11] active:scale-95 text-black font-extrabold text-xs cursor-pointer disabled:opacity-50"
                 >
                   {notifySending ? 'Sending…' : 'Send Notifications'}
                 </button>

@@ -160,7 +160,7 @@ export const EventDetail: React.FC<EventDetailProps> = ({
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
           <div className="space-y-3 min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black">
+              <span className="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest bg-[#D4AF37] text-black">
                 {event.category}
               </span>
               {event.isAdvertiseOnly && (
@@ -255,7 +255,7 @@ export const EventDetail: React.FC<EventDetailProps> = ({
                 <span className="text-xs sm:text-sm font-semibold text-white block mt-0.5">
                   {event.presentedBy || event.organizer}
                 </span>
-                <span className="text-xs text-emerald-400 font-medium">Verified Partner</span>
+                
               </div>
             </div>
           </div>
@@ -526,9 +526,9 @@ export const EventDetail: React.FC<EventDetailProps> = ({
               </div>
 
               <div className="relative aspect-[21/9] w-full rounded-xl bg-[#1C1C1C] border border-white/10 overflow-hidden flex items-center justify-center text-center p-6">
-                <div className="absolute inset-0 opacity-20 bg-[radial-gradient(#D4AF37_1px,transparent_1px)] [background-size:16px_16px]" />
+                <div className="absolute inset-0 opacity-20 bg-[radial-gradient(#D4AF37_1px,transparent_1px)] [background-size:20px_20px] opacity-10" />
                 <div className="relative z-10 flex flex-col items-center gap-2">
-                  <div className="w-10 h-10 rounded-full bg-[#D4AF37] text-black font-bold flex items-center justify-center shadow-lg animate-bounce">
+                  <div className="w-10 h-10 rounded-full bg-[#D4AF37] text-black font-bold flex items-center justify-center shadow-lg ">
                     <MapPin className="w-5 h-5" />
                   </div>
                   <span className="font-heading font-bold text-sm text-white">{event.venue}</span>
@@ -815,7 +815,7 @@ export const EventDetail: React.FC<EventDetailProps> = ({
                     w-full py-4 rounded-2xl font-extrabold text-base flex items-center justify-center gap-2 shadow-xl transition-all
                     ${isLoadingTickets || !selectedTier || (selectedTier?.remainingInventory ?? 0) <= 0
                       ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
-                      : 'bg-gradient-to-r from-[#F3E5AB] via-[#D4AF37] to-[#C5A059] hover:brightness-110 text-black hover:scale-[1.02] active:scale-[0.98] shadow-[#D4AF37]/20'
+                      : 'bg-[#D4AF37] text-black hover:scale-[1.02] active:scale-[0.98] shadow-[#D4AF37]/20'
                     }
                   `}
                 >

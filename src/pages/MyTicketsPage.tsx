@@ -25,10 +25,10 @@ export const MyTicketsPage: React.FC<MyTicketsPageProps> = ({ onExploreEvents })
         <div>
           <h1 className="font-heading font-extrabold text-3xl text-white flex items-center gap-2.5">
             <TicketIcon className="w-8 h-8 text-[#D4AF37]" />
-            <span>My Digital Ticket Wallet</span>
+            <span>My Tickets</span>
           </h1>
           <p className="text-xs sm:text-sm text-gray-400 mt-1">
-            Access your confirmed event passes, QR gate codes, and seating details.
+            View your upcoming and past event tickets.
           </p>
         </div>
 
@@ -38,7 +38,7 @@ export const MyTicketsPage: React.FC<MyTicketsPageProps> = ({ onExploreEvents })
             onClick={() => setActiveTab('upcoming')}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
               activeTab === 'upcoming'
-                ? 'bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black shadow-md'
+                ? 'bg-[#D4AF37] text-black shadow-md'
                 : 'text-gray-400 hover:text-white'
             }`}
           >
@@ -50,7 +50,7 @@ export const MyTicketsPage: React.FC<MyTicketsPageProps> = ({ onExploreEvents })
             onClick={() => setActiveTab('past')}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
               activeTab === 'past'
-                ? 'bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black shadow-md'
+                ? 'bg-[#D4AF37] text-black shadow-md'
                 : 'text-gray-400 hover:text-white'
             }`}
           >

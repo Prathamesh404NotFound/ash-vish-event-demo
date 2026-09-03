@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { CheckCircle, Download, Ticket as TicketIcon, Calendar, MapPin, Share2, Sparkles, ArrowRight, MessageSquareCode } from 'lucide-react';
+import { CheckCircle, Ticket as TicketIcon, Calendar, MapPin, Share2, ArrowRight, MessageSquareCode } from 'lucide-react';
 import { useBooking } from '../contexts/BookingContext';
 import { QRPlaceholder } from '../components/QRPlaceholder';
 import { sendTicketToWhatsApp } from '../utils/whatsapp';
@@ -23,7 +23,7 @@ export const ConfirmationPage: React.FC<ConfirmationPageProps> = ({
         particleCount: 80,
         spread: 70,
         origin: { y: 0.6 },
-        colors: ['#FF6B00', '#FF8A26', '#ffffff', '#22C55E'],
+        colors: ['#D4AF37', '#E3C456', '#ffffff', '#22C55E'],
       });
     });
   }, []);
@@ -32,7 +32,7 @@ export const ConfirmationPage: React.FC<ConfirmationPageProps> = ({
     return (
       <div className="pt-28 pb-12 max-w-lg mx-auto text-center px-4 space-y-4">
         <h2 className="font-heading font-bold text-2xl text-white">No Recent Booking Found</h2>
-        <button onClick={onExploreMore} className="px-6 py-2.5 rounded-xl bg-[#FF6B00] text-black font-bold text-xs">
+        <button onClick={onExploreMore} className="px-6 py-2.5 rounded-xl bg-[#D4AF37] text-black font-bold text-xs">
           Explore Events
         </button>
       </div>
@@ -48,12 +48,10 @@ export const ConfirmationPage: React.FC<ConfirmationPageProps> = ({
           <CheckCircle className="w-8 h-8" />
         </div>
 
-        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-[#FF6B00]/10 text-[#FF6B00] border border-[#FF6B00]/20">
-          <Sparkles className="w-3.5 h-3.5" /> BOOKING CONFIRMED & RESERVED
-        </span>
+        
 
         <h1 className="font-heading font-extrabold text-3xl sm:text-4xl text-white">
-          You're Going To The Show!
+          You're booked!
         </h1>
 
         <p className="text-xs sm:text-sm text-gray-400 max-w-md mx-auto">
@@ -63,14 +61,14 @@ export const ConfirmationPage: React.FC<ConfirmationPageProps> = ({
 
 
       {/* TICKET TEAR ANIMATED CARD */}
-      <div className="relative card-depth rounded-3xl bg-[#141414] border border-white/10 overflow-hidden shadow-2xl transition-all duration-500 hover:border-[#FF6B00]/40">
+      <div className="relative card-depth rounded-3xl bg-[#141414] border border-white/10 overflow-hidden shadow-2xl transition-all duration-500 hover:border-[#D4AF37]/40">
         
         {/* Ticket Header */}
         <div className="bg-[#1C1C1C] px-6 py-4 border-b border-white/10 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <TicketIcon className="w-5 h-5 text-[#FF6B00]" />
+            <TicketIcon className="w-5 h-5 text-[#D4AF37]" />
             <span className="font-heading font-bold text-sm text-white">PASS REF:</span>
-            <span className="font-mono text-sm font-bold text-[#FF6B00]">{latestTicket.ticketNumber}</span>
+            <span className="font-mono text-sm font-bold text-[#D4AF37]">{latestTicket.ticketNumber}</span>
           </div>
 
           <span className="px-3 py-1 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
@@ -82,7 +80,7 @@ export const ConfirmationPage: React.FC<ConfirmationPageProps> = ({
         <div className="p-6 sm:p-8 space-y-6">
           <div className="flex flex-col sm:flex-row gap-6 items-start sm:items-center justify-between">
             <div className="space-y-2">
-              <span className="px-2.5 py-0.5 rounded text-[10px] font-bold bg-[#FF6B00]/10 text-[#FF6B00] border border-[#FF6B00]/20">
+              <span className="px-2.5 py-0.5 rounded text-[10px] font-bold bg-[#D4AF37]/10 text-[#D4AF37] border border-[#D4AF37]/20">
                 {latestTicket.tierName}
               </span>
               <h2 className="font-heading font-bold text-2xl text-white">
@@ -102,7 +100,7 @@ export const ConfirmationPage: React.FC<ConfirmationPageProps> = ({
             <div>
               <span className="text-[10px] text-gray-400 uppercase tracking-wider block">Date & Time</span>
               <span className="font-semibold text-white flex items-center gap-1 mt-0.5">
-                <Calendar className="w-3.5 h-3.5 text-[#FF6B00]" /> {latestTicket.date}
+                <Calendar className="w-3.5 h-3.5 text-[#D4AF37]" /> {latestTicket.date}
               </span>
             </div>
 
@@ -115,7 +113,7 @@ export const ConfirmationPage: React.FC<ConfirmationPageProps> = ({
 
             <div>
               <span className="text-[10px] text-gray-400 uppercase tracking-wider block">Assigned Seat</span>
-              <span className="font-semibold text-[#FF6B00] font-mono mt-0.5 block">
+              <span className="font-semibold text-[#D4AF37] font-mono mt-0.5 block">
                 {latestTicket.seatNumber}
               </span>
             </div>
@@ -131,12 +129,12 @@ export const ConfirmationPage: React.FC<ConfirmationPageProps> = ({
 
         {/* Bottom Half with QR Code */}
         <div className="p-6 sm:p-8 bg-[#1C1C1C]/60 flex flex-col items-center justify-center text-center space-y-4">
-          <div className="p-3 bg-white rounded-2xl shadow-xl border-2 border-[#FF6B00]">
+          <div className="p-3 bg-white rounded-2xl shadow-xl border-2 border-[#D4AF37]">
             <QRPlaceholder value={latestTicket.qrCodeValue} size={180} showScanLine />
           </div>
 
           <div className="space-y-1">
-            <p className="font-mono text-xs text-[#FF6B00] font-bold">
+            <p className="font-mono text-xs text-[#D4AF37] font-bold">
               {latestTicket.qrCodeValue}
             </p>
             <p className="text-[11px] text-gray-400">Scan this barcode at venue entrance gate</p>

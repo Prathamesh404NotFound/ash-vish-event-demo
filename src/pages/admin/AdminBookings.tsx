@@ -13,7 +13,9 @@ import {
   CheckCircle2,
   MoreVertical,
   Trash2,
+  Eye,
 } from 'lucide-react';
+import { RowActions } from '../../components/admin/RowActions';
 import { useBooking } from '../../contexts/BookingContext';
 import { safeFetch } from '../../lib/api';
 import { authenticatedApiHeaders } from '../../lib/authHeaders';
@@ -717,7 +719,7 @@ export const AdminBookings: React.FC = () => {
         <div className="flex items-center gap-3 w-full sm:w-auto flex-wrap">
           <button
             onClick={openCreateModal}
-            className="py-2.5 px-4 rounded-2xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black font-extrabold text-xs flex items-center gap-2 shadow-lg shadow-[#D4AF37]/20 hover:brightness-110 cursor-pointer"
+            className="py-2.5 px-4 rounded-2xl bg-[#D4AF37] text-black font-extrabold text-xs flex items-center gap-2  cursor-pointer"
           >
             <Plus className="w-4 h-4 stroke-[2.5]" />
             <span>Create Order</span>
@@ -1061,32 +1063,29 @@ export const AdminBookings: React.FC = () => {
                     <td className="p-4 text-[11px] text-gray-400 whitespace-nowrap">
                       {formatOrderDate(o.createdAt)}
                     </td>
-                    <td className="p-4">
-                      <div className="flex justify-end gap-2">
-                        <button
-                          onClick={() => openEditModal(o)}
-                          className="p-2 rounded-xl bg-[#D4AF37]/10 text-[#D4AF37] hover:bg-[#D4AF37]/20 transition-all cursor-pointer"
-                          title="Edit Order"
-                        >
-                          <Edit className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => setDetailsOrder(o)}
-                          className="p-2 rounded-xl bg-white/5 text-gray-300 hover:bg-white/10 transition-all cursor-pointer"
-                          title="More details"
-                          aria-label={`More details for ${o.ticketNumber || o.orderId || 'sale'}`}
-                        >
-                          <MoreVertical className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => openRefundModal(o)}
-                          disabled={st === 'cancelled' || st === 'refunded'}
-                          className="p-2 rounded-xl bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                          title="Refund Order"
-                        >
-                          <Undo2 className="w-4 h-4" />
-                        </button>
-                      </div>
+                    <td className="p-4 text-right">
+                      <RowActions
+                        closeKey={o.id || o.ticketNumber}
+                        actions={[
+                          {
+                            label: 'View Details',
+                            icon: <Eye className="w-4 h-4" />,
+                            onClick: () => setDetailsOrder(o),
+                          },
+                          {
+                            label: 'Edit Order',
+                            icon: <Edit className="w-4 h-4" />,
+                            onClick: () => openEditModal(o),
+                          },
+                          {
+                            label: 'Refund Order',
+                            icon: <Undo2 className="w-4 h-4" />,
+                            onClick: () => openRefundModal(o),
+                            variant: 'warning',
+                            disabled: st === 'cancelled' || st === 'refunded',
+                          },
+                        ]}
+                      />
                     </td>
                   </tr>
                 );
@@ -1239,7 +1238,7 @@ export const AdminBookings: React.FC = () => {
                 <button
                   type="submit"
                   disabled={coSubmitting}
-                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black font-extrabold cursor-pointer disabled:opacity-50"
+                  className="px-6 py-2.5 rounded-xl bg-[#D4AF37] text-black font-extrabold cursor-pointer disabled:opacity-50"
                 >
                   {coSubmitting ? 'Creating...' : 'Create Order'}
                 </button>
@@ -1379,7 +1378,7 @@ export const AdminBookings: React.FC = () => {
                 <button
                   type="submit"
                   disabled={edSubmitting}
-                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black font-extrabold cursor-pointer disabled:opacity-50"
+                  className="px-6 py-2.5 rounded-xl bg-[#D4AF37] text-black font-extrabold cursor-pointer disabled:opacity-50"
                 >
                   {edSubmitting ? 'Saving...' : 'Save Changes'}
                 </button>

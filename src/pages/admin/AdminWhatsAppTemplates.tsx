@@ -116,7 +116,7 @@ export const AdminWhatsAppTemplates: React.FC = () => {
         </div>
         <button
           onClick={() => { resetForm(); setShowCreate(true); }}
-          className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black font-bold text-xs hover:brightness-110 transition-all cursor-pointer"
+          className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#D4AF37] text-black font-bold text-xs transition-all cursor-pointer"
         >
           <Plus className="w-4 h-4" /> New Template
         </button>
@@ -210,7 +210,7 @@ export const AdminWhatsAppTemplates: React.FC = () => {
             <button
               onClick={editingId ? handleUpdate : handleCreate}
               disabled={saving || !formName.trim() || !formBody.trim()}
-              className="flex-1 py-3 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black font-bold text-xs hover:brightness-110 disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2"
+              className="flex-1 py-3 rounded-xl bg-[#D4AF37] text-black font-bold text-xs disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2"
             >
               {saving ? 'Saving...' : editingId ? 'Update Template' : 'Create Template'}
             </button>

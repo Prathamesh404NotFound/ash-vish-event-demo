@@ -151,7 +151,7 @@ export const AdminLayoutPage: React.FC = () => {
               className={({ isActive }) =>
                 `shrink-0 flex items-center gap-2 lg:gap-3 px-3 py-2.5 lg:p-3 rounded-xl lg:rounded-2xl transition-all text-xs font-bold ${
                   isActive
-                    ? 'bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black shadow-lg shadow-[#D4AF37]/20'
+                    ? 'bg-[#D4AF37] text-black '
                     : 'text-gray-400 hover:text-white hover:bg-[#1C1C1C]'
                 }`
               }

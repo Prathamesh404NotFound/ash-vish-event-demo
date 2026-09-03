@@ -5,6 +5,7 @@ import {
 import { safeFetch } from '../../lib/api';
 import { authenticatedApiHeaders } from '../../lib/authHeaders';
 import { useBooking } from '../../contexts/BookingContext';
+import { RowActions } from '../../components/admin/RowActions';
 
 interface CounterSubUser {
   id: string;
@@ -439,7 +440,7 @@ export const AdminCounters: React.FC = () => {
         </div>
         <button
           onClick={openCreate}
-          className="px-4 py-2.5 rounded-2xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black font-bold text-sm flex items-center gap-1.5 hover:opacity-90 transition-opacity cursor-pointer"
+          className="px-4 py-2.5 rounded-2xl bg-[#D4AF37] text-black font-bold text-sm flex items-center gap-1.5 hover:opacity-90 transition-opacity cursor-pointer"
         >
           <Plus className="w-4 h-4" /> New Counter
         </button>
@@ -572,39 +573,34 @@ export const AdminCounters: React.FC = () => {
                         {c.status.toUpperCase()}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-right space-x-2">
-                      <button
-                        onClick={() => toggleCounterStatus(c)}
-                        title={c.status === 'active' ? 'Deactivate' : 'Activate'}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer inline-flex items-center gap-1 ${
-                          c.status === 'active'
-                            ? 'bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white'
-                            : 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500 hover:text-black'
-                        }`}
-                      >
-                        <Power className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => setManagingSubUsers(c)}
-                        title="Manage sub-users"
-                        className="px-3 py-1.5 rounded-xl bg-[#D4AF37]/10 text-[#D4AF37] hover:bg-[#D4AF37]/20 text-xs font-bold transition-all cursor-pointer inline-flex items-center gap-1"
-                      >
-                        <Users className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => openEdit(c)}
-                        title="Edit counter"
-                        className="px-3 py-1.5 rounded-xl bg-white/5 text-gray-300 hover:bg-white/10 text-xs font-bold transition-all cursor-pointer inline-flex items-center gap-1"
-                      >
-                        <Edit3 className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => deleteCounter(c)}
-                        title={c.status === 'active' ? 'Deactivate & delete' : 'Delete permanently'}
-                        className="px-3 py-1.5 rounded-xl bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white text-xs font-bold transition-all cursor-pointer inline-flex items-center gap-1"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
+                    <td className="px-6 py-4 text-right">
+                      <RowActions
+                        closeKey={c.id + c.status}
+                        actions={[
+                          {
+                            label: c.status === 'active' ? 'Deactivate' : 'Activate',
+                            icon: <Power className="w-4 h-4" />,
+                            onClick: () => toggleCounterStatus(c),
+                            variant: c.status === 'active' ? 'danger' : 'success',
+                          },
+                          {
+                            label: 'Manage Sub-Users',
+                            icon: <Users className="w-4 h-4" />,
+                            onClick: () => setManagingSubUsers(c),
+                          },
+                          {
+                            label: 'Edit Counter',
+                            icon: <Edit3 className="w-4 h-4" />,
+                            onClick: () => openEdit(c),
+                          },
+                          {
+                            label: c.status === 'active' ? 'Deactivate & Delete' : 'Delete Permanently',
+                            icon: <Trash2 className="w-4 h-4" />,
+                            onClick: () => deleteCounter(c),
+                            variant: 'danger',
+                          },
+                        ]}
+                      />
                     </td>
                   </tr>
                 ))
@@ -642,7 +638,7 @@ export const AdminCounters: React.FC = () => {
               )
             )}
           </div>
-          <button onClick={submitCreate} disabled={saving} className="mt-4 w-full px-4 py-2.5 rounded-2xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black font-bold text-sm disabled:opacity-50 hover:opacity-90 transition-opacity cursor-pointer">
+          <button onClick={submitCreate} disabled={saving} className="mt-4 w-full px-4 py-2.5 rounded-2xl bg-[#D4AF37] text-black font-bold text-sm disabled:opacity-50 hover:opacity-90 transition-opacity cursor-pointer">
             Create Counter
           </button>
         </Modal>
@@ -707,7 +703,7 @@ export const AdminCounters: React.FC = () => {
               )
             )}
           </div>
-          <button onClick={submitEdit} disabled={saving} className="mt-4 w-full px-4 py-2.5 rounded-2xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black font-bold text-sm disabled:opacity-50 hover:opacity-90 transition-opacity cursor-pointer">
+          <button onClick={submitEdit} disabled={saving} className="mt-4 w-full px-4 py-2.5 rounded-2xl bg-[#D4AF37] text-black font-bold text-sm disabled:opacity-50 hover:opacity-90 transition-opacity cursor-pointer">
             Save Changes
           </button>
         </Modal>
@@ -732,7 +728,7 @@ export const AdminCounters: React.FC = () => {
             placeholder="Display name (optional)"
             className="w-full mt-2.5 px-3 py-2.5 rounded-2xl bg-[#1C1C1C] border border-white/10 text-white text-sm placeholder:text-gray-500 focus:border-[#D4AF37]/60 focus:outline-none"
           />
-          <button onClick={submitBatch} disabled={saving} className="mt-4 w-full px-4 py-2.5 rounded-2xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black font-bold text-sm disabled:opacity-50 hover:opacity-90 transition-opacity cursor-pointer">
+          <button onClick={submitBatch} disabled={saving} className="mt-4 w-full px-4 py-2.5 rounded-2xl bg-[#D4AF37] text-black font-bold text-sm disabled:opacity-50 hover:opacity-90 transition-opacity cursor-pointer">
             Apply to {selectedIds.size} Counter(s)
           </button>
         </Modal>
@@ -766,7 +762,7 @@ export const AdminCounters: React.FC = () => {
               }
             }}
             disabled={saving}
-            className="w-full px-4 py-2.5 rounded-2xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black font-bold text-sm disabled:opacity-50 hover:opacity-90 transition-opacity cursor-pointer"
+            className="w-full px-4 py-2.5 rounded-2xl bg-[#D4AF37] text-black font-bold text-sm disabled:opacity-50 hover:opacity-90 transition-opacity cursor-pointer"
           >
             Confirm — Use Global UPI
           </button>
@@ -788,7 +784,7 @@ export const AdminCounters: React.FC = () => {
               )
             )}
           </div>
-          <button onClick={submitBatch} disabled={saving} className="mt-4 w-full px-4 py-2.5 rounded-2xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black font-bold text-sm disabled:opacity-50 hover:opacity-90 transition-opacity cursor-pointer">
+          <button onClick={submitBatch} disabled={saving} className="mt-4 w-full px-4 py-2.5 rounded-2xl bg-[#D4AF37] text-black font-bold text-sm disabled:opacity-50 hover:opacity-90 transition-opacity cursor-pointer">
             Assign {batchStaff.length || 'no'} Staff to {selectedIds.size} Counter(s)
           </button>
         </Modal>
@@ -824,7 +820,7 @@ export const AdminCounters: React.FC = () => {
               }
             }}
             disabled={saving}
-            className={`w-full px-4 py-2.5 rounded-2xl text-black font-bold text-sm disabled:opacity-50 hover:opacity-90 transition-opacity cursor-pointer bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37]`}
+            className={`w-full px-4 py-2.5 rounded-2xl text-black font-bold text-sm disabled:opacity-50 hover:opacity-90 transition-opacity cursor-pointer bg-[#D4AF37]`}
           >
             Confirm — {batchStatus === 'inactive' ? 'Deactivate' : 'Activate'} {selectedIds.size}
           </button>

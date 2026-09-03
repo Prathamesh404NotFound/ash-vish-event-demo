@@ -91,7 +91,7 @@ export const ProfilePage: React.FC = () => {
                 </p>
                 <Link
                   to="/counter"
-                  className="w-full py-2 px-3 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] hover:brightness-110 text-black font-extrabold text-xs flex items-center justify-center gap-1.5 transition-all shadow-md shadow-[#D4AF37]/25"
+                  className="w-full py-2 px-3 rounded-xl bg-[#D4AF37] text-black font-extrabold text-xs flex items-center justify-center gap-1.5 transition-all shadow-md shadow-[#D4AF37]/25"
                 >
                   <span>Launch Ticket Counter</span>
                   <ArrowRight className="w-3.5 h-3.5 stroke-[2.5]" />
@@ -115,7 +115,7 @@ export const ProfilePage: React.FC = () => {
                 </p>
                 <Link
                   to="/admin"
-                  className="w-full py-2 px-3 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] hover:brightness-110 text-black font-extrabold text-xs flex items-center justify-center gap-1.5 transition-all shadow-md shadow-[#D4AF37]/25"
+                  className="w-full py-2 px-3 rounded-xl bg-[#D4AF37] text-black font-extrabold text-xs flex items-center justify-center gap-1.5 transition-all shadow-md shadow-[#D4AF37]/25"
                 >
                   <span>Launch Admin Console</span>
                   <ArrowRight className="w-3.5 h-3.5 stroke-[2.5]" />
@@ -213,7 +213,7 @@ export const ProfilePage: React.FC = () => {
 
             <button
               type="submit"
-              className="w-full py-3 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] hover:brightness-110 text-black font-extrabold text-xs flex items-center justify-center gap-2 shadow-lg shadow-[#D4AF37]/25 transition-all"
+              className="w-full py-3 rounded-xl bg-[#D4AF37] text-black font-extrabold text-xs flex items-center justify-center gap-2 shadow-lg shadow-[#D4AF37]/25 transition-all"
             >
               {isSaved ? (
                 <>

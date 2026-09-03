@@ -191,7 +191,7 @@ export const EventEditor: React.FC<EventEditorProps> = ({ mode, existing, onSave
                 onClick={() => setSection(s.id)}
                 className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider whitespace-nowrap transition-colors ${
                   section === s.id
-                    ? 'bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black'
+                    ? 'bg-[#D4AF37] text-black'
                     : 'text-gray-400 hover:text-white'
                 }`}
               >
@@ -426,7 +426,7 @@ export const EventEditor: React.FC<EventEditorProps> = ({ mode, existing, onSave
                   <button
                     type="button"
                     onClick={addTier}
-                    className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black font-bold text-xs flex items-center gap-1.5"
+                    className="px-3.5 py-2 rounded-xl bg-[#D4AF37] text-black font-bold text-xs flex items-center gap-1.5"
                   >
                     <Plus className="w-3.5 h-3.5" /> Add Tier
                   </button>
@@ -796,7 +796,7 @@ export const EventEditor: React.FC<EventEditorProps> = ({ mode, existing, onSave
             <button
               type="submit"
               disabled={saving}
-              className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black text-xs font-extrabold shadow-lg shadow-[#D4AF37]/20 disabled:opacity-50 flex items-center gap-2"
+              className="px-6 py-2.5 rounded-xl bg-[#D4AF37] text-black text-xs font-extrabold  disabled:opacity-50 flex items-center gap-2"
             >
               {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Publish Event'}
             </button>

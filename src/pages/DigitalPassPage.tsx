@@ -118,7 +118,7 @@ export function DigitalPassPage() {
         </p>
         <button
           onClick={() => navigate('/')}
-          className="px-6 py-3 rounded-xl bg-[#D4AF37] hover:bg-[#F3E5AB] text-black font-extrabold text-sm transition-all shadow-lg shadow-[#D4AF37]/20 cursor-pointer"
+          className="px-6 py-3 rounded-xl bg-[#D4AF37] hover:bg-[#F3E5AB] text-black font-extrabold text-sm transition-all  cursor-pointer"
         >
           Explore Ash-Vish Events
         </button>
@@ -307,7 +307,7 @@ export function DigitalPassPage() {
           <div className="grid grid-cols-2 gap-3">
             <button
               onClick={handleDownloadPNG}
-              className="py-3 px-4 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] hover:brightness-110 text-black font-extrabold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-lg shadow-[#D4AF37]/20"
+              className="py-3 px-4 rounded-xl bg-[#D4AF37] text-black font-extrabold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer "
             >
               <Download className="w-4 h-4" />
               <span>Download QR</span>

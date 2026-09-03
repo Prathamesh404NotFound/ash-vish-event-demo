@@ -39,7 +39,7 @@ export const TicketCard: React.FC<TicketCardProps> = ({
             ? 'border-[#D4AF37] bg-gradient-to-br from-[#D4AF37]/15 to-[#D4AF37]/5 shadow-xl shadow-[#D4AF37]/30'
             : 'border-[#D4AF37]/50 bg-gradient-to-br from-[#D4AF37]/10 to-[#1C1C1C] hover:border-[#D4AF37] hover:shadow-lg hover:shadow-[#D4AF37]/20'
           : isSelected
-            ? 'border-[#D4AF37] bg-[#D4AF37]/5 shadow-lg shadow-[#D4AF37]/20'
+            ? 'border-[#D4AF37] bg-[#D4AF37]/5 '
             : 'border-white/10 bg-[#141414] hover:border-white/20 hover:shadow-lg'
         }
         ${isSoldOut ? 'opacity-60' : ''}

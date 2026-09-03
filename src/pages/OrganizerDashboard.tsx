@@ -147,7 +147,7 @@ export const OrganizerDashboard: React.FC = () => {
             <button
               type="submit"
               disabled={isRegistering}
-              className="w-full py-3.5 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black font-extrabold text-xs tracking-wide hover:brightness-110 cursor-pointer shadow-lg shadow-[#D4AF37]/20"
+              className="w-full py-3.5 rounded-xl bg-[#D4AF37] text-black font-extrabold text-xs tracking-wide cursor-pointer "
             >
               {isRegistering ? 'Submitting Application...' : 'Submit Organizer Application'}
             </button>
@@ -225,7 +225,7 @@ export const OrganizerDashboard: React.FC = () => {
 
         <button
           onClick={() => setIsEventModalOpen(true)}
-          className="flex items-center gap-2 px-6 py-3.5 rounded-2xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black font-extrabold text-xs shadow-lg shadow-[#D4AF37]/20 hover:brightness-110 cursor-pointer self-start md:self-auto"
+          className="flex items-center gap-2 px-6 py-3.5 rounded-2xl bg-[#D4AF37] text-black font-extrabold text-xs  cursor-pointer self-start md:self-auto"
         >
           <Plus className="w-4 h-4 stroke-[2.5]" />
           <span>Create New Event</span>
@@ -254,7 +254,7 @@ export const OrganizerDashboard: React.FC = () => {
           onClick={() => setActiveTab('events')}
           className={`shrink-0 px-5 py-2.5 rounded-xl font-bold text-xs transition-all cursor-pointer flex items-center gap-2 ${
             activeTab === 'events'
-              ? 'bg-[#D4AF37] text-black shadow-lg shadow-[#D4AF37]/20'
+              ? 'bg-[#D4AF37] text-black '
               : 'bg-[#181818] text-gray-300 hover:bg-white/10'
           }`}
         >
@@ -265,7 +265,7 @@ export const OrganizerDashboard: React.FC = () => {
           onClick={() => setActiveTab('bookings')}
           className={`shrink-0 px-5 py-2.5 rounded-xl font-bold text-xs transition-all cursor-pointer flex items-center gap-2 ${
             activeTab === 'bookings'
-              ? 'bg-[#D4AF37] text-black shadow-lg shadow-[#D4AF37]/20'
+              ? 'bg-[#D4AF37] text-black '
               : 'bg-[#181818] text-gray-300 hover:bg-white/10'
           }`}
         >
@@ -276,7 +276,7 @@ export const OrganizerDashboard: React.FC = () => {
           onClick={() => setActiveTab('scan')}
           className={`shrink-0 px-5 py-2.5 rounded-xl font-bold text-xs transition-all cursor-pointer flex items-center gap-2 ${
             activeTab === 'scan'
-              ? 'bg-[#D4AF37] text-black shadow-lg shadow-[#D4AF37]/20'
+              ? 'bg-[#D4AF37] text-black '
               : 'bg-[#181818] text-gray-300 hover:bg-white/10'
           }`}
         >
@@ -536,7 +536,7 @@ export const OrganizerDashboard: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black font-extrabold cursor-pointer hover:brightness-110"
+                  className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-[#D4AF37] text-black font-extrabold cursor-pointer hover:brightness-110"
                 >
                   Publish Event
                 </button>

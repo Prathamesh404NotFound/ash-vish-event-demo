@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Star, Eye, EyeOff, Trash2, CheckCircle2, MessageSquare, Filter, ShieldAlert } from 'lucide-react';
+import { RowActions } from '../../components/admin/RowActions';
 import { useBooking } from '../../contexts/BookingContext';
 
 export const AdminReviews: React.FC = () => {
@@ -143,26 +144,24 @@ export const AdminReviews: React.FC = () => {
                         </span>
                       </td>
 
-                      <td className="px-6 py-4 text-right space-x-2">
-                        <button
-                          onClick={() => toggleReviewVisibility(rev.id)}
-                          className={`p-2 rounded-xl transition-all cursor-pointer ${
-                            rev.status === 'published'
-                              ? 'bg-amber-500/10 text-amber-400 hover:bg-amber-500 hover:text-black'
-                              : 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500 hover:text-black'
-                          }`}
-                          title={rev.status === 'published' ? 'Hide Review' : 'Publish Review'}
-                        >
-                          {rev.status === 'published' ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                        </button>
-
-                        <button
-                          onClick={() => deleteReview(rev.id)}
-                          className="p-2 rounded-xl bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white transition-all cursor-pointer"
-                          title="Delete Review"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                      <td className="px-6 py-4 text-right">
+                        <RowActions
+                          closeKey={rev.id}
+                          actions={[
+                            {
+                              label: rev.status === 'published' ? 'Hide Review' : 'Publish Review',
+                              icon: rev.status === 'published' ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />,
+                              onClick: () => toggleReviewVisibility(rev.id),
+                              variant: rev.status === 'published' ? 'warning' : 'success',
+                            },
+                            {
+                              label: 'Delete Review',
+                              icon: <Trash2 className="w-4 h-4" />,
+                              onClick: () => deleteReview(rev.id),
+                              variant: 'danger',
+                            },
+                          ]}
+                        />
                       </td>
                     </tr>
                   );

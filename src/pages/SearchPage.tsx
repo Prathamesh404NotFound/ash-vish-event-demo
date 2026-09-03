@@ -119,13 +119,13 @@ export const SearchPage: React.FC<SearchPageProps> = ({
 
         {/* Large Input Bar */}
         <div className="relative w-full">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#FF6B00]" />
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#D4AF37]" />
           <input
             type="text"
             value={filters.searchQuery}
             onChange={(e) => setFilters((prev) => ({ ...prev, searchQuery: e.target.value }))}
             placeholder="Search by artist, concert title, venue, or city..."
-            className="w-full bg-[#141414] border border-white/10 rounded-2xl pl-12 pr-12 py-4 text-sm sm:text-base text-white placeholder-gray-500 focus:outline-none focus:border-[#FF6B00] shadow-xl transition-all"
+            className="w-full bg-[#141414] border border-white/10 rounded-2xl pl-12 pr-12 py-4 text-sm sm:text-base text-white placeholder-gray-500 focus:outline-none focus:border-[#D4AF37] shadow-xl transition-all"
           />
           {filters.searchQuery && (
             <button
@@ -146,12 +146,12 @@ export const SearchPage: React.FC<SearchPageProps> = ({
         <div className="hidden lg:block lg:col-span-3 space-y-6 bg-[#141414] border border-white/10 p-6 rounded-3xl h-fit">
           <div className="flex items-center justify-between border-b border-white/10 pb-4">
             <h3 className="font-heading font-bold text-lg text-white flex items-center gap-2">
-              <Filter className="w-4 h-4 text-[#FF6B00]" />
+              <Filter className="w-4 h-4 text-[#D4AF37]" />
               <span>Filters</span>
             </h3>
             <button
               onClick={resetFilters}
-              className="text-xs text-[#FF6B00] hover:underline font-semibold"
+              className="text-xs text-[#D4AF37] hover:underline font-semibold"
             >
               Reset All
             </button>
@@ -169,7 +169,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
                   onClick={() => setFilters((prev) => ({ ...prev, category: cat }))}
                   className={`text-left px-3 py-2 rounded-xl text-xs font-semibold capitalize transition-all ${
                     filters.category === cat
-                      ? 'bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black font-bold'
+                      ? 'bg-[#D4AF37] text-black font-bold'
                       : 'text-gray-400 hover:bg-white/5 hover:text-white'
                   }`}
                 >

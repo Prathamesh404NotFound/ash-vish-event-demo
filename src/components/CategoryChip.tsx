@@ -51,7 +51,7 @@ export const CategoryChip: React.FC<CategoryChipProps> = ({
       aria-selected={isActive}
       className={`shrink-0 snap-start flex items-center gap-2 px-4 py-2.5 sm:py-2 rounded-full text-xs font-semibold whitespace-nowrap transition-all duration-200 border touch-min-target focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D4AF37] focus-visible:ring-offset-2 focus-visible:ring-offset-[#070707] active:scale-95 cursor-pointer ${
         isActive
-          ? 'bg-gradient-to-r from-[#F3E5AB] via-[#D4AF37] to-[#C5A059] text-black border-[#D4AF37] shadow-lg shadow-[#D4AF37]/30 scale-[1.02] font-bold'
+          ? 'bg-[#D4AF37] text-black border-[#D4AF37] shadow-lg shadow-[#D4AF37]/30 scale-[1.02] font-bold'
           : 'bg-[#141414] text-gray-300 border-white/10 hover:border-[#D4AF37]/40 hover:text-white hover:bg-[#1C1C1C]'
       }`}
       aria-label={`Filter by ${getLabel()}`}

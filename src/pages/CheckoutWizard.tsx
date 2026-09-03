@@ -101,7 +101,7 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
       <div className="pt-24 pb-12 max-w-lg mx-auto text-center px-4 space-y-4">
         <h2 className="font-heading font-bold text-2xl text-white">No Active Checkout Session</h2>
         <p className="text-xs text-gray-400">Please select an event and ticket tier first.</p>
-        <button onClick={onBack} className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black font-bold text-xs cursor-pointer">
+        <button onClick={onBack} className="px-6 py-2.5 rounded-xl bg-[#D4AF37] text-black font-bold text-xs cursor-pointer">
           Browse Events
         </button>
       </div>
@@ -118,7 +118,7 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
         <p className="text-xs text-gray-300 leading-relaxed">
           Online checkout is disabled for this event. Please purchase tickets directly at physical venue ticket counters.
         </p>
-        <button onClick={onBack} className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black font-bold text-xs cursor-pointer">
+        <button onClick={onBack} className="px-6 py-2.5 rounded-xl bg-[#D4AF37] text-black font-bold text-xs cursor-pointer">
           Return to Event Details
         </button>
       </div>
@@ -588,7 +588,7 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
                 key={s.n}
                 className={`px-2.5 py-1 rounded-full text-[11px] font-bold border transition-all ${
                   active
-                    ? 'bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black border-[#D4AF37]'
+                    ? 'bg-[#D4AF37] text-black border-[#D4AF37]'
                     : done
                       ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
                       : 'bg-[#141414] text-gray-500 border-white/10'
@@ -667,7 +667,7 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
                 setBookingStep(attendeeStep);
               }
             }}
-            className="w-full py-4 rounded-2xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] hover:brightness-110 active:scale-[0.99] text-black font-extrabold text-base flex items-center justify-center gap-2 cursor-pointer"
+            className="w-full py-4 rounded-2xl bg-[#D4AF37] active:scale-[0.99] text-black font-extrabold text-base flex items-center justify-center gap-2 cursor-pointer"
           >
             Continue to {hasSeatMap ? 'Seat Selection' : 'Attendee Details'} <ArrowRight className="w-5 h-5" />
           </button>
@@ -724,7 +724,7 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
           <button
             onClick={handleAdvanceSeats}
             disabled={!canAdvanceFromSeats() || pendingActionRef.current}
-            className="w-full py-4 rounded-2xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] hover:brightness-110 active:scale-[0.99] text-black font-extrabold text-base flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+            className="w-full py-4 rounded-2xl bg-[#D4AF37] active:scale-[0.99] text-black font-extrabold text-base flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
           >
             {pendingActionRef.current ? (
               <>Holding seats... <RefreshCw className="w-5 h-5 animate-spin" /></>
@@ -780,7 +780,7 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
           </div>
           <button
             onClick={handleAdvanceAttendee}
-            className="w-full py-4 rounded-2xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] hover:brightness-110 active:scale-[0.99] text-black font-extrabold text-base flex items-center justify-center gap-2 cursor-pointer"
+            className="w-full py-4 rounded-2xl bg-[#D4AF37] active:scale-[0.99] text-black font-extrabold text-base flex items-center justify-center gap-2 cursor-pointer"
           >
             Continue to Review <ArrowRight className="w-5 h-5" />
           </button>
@@ -911,7 +911,7 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
           <button
             onClick={() => setBookingStep(paymentStep)}
             disabled={!reviewConfirmed}
-            className="w-full py-4 rounded-2xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] hover:brightness-110 active:scale-[0.99] text-black font-extrabold text-base flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+            className="w-full py-4 rounded-2xl bg-[#D4AF37] active:scale-[0.99] text-black font-extrabold text-base flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
           >
             <Lock className="w-5 h-5" /> Continue to Confirm <ArrowRight className="w-5 h-5" />
           </button>
@@ -962,7 +962,7 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
           <button
             onClick={handleConfirmBooking}
             disabled={isBusy || !reviewConfirmed || reservation?.status !== 'active'}
-            className="w-full py-4 rounded-2xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] hover:brightness-110 active:scale-[0.99] text-black font-extrabold text-base flex items-center justify-center gap-2 shadow-xl shadow-[#D4AF37]/25 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+            className="w-full py-4 rounded-2xl bg-[#D4AF37] active:scale-[0.99] text-black font-extrabold text-base flex items-center justify-center gap-2  transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
           >
             {isBusy ? (
               <span className="animate-pulse flex items-center gap-2">

@@ -329,7 +329,9 @@ export async function refundPhonePeOrder(params: {
  * Verify webhook payload integrity if SHA256 header / signature is present.
  */
 export function verifyPhonePeWebhookSignature(rawBody: string | Buffer, signature?: string): boolean {
-  if (!signature || !CLIENT_SECRET) return true; // PhonePe v2 OAuth server-to-server callbacks
+  // SECURITY (HOTFIX): fail-closed when signature or secret is missing.
+  // A missing secret means we cannot verify — do NOT treat as valid.
+  if (!signature || !CLIENT_SECRET) return false;
   try {
     const expected = crypto.createHmac("sha256", CLIENT_SECRET).update(rawBody).digest("hex");
     return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));

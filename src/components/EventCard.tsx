@@ -35,7 +35,7 @@ export const EventCard: React.FC<EventCardProps> = React.memo(({ event, onSelect
       className="card-depth rounded-[18px] overflow-hidden flex flex-col group cursor-pointer relative transition-all duration-300"
     >
       {/* Zone 1: Dedicated Poster Section */}
-      <div className="relative aspect-[4/5] sm:aspect-[3/4] w-full overflow-hidden bg-[#1C1C1C] border-b border-white/10 shadow-md">
+      <div className="relative aspect-[3/2] sm:aspect-[3/2] w-full overflow-hidden bg-[#1C1C1C] border-b border-white/10 shadow-md">
         {(event.cardImageUrl || event.posterUrl) ? (
           <img
             src={event.cardImageUrl || event.posterUrl}
@@ -148,7 +148,7 @@ export const EventCard: React.FC<EventCardProps> = React.memo(({ event, onSelect
                 e.stopPropagation();
                 onBookNow(event);
               }}
-              className="flex items-center justify-center gap-1.5 px-3.5 sm:px-4 py-2 sm:py-2 min-h-[44px] rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] hover:brightness-110 text-black font-bold text-xs shadow-md shadow-[#D4AF37]/25 hover:scale-105 active:scale-95 transition-all cursor-pointer whitespace-nowrap"
+              className="flex items-center justify-center gap-1.5 px-3.5 sm:px-4 py-2 min-h-[44px] rounded-xl bg-[#D4AF37] hover:bg-[#E3C456] text-black font-bold text-xs transition-all cursor-pointer whitespace-nowrap"
             >
               <Ticket className="w-3.5 h-3.5 stroke-[2.5]" />
               <span>Book Now</span>

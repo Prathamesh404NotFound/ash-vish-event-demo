@@ -428,7 +428,7 @@ export const AdminSeatMapBuilder: React.FC = () => {
         <button
           onClick={handleDeploySeatMap}
           disabled={isSaving || !selectedEvent}
-          className="py-3.5 px-6 rounded-2xl bg-gradient-to-r from-[#F3E5AB] via-[#D4AF37] to-[#AA7C11] hover:brightness-110 active:scale-95 text-black font-extrabold text-xs sm:text-sm flex items-center gap-2.5 shadow-xl shadow-[#D4AF37]/20 transition-all cursor-pointer disabled:opacity-50 shrink-0"
+          className="py-3.5 px-6 rounded-2xl bg-gradient-to-r from-[#F3E5AB] via-[#D4AF37] to-[#AA7C11] active:scale-95 text-black font-extrabold text-xs sm:text-sm flex items-center gap-2.5 shadow-xl shadow-[#D4AF37]/20 transition-all cursor-pointer disabled:opacity-50 shrink-0"
         >
           {isSaving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4 stroke-[3]" />}
           <span>{isSaving ? 'Deploying...' : 'Deploy Seat Map to RTDB'}</span>

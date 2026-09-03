@@ -1035,7 +1035,7 @@ export const WalkInPage: React.FC = () => {
             </button>
             <button
               onClick={handleReset}
-              className="py-3 px-6 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] hover:brightness-110 text-black font-extrabold text-xs flex items-center gap-2 transition-all shadow-lg shadow-[#D4AF37]/25 cursor-pointer"
+              className="py-3 px-6 rounded-xl bg-[#D4AF37] text-black font-extrabold text-xs flex items-center gap-2 transition-all shadow-lg shadow-[#D4AF37]/25 cursor-pointer"
             >
               <span>Issue Next Walk-In</span>
               <ArrowRight className="w-4 h-4 stroke-[2.5]" />
@@ -1639,7 +1639,7 @@ export const WalkInPage: React.FC = () => {
                       type="button"
                       onClick={handleSaveVpa}
                       disabled={isSavingVpa || !newVpa.trim()}
-                      className="w-full py-2.5 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black font-extrabold text-xs hover:brightness-110 disabled:opacity-50 transition-all cursor-pointer disabled:cursor-not-allowed"
+                      className="w-full py-2.5 rounded-xl bg-[#D4AF37] text-black font-extrabold text-xs disabled:opacity-50 transition-all cursor-pointer disabled:cursor-not-allowed"
                     >
                       {isSavingVpa ? 'Saving...' : 'Save Merchant UPI ID'}
                     </button>
@@ -1778,7 +1778,7 @@ export const WalkInPage: React.FC = () => {
               type="button"
               onClick={() => handleIssueWalkIn()}
               disabled={confirmDisabled}
-              className="w-full py-4 rounded-2xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] hover:brightness-110 disabled:opacity-50 disabled:brightness-100 text-black font-extrabold text-sm shadow-lg shadow-[#D4AF37]/25 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:cursor-not-allowed"
+              className="w-full py-4 rounded-2xl bg-[#D4AF37] disabled:opacity-50 disabled:brightness-100 text-black font-extrabold text-sm shadow-lg shadow-[#D4AF37]/25 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:cursor-not-allowed"
             >
               {isSubmitting ? (
                 <><RefreshCw className="w-4 h-4 animate-spin" /> Processing...</>
@@ -1894,7 +1894,7 @@ export const WalkInPage: React.FC = () => {
             <div className="flex items-center justify-between border-t border-white/10 pt-4 shrink-0">
               <button
                 onClick={triggerSync}
-                className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black font-extrabold text-xs flex items-center gap-2 hover:brightness-110 cursor-pointer"
+                className="px-4 py-2 rounded-xl bg-[#D4AF37] text-black font-extrabold text-xs flex items-center gap-2 cursor-pointer"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
                 <span>Sync Now</span>

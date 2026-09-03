@@ -2,8 +2,6 @@ import React, { useMemo, useState } from 'react';
 import {
   ArrowRight,
   Calendar,
-  CalendarPlus,
-  Check,
   ChevronLeft,
   ChevronRight,
   Clock,
@@ -11,11 +9,9 @@ import {
   Heart,
   Info,
   MapPin,
-  Music2,
   Sparkles,
   Star,
   Ticket,
-  Users2,
 } from 'lucide-react';
 
 import { EventItem, EventCategory } from '../types';
@@ -150,17 +146,7 @@ export const Home: React.FC<HomeProps> = ({
     }
   };
 
-  const handleAddToCalendar = () => {
-    if (!currentHeroEvent) return;
-    const title = encodeURIComponent(currentHeroEvent.title);
-    const details = encodeURIComponent(
-      `${currentHeroEvent.subtitle || currentHeroEvent.description}\n\nOrganized by: ${currentHeroEvent.organizer || 'Ash-vish Events'}`
-    );
-    const location = encodeURIComponent(currentHeroEvent.venue || 'Sayaji Hotel, Kolhapur');
-    const googleCalUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&details=${details}&location=${location}`;
-    window.open(googleCalUrl, '_blank', 'noopener,noreferrer');
-    showToast('Opening Google Calendar...', 'info');
-  };
+
 
   /*
    * ------------------------------------------------------------
@@ -298,7 +284,7 @@ export const Home: React.FC<HomeProps> = ({
                       ? onSelectEvent(currentHeroEvent)
                       : onBookNow(currentHeroEvent)
                   }
-                  className="inline-flex min-h-[52px] items-center justify-center gap-2 rounded-xl bg-[#D4AF37] px-7 text-sm font-black text-black shadow-[0_12px_40px_rgba(212,175,55,0.2)] transition hover:bg-[#E3C456] active:scale-[0.98] sm:text-base"
+                  className="inline-flex min-h-[52px] items-center justify-center gap-2 rounded-xl bg-[#D4AF37] px-7 text-sm font-black text-black  transition hover:bg-[#E3C456] active:scale-[0.98] sm:text-base"
                 >
                   {currentHeroEvent.isAdvertiseOnly ? (
                     <Info className="h-5 w-5" />
@@ -404,158 +390,6 @@ export const Home: React.FC<HomeProps> = ({
                     ★ {currentHeroEvent.rating || '4.9'}
                   </span>
                 </div>
-              </div>
-            </div>
-
-          </div>
-        </div>
-      </section>
-
-
-      {/* ======================================================
-          2. WHY YOU SHOULDN'T MISS IT
-      ====================================================== */}
-
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-16 sm:pt-20">
-        <div className="text-center max-w-2xl mx-auto mb-10">
-          <h2 className="font-heading font-bold text-2xl sm:text-3xl text-white tracking-tight">
-            Why You Shouldn't Miss It
-          </h2>
-          <p className="text-xs sm:text-sm text-gray-400 mt-2">
-            Curated live entertainment crafted for music lovers and culture enthusiasts.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="p-6 sm:p-7 rounded-2xl bg-[#0D0D10] border border-white/10 hover:border-[#D4AF37]/30 transition-all duration-300 space-y-4">
-            <div className="w-11 h-11 rounded-xl bg-[#141414] border border-white/10 flex items-center justify-center text-[#D4AF37]">
-              <Music2 className="w-5 h-5" />
-            </div>
-            <div className="space-y-1.5">
-              <h3 className="font-heading font-bold text-lg text-white">Soulful Live Performance</h3>
-              <p className="text-xs sm:text-sm text-gray-400 leading-relaxed">
-                Timeless Bollywood melodies performed live with rich acoustic arrangements and vocal depth.
-              </p>
-            </div>
-          </div>
-
-          <div className="p-6 sm:p-7 rounded-2xl bg-[#0D0D10] border border-white/10 hover:border-[#D4AF37]/30 transition-all duration-300 space-y-4">
-            <div className="w-11 h-11 rounded-xl bg-[#141414] border border-white/10 flex items-center justify-center text-[#D4AF37]">
-              <Users2 className="w-5 h-5" />
-            </div>
-            <div className="space-y-1.5">
-              <h3 className="font-heading font-bold text-lg text-white">Talented Artists</h3>
-              <p className="text-xs sm:text-sm text-gray-400 leading-relaxed">
-                A team of passionate musicians bringing the music to life through authentic instruments and mastery.
-              </p>
-            </div>
-          </div>
-
-          <div className="p-6 sm:p-7 rounded-2xl bg-[#0D0D10] border border-white/10 hover:border-[#D4AF37]/30 transition-all duration-300 space-y-4">
-            <div className="w-11 h-11 rounded-xl bg-[#141414] border border-white/10 flex items-center justify-center text-[#D4AF37]">
-              <Sparkles className="w-5 h-5" />
-            </div>
-            <div className="space-y-1.5">
-              <h3 className="font-heading font-bold text-lg text-white">Unforgettable Evening</h3>
-              <p className="text-xs sm:text-sm text-gray-400 leading-relaxed">
-                Great music, atmosphere, and memories in a luxurious Sayaji ambiance crafted for a relaxing night.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-
-      {/* ======================================================
-          3. ABOUT THE EVENT
-      ====================================================== */}
-
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-16 sm:pt-20">
-        <div className="bg-[#0D0D10] border border-white/10 rounded-3xl p-4 sm:p-8 lg:p-12">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-12 items-start">
-
-            {/* Left: Editorial Description */}
-            <div className="lg:col-span-7 space-y-4">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-[#D4AF37]">
-                Experience Overview
-              </span>
-              <h2 className="font-heading font-bold text-2xl sm:text-3xl text-white">About The Event</h2>
-              <div className="prose prose-invert max-w-none text-gray-300 text-sm sm:text-base leading-relaxed space-y-4 font-normal">
-                <p>
-                  {currentHeroEvent.description ||
-                    'Step into an enchanting musical journey celebrating the finest sufi, ghazal, and retro Bollywood classics. Featuring celebrated vocalists and a live acoustic orchestra, this signature event by Ash-vish Events is designed for true lovers of pure melodies and refined live performances.'}
-                </p>
-                <p className="text-gray-400 text-xs sm:text-sm">
-                  Hosted at the esteemed Megh Malhar Hall inside The Sayaji Kolhapur, guests will enjoy exceptional acoustics, comfortable seating, and seamless instant digital QR-code entry.
-                </p>
-              </div>
-
-              <div className="pt-2 flex flex-wrap items-center gap-4 text-xs text-gray-400">
-                <div className="flex items-center gap-1.5">
-                  <Check className="w-4 h-4 text-[#D4AF37]" />
-                  <span>Instant QR Digital Pass</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <Check className="w-4 h-4 text-[#D4AF37]" />
-                  <span>Reserved Seating Available</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <Check className="w-4 h-4 text-[#D4AF37]" />
-                  <span>Dedicated Hospitality Team</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Right: Key Event Facts & Calendar Action */}
-            <div className="lg:col-span-5 bg-[#141414] border border-white/10 rounded-2xl p-6 space-y-5">
-              <h3 className="font-heading font-bold text-base text-white border-b border-white/10 pb-3">
-                Key Event Information
-              </h3>
-
-              <div className="space-y-3.5 text-xs sm:text-sm">
-                <div className="flex items-center justify-between">
-                  <span className="text-gray-400">Organized by</span>
-                  <span className="font-semibold text-white">{currentHeroEvent.organizer || 'Ash-vish Events'}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-gray-400">Event Type</span>
-                  <span className="font-semibold text-white">Live Musical Concert</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-gray-400">Language</span>
-                  <span className="font-semibold text-white">Hindi & Sufi</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-gray-400">Age Suitability</span>
-                  <span className="font-semibold text-white">All Ages / Family Friendly</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-gray-400">Location</span>
-                  <span
-                    className="font-semibold text-[#D4AF37] text-right truncate max-w-[200px]"
-                    title={currentHeroEvent.venue}
-                  >
-                    {currentHeroEvent.venue}
-                  </span>
-                </div>
-              </div>
-
-              <div className="pt-2 border-t border-white/10 flex flex-col gap-2.5">
-                <button
-                  onClick={handleAddToCalendar}
-                  className="w-full py-3 rounded-xl bg-[#1C1C1C] hover:bg-[#262626] border border-white/10 text-gray-200 hover:text-white text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer"
-                >
-                  <CalendarPlus className="w-4 h-4 text-[#D4AF37]" />
-                  <span>Add to Google Calendar</span>
-                </button>
-
-                <button
-                  onClick={() => onSelectEvent(currentHeroEvent)}
-                  className="w-full py-3 rounded-xl bg-[#D4AF37] hover:bg-[#F3E5AB] text-black text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer"
-                >
-                  <span>Select Tickets & Seating</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </button>
               </div>
             </div>
 

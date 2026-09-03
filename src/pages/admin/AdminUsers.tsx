@@ -308,7 +308,7 @@ export const AdminUsers: React.FC = () => {
               setLookupEmail('');
               setResolvedUser(null);
             }}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] hover:brightness-110 text-black font-extrabold text-xs shadow-lg shadow-[#D4AF37]/25 transition-all cursor-pointer"
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#D4AF37] text-black font-extrabold text-xs shadow-lg shadow-[#D4AF37]/25 transition-all cursor-pointer"
           >
             <UserPlus className="w-4 h-4 stroke-[2.5]" />
             <span>Add Staff Member</span>
@@ -589,7 +589,7 @@ export const AdminUsers: React.FC = () => {
                     type="button"
                     disabled={isCreatingStaff}
                     onClick={handleCreateStaffSubmit}
-                    className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black font-extrabold text-xs flex items-center gap-2 hover:brightness-110 disabled:opacity-50 cursor-pointer"
+                    className="px-5 py-2 rounded-xl bg-[#D4AF37] text-black font-extrabold text-xs flex items-center gap-2 disabled:opacity-50 cursor-pointer"
                   >
                     {isCreatingStaff ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <UserPlus className="w-3.5 h-3.5" />}
                     <span>Confirm & Grant Role</span>

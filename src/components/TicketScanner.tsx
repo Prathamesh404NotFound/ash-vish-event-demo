@@ -1029,7 +1029,7 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
             onClick={() => setActiveTab('camera')}
             className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
               activeTab === 'camera'
-                ? 'bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black shadow-lg shadow-[#D4AF37]/20'
+                ? 'bg-[#D4AF37] text-black '
                 : 'bg-[#1C1C1C] text-gray-300 hover:text-white border border-white/5'
             }`}
           >
@@ -1040,7 +1040,7 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
             onClick={() => setActiveTab('manual')}
             className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
               activeTab === 'manual'
-                ? 'bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black shadow-lg shadow-[#D4AF37]/20'
+                ? 'bg-[#D4AF37] text-black '
                 : 'bg-[#1C1C1C] text-gray-300 hover:text-white border border-white/5'
             }`}
           >
@@ -1167,7 +1167,7 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
                   </div>
                   <button
                     onClick={() => setIsCameraRequested(true)}
-                    className="px-6 py-3 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] hover:brightness-110 text-black font-extrabold text-xs shadow-lg shadow-[#D4AF37]/20 transition-all cursor-pointer flex items-center gap-2"
+                    className="px-6 py-3 rounded-xl bg-[#D4AF37] text-black font-extrabold text-xs  transition-all cursor-pointer flex items-center gap-2"
                   >
                     <Camera className="w-4 h-4" />
                     <span>Start Scanner Stream</span>
@@ -1265,7 +1265,7 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
                   <button
                     onClick={() => handleScanCode(inputVal)}
                     disabled={scanState.phase === 'verifying'}
-                    className="absolute right-1.5 top-1/2 -translate-y-1/2 px-3 py-1.5 rounded-lg bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] hover:brightness-110 disabled:opacity-50 text-black font-extrabold text-[11px] cursor-pointer"
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 px-3 py-1.5 rounded-lg bg-[#D4AF37] disabled:opacity-50 text-black font-extrabold text-[11px] cursor-pointer"
                   >
                     {isDevMode ? 'Scan QR Token' : 'Validate Code'}
                   </button>
@@ -1348,7 +1348,7 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
                           <button
                             onClick={() => handleScanCode(t.id)}
                             disabled={scanState.phase === 'verifying'}
-                            className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] hover:brightness-110 disabled:opacity-50 text-black font-extrabold text-xs shadow-md shadow-[#D4AF37]/20 transition-all cursor-pointer flex items-center gap-1.5"
+                            className="px-4 py-2 rounded-xl bg-[#D4AF37] disabled:opacity-50 text-black font-extrabold text-xs shadow-md shadow-[#D4AF37]/20 transition-all cursor-pointer flex items-center gap-1.5"
                           >
                             <span>Admit Guest</span>
                             <ArrowRight className="w-3 h-3" />
@@ -1553,7 +1553,7 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
 
               <button
                 onClick={handleDismiss}
-                className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-red-600 to-red-700 hover:brightness-110 text-white font-extrabold text-sm shadow-lg shadow-red-950/50 transition-all cursor-pointer flex items-center justify-center gap-2"
+                className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-red-600 to-red-700 text-white font-extrabold text-sm shadow-lg shadow-red-950/50 transition-all cursor-pointer flex items-center justify-center gap-2"
               >
                 <span>Dismiss & Ready for Next</span>
               </button>
@@ -1589,7 +1589,7 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
                       handleDismiss();
                     }
                   }}
-                  className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] hover:brightness-110 text-black font-extrabold text-xs shadow-md shadow-[#D4AF37]/20 transition-all cursor-pointer flex items-center justify-center gap-2"
+                  className="w-full py-3 px-4 rounded-xl bg-[#D4AF37] text-black font-extrabold text-xs shadow-md shadow-[#D4AF37]/20 transition-all cursor-pointer flex items-center justify-center gap-2"
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
                   <span>Retry Verification</span>

@@ -153,7 +153,7 @@ export const TicketModal: React.FC<TicketModalProps> = ({ ticket, onClose }) => 
           <button
             onClick={handleDownloadPDF}
             disabled={isDownloading}
-            className={`flex-1 py-2.5 px-3 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] hover:brightness-110 text-black font-bold text-xs flex items-center justify-center gap-2 shadow-md shadow-[#D4AF37]/25 transition-all cursor-pointer ${
+            className={`flex-1 py-2.5 px-3 rounded-xl bg-[#D4AF37] text-black font-bold text-xs flex items-center justify-center gap-2 shadow-md shadow-[#D4AF37]/25 transition-all cursor-pointer ${
               isDownloading ? 'opacity-75 cursor-not-allowed' : ''
             }`}
           >

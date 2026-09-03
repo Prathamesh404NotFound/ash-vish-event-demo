@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   ShieldCheck,
   TrendingUp,
@@ -14,10 +14,14 @@ import {
   Search,
   X,
   Sparkles,
+  MoreVertical,
 } from 'lucide-react';
 import { useBooking } from '../contexts/BookingContext';
 import { EventItem, EventCategory } from '../types';
 import { EventEditor } from '../components/admin/EventEditor';
+import { RowActions } from '../components/admin/RowActions';
+import { safeFetch } from '../lib/api';
+import { authenticatedApiHeaders } from '../lib/authHeaders';
 
 export const AdminPage: React.FC = () => {
   const { events, myTickets, addEvent, updateEvent, deleteEvent, scanTicketQR, showToast } = useBooking();
@@ -99,6 +103,27 @@ export const AdminPage: React.FC = () => {
       t.eventTitle.toLowerCase().includes(attendeeSearch.toLowerCase())
   );
 
+  // Delete ticket handler
+  const handleDeleteTicket = useCallback(async (ticketId: string, ticketNumber: string) => {
+    if (!window.confirm(`Permanently delete ticket ${ticketNumber}? This action cannot be undone.`)) return;
+    try {
+      const headers = await authenticatedApiHeaders();
+      const res = await safeFetch<{ success: boolean; error?: string; message?: string }>(
+        `/api/admin/tickets/${ticketId}`,
+        { method: 'DELETE', headers }
+      );
+      if (res.ok && res.data?.success) {
+        showToast(res.data.message || `Ticket ${ticketNumber} deleted.`, 'success');
+        // Refresh the page to remove the deleted ticket
+        window.location.reload();
+      } else {
+        showToast(res.data?.error || 'Could not delete ticket.', 'error');
+      }
+    } catch {
+      showToast('Could not delete ticket.', 'error');
+    }
+  }, [showToast]);
+
   return (
     <div className="pb-16 pt-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8 animate-in fade-in">
       
@@ -119,7 +144,7 @@ export const AdminPage: React.FC = () => {
           <button
             onClick={() => setActiveTab('dashboard')}
             className={`px-3 py-2 rounded-lg text-xs font-bold transition-all ${
-              activeTab === 'dashboard' ? 'bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black shadow-md' : 'text-gray-400 hover:text-white'
+              activeTab === 'dashboard' ? 'bg-[#D4AF37] text-black shadow-md' : 'text-gray-400 hover:text-white'
             }`}
           >
             Dashboard
@@ -127,7 +152,7 @@ export const AdminPage: React.FC = () => {
           <button
             onClick={() => setActiveTab('events')}
             className={`px-3 py-2 rounded-lg text-xs font-bold transition-all ${
-              activeTab === 'events' ? 'bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black shadow-md' : 'text-gray-400 hover:text-white'
+              activeTab === 'events' ? 'bg-[#D4AF37] text-black shadow-md' : 'text-gray-400 hover:text-white'
             }`}
           >
             Events ({events.length})
@@ -135,7 +160,7 @@ export const AdminPage: React.FC = () => {
           <button
             onClick={() => setActiveTab('scanner')}
             className={`px-3 py-2 rounded-lg text-xs font-bold transition-all ${
-              activeTab === 'scanner' ? 'bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black shadow-md' : 'text-gray-400 hover:text-white'
+              activeTab === 'scanner' ? 'bg-[#D4AF37] text-black shadow-md' : 'text-gray-400 hover:text-white'
             }`}
           >
             Gate Scanner
@@ -143,7 +168,7 @@ export const AdminPage: React.FC = () => {
           <button
             onClick={() => setActiveTab('bookings')}
             className={`px-3 py-2 rounded-lg text-xs font-bold transition-all ${
-              activeTab === 'bookings' ? 'bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black shadow-md' : 'text-gray-400 hover:text-white'
+              activeTab === 'bookings' ? 'bg-[#D4AF37] text-black shadow-md' : 'text-gray-400 hover:text-white'
             }`}
           >
             Attendees
@@ -217,7 +242,7 @@ export const AdminPage: React.FC = () => {
             <h3 className="font-heading font-bold text-xl text-white">Live Events Inventory</h3>
             <button
               onClick={openEditorCreate}
-              className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black font-bold text-xs flex items-center gap-2 shadow-lg shadow-[#D4AF37]/20"
+              className="px-4 py-2.5 rounded-xl bg-[#D4AF37] text-black font-bold text-xs flex items-center gap-2 "
             >
               <Plus className="w-4 h-4" />
               <span>Create New Event</span>
@@ -345,7 +370,7 @@ export const AdminPage: React.FC = () => {
               />
               <button
                 onClick={handleRunScan}
-                className="px-5 py-3 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black font-extrabold text-xs shadow-md"
+                className="px-5 py-3 rounded-xl bg-[#D4AF37] text-black font-extrabold text-xs shadow-md"
               >
                 Scan Ticket
               </button>
@@ -410,6 +435,7 @@ export const AdminPage: React.FC = () => {
                   <th className="p-4">Event Show</th>
                   <th className="p-4">Tier & Price</th>
                   <th className="p-4">Status</th>
+                  <th className="p-4 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
@@ -435,6 +461,19 @@ export const AdminPage: React.FC = () => {
                       >
                         {b.status}
                       </span>
+                    </td>
+                    <td className="p-4 text-right">
+                      <RowActions
+                        closeKey={b.id}
+                        actions={[
+                          {
+                            label: 'Delete Ticket',
+                            icon: <Trash2 className="w-4 h-4" />,
+                            onClick: () => handleDeleteTicket(b.id, b.ticketNumber),
+                            variant: 'danger',
+                          },
+                        ]}
+                      />
                     </td>
                   </tr>
                 ))}

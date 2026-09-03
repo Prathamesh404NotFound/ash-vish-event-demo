@@ -424,7 +424,7 @@ export const ShiftPage: React.FC = () => {
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="w-full py-3 px-5 rounded-xl bg-gradient-to-r from-red-500/80 to-red-600 hover:brightness-110 text-white font-extrabold text-xs flex items-center justify-center gap-2 shadow-lg shadow-red-600/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                className="w-full py-3 px-5 rounded-xl bg-gradient-to-r from-red-500/80 to-red-600 text-white font-extrabold text-xs flex items-center justify-center gap-2 shadow-lg shadow-red-600/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
               >
                 {isSubmitting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />}
                 <span>End Session & Save Totals</span>
@@ -555,7 +555,7 @@ export const ShiftPage: React.FC = () => {
               <button
                 type="submit"
                 disabled={isSubmitting || pin.length !== 4}
-                className="w-full py-3 px-6 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] hover:brightness-110 text-black font-extrabold text-xs flex items-center justify-center gap-2 shadow-lg shadow-[#D4AF37]/25 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                className="w-full py-3 px-6 rounded-xl bg-[#D4AF37] text-black font-extrabold text-xs flex items-center justify-center gap-2 shadow-lg shadow-[#D4AF37]/25 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
               >
                 {isSubmitting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Unlock className="w-4 h-4 stroke-[2.5]" />}
                 <span>Verify PIN & Start Ticket Issuance</span>

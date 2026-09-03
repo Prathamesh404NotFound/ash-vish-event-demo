@@ -563,7 +563,7 @@ export const CounterOrders: React.FC = () => {
                 <button
                   type="submit"
                   disabled={isReprinting || !reprintReason.trim()}
-                  className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black font-extrabold text-xs flex items-center gap-2 hover:brightness-110 disabled:opacity-50"
+                  className="px-5 py-2 rounded-xl bg-[#D4AF37] text-black font-extrabold text-xs flex items-center gap-2 disabled:opacity-50"
                 >
                   {isReprinting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Printer className="w-3.5 h-3.5" />}
                   <span>Authorize & Print</span>
@@ -710,7 +710,7 @@ export const CounterOrders: React.FC = () => {
                   type="button"
                   onClick={handleExchangeSubmit}
                   disabled={isExchanging || !selectedOldSeat || selectedNewSeats.length === 0}
-                  className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black font-extrabold text-xs flex items-center gap-2 hover:brightness-110 disabled:opacity-50 cursor-pointer"
+                  className="px-5 py-2 rounded-xl bg-[#D4AF37] text-black font-extrabold text-xs flex items-center gap-2 disabled:opacity-50 cursor-pointer"
                 >
                   {isExchanging ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <ArrowLeftRight className="w-3.5 h-3.5" />}
                   <span>Execute Seat Swap</span>

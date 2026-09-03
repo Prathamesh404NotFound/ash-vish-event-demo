@@ -52,7 +52,7 @@ export const Navbar: React.FC<NavbarProps> = React.memo(({ onOpenSearch }) => {
             {/* Logo & Brand Container */}
             <Link to="/" className="flex items-center gap-3 cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D4AF37] rounded-xl p-0.5 shrink-0">
               <div className="relative">
-                <div className="absolute -inset-1 bg-gradient-to-r from-[#F3E5AB] via-[#D4AF37] to-[#C5A059] rounded-xl opacity-20 group-hover:opacity-60 blur-[4px] transition-opacity duration-300"></div>
+                <div className="absolute -inset-1 bg-[#D4AF37] rounded-xl opacity-20 group-hover:opacity-60 blur-[4px] transition-opacity duration-300"></div>
                 <div className="relative w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-[#141417] border border-white/10 overflow-hidden shadow-2xl flex items-center justify-center group-hover:scale-105 transition-transform duration-300">
                   <img
                     src="/ashvish-logo.png"
@@ -255,7 +255,7 @@ export const Navbar: React.FC<NavbarProps> = React.memo(({ onOpenSearch }) => {
                   onClick={() => setMobileMenuOpen(false)}
                   className={`flex items-center justify-between p-3.5 rounded-xl text-base font-semibold transition-all ${
                     isActive
-                      ? 'bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black shadow-lg shadow-[#D4AF37]/20 font-bold'
+                      ? 'bg-[#D4AF37] text-black  font-bold'
                       : 'bg-[#141414] text-gray-200 border border-white/5'
                   }`}
                 >
@@ -299,7 +299,7 @@ export const Navbar: React.FC<NavbarProps> = React.memo(({ onOpenSearch }) => {
             <Link
               to="/login"
               onClick={() => setMobileMenuOpen(false)}
-              className="mt-auto mb-8 w-full py-3.5 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black font-bold text-center shadow-lg shadow-[#D4AF37]/25"
+              className="mt-auto mb-8 w-full py-3.5 rounded-xl bg-[#D4AF37] text-black font-bold text-center shadow-lg shadow-[#D4AF37]/25"
             >
               Login / Sign Up
             </Link>

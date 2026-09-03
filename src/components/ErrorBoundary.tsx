@@ -73,7 +73,7 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-1">
             <button
               onClick={() => window.location.reload()}
-              className="group w-full sm:w-auto px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-[#D4AF37]/15 transition-all duration-200 hover:shadow-[#D4AF37]/25 hover:scale-[1.02] active:scale-[0.98]"
+              className="group w-full sm:w-auto px-5 py-2.5 rounded-xl bg-[#D4AF37] text-black font-bold text-xs flex items-center justify-center gap-2  transition-all duration-200 hover:shadow-[#D4AF37]/25 hover:scale-[1.02] active:scale-[0.98]"
             >
               <RefreshCw className="w-3.5 h-3.5 group-hover:rotate-180 transition-transform duration-500" />
               Reload page

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Tag, Plus, Trash2, AlertCircle, Edit } from 'lucide-react';
+import { Tag, Plus, Trash2, AlertCircle, Edit, Power } from 'lucide-react';
+import { RowActions } from '../../components/admin/RowActions';
 import { useBooking } from '../../contexts/BookingContext';
 import { Coupon } from '../../types';
 
@@ -109,7 +110,7 @@ export const AdminCoupons: React.FC = () => {
 
         <button
           onClick={() => setIsModalOpen(true)}
-          className="flex items-center gap-2 px-5 py-3 rounded-2xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black font-extrabold text-xs shadow-lg shadow-[#D4AF37]/20 hover:brightness-110 cursor-pointer self-start sm:self-auto"
+          className="flex items-center gap-2 px-5 py-3 rounded-2xl bg-[#D4AF37] text-black font-extrabold text-xs  cursor-pointer self-start sm:self-auto"
         >
           <Plus className="w-4 h-4 stroke-[2.5]" />
           <span>Create New Coupon</span>
@@ -179,20 +180,28 @@ export const AdminCoupons: React.FC = () => {
                         </button>
                       </td>
                       <td className="px-6 py-4 text-right">
-                        <button
-                          onClick={() => handleOpenEditModal(c)}
-                          className="p-2 rounded-xl bg-[#D4AF37]/10 text-[#D4AF37] hover:bg-[#D4AF37]/20 transition-all cursor-pointer mr-2"
-                          title="Edit Coupon"
-                        >
-                          <Edit className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => deleteCoupon(c.code)}
-                          className="p-2 rounded-xl bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white transition-all cursor-pointer"
-                          title="Delete Coupon"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        <RowActions
+                          closeKey={c.code}
+                          actions={[
+                            {
+                              label: c.isActive && !isExpired ? 'Deactivate' : 'Activate',
+                              icon: <Power className="w-4 h-4" />,
+                              onClick: () => toggleCouponStatus(c.code),
+                              variant: c.isActive && !isExpired ? 'danger' : 'success',
+                            },
+                            {
+                              label: 'Edit Coupon',
+                              icon: <Edit className="w-4 h-4" />,
+                              onClick: () => handleOpenEditModal(c),
+                            },
+                            {
+                              label: 'Delete Coupon',
+                              icon: <Trash2 className="w-4 h-4" />,
+                              onClick: () => deleteCoupon(c.code),
+                              variant: 'danger',
+                            },
+                          ]}
+                        />
                       </td>
                     </tr>
                   );
@@ -329,7 +338,7 @@ export const AdminCoupons: React.FC = () => {
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black font-extrabold cursor-pointer disabled:opacity-50"
+                  className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-[#D4AF37] text-black font-extrabold cursor-pointer disabled:opacity-50"
                 >
                   {isSubmitting ? 'Creating...' : 'Save & Activate Coupon'}
                 </button>
@@ -461,7 +470,7 @@ export const AdminCoupons: React.FC = () => {
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#F3E5AB] to-[#D4AF37] text-black font-extrabold cursor-pointer disabled:opacity-50"
+                  className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-[#D4AF37] text-black font-extrabold cursor-pointer disabled:opacity-50"
                 >
                   {isSubmitting ? 'Updating...' : 'Save Changes'}
                 </button>
