@@ -7,6 +7,7 @@ import { safeFetch, getApiUrl, SafeFetchResponse } from '../lib/api';
 import { rtdbGet, rtdbSet, rtdbDelete, rtdbUpdate } from '../lib/rtdb';
 import { isSeatBasedEvent } from '../lib/seatMap';
 import { useToast } from './ToastContext';
+import { TicketLineItem, sumItemQuantities } from '../lib/ticketItems';
 
 export interface CheckoutSession {
   event: EventItem;
@@ -15,6 +16,12 @@ export interface CheckoutSession {
   selectedSeats?: string[];
   appliedCoupon?: Coupon;
   discountAmount?: number;
+  /**
+   * Multi-type line items (e.g. 2 VIP + 3 Kids in ONE transaction).
+   * Present only for mixed general-admission bookings; legacy single-type
+   * checkouts omit it entirely and keep the old request shape.
+   */
+  items?: TicketLineItem[];
 }
 
 /** Server-authoritative reservation returned by POST /api/reservations. */
@@ -30,6 +37,8 @@ export interface ReservationState {
   serverNow: number;
   holdTtlMs: number;
   attendee?: { name: string; email: string; phone: string };
+  /** Multi-type ticket lines mirrored from the server (present for mixed bookings). */
+  items?: TicketLineItem[];
 }
 
 export interface QuoteResult {
@@ -212,12 +221,30 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!currentCheckout) return;
     const dbEvent = events.find((e) => e.id === currentCheckout.event.id);
     if (!dbEvent) return;
-    const dbTier = (dbEvent.ticketTiers || []).find((t) => t.id === currentCheckout.tier.id);
-    if (!dbTier || dbTier.price === currentCheckout.tier.price) return;
+    const dbTiers = dbEvent.ticketTiers || [];
+    const dbTier = dbTiers.find((t) => t.id === currentCheckout.tier.id);
+    // Multi-type lines also carry display prices; reconcile them against the
+    // live DB tiers (the server quote stays the payment authority regardless).
+    const multiItems = Array.isArray(currentCheckout.items) && currentCheckout.items.length > 0
+      ? currentCheckout.items
+      : null;
+    const itemChanged = !!multiItems && multiItems.some((it) => {
+      const dbT = dbTiers.find((t) => t.id === it.tierId);
+      return !!dbT && (dbT.price !== it.price || dbT.name !== it.tierName);
+    });
+    if (!dbTier || (dbTier.price === currentCheckout.tier.price && !itemChanged)) return;
     setCurrentCheckout({
       ...currentCheckout,
       event: dbEvent,
-      tier: { ...currentCheckout.tier, ...dbTier },
+      tier: dbTier ? { ...currentCheckout.tier, ...dbTier } : currentCheckout.tier,
+      ...(multiItems
+        ? {
+            items: multiItems.map((it) => {
+              const dbT = dbTiers.find((t) => t.id === it.tierId);
+              return dbT ? { ...it, price: dbT.price, tierName: dbT.name } : it;
+            }),
+          }
+        : {}),
     });
   }, [events]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -578,7 +605,15 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     options?: { skipIfSame?: boolean }
   ): Promise<ReservationState> => {
     if (!currentCheckout) throw new Error('No checkout session');
-    const { event, tier, quantity } = currentCheckout;
+    const { event, tier, quantity, items } = currentCheckout;
+    // Multi-type checkout (e.g. 2 VIP + 3 Kids): the server derives the
+    // reservation from one line per ticket type. tierId/quantity on the wire
+    // stay populated with the PRIMARY line (first item) so every legacy
+    // server read (records, notifications) keeps working; items carries the
+    // full mixed selection.
+    const multiTypeItems = Array.isArray(items) && items.length > 0 ? items : null;
+    const primaryTierId = multiTypeItems ? multiTypeItems[0].tierId : tier.id;
+    const totalQuantity = multiTypeItems ? sumItemQuantities(multiTypeItems) : quantity;
 
     // Reuse the same session reservation: create a new one only if none exists,
     // otherwise atomically adjust its seat set (claim new seats, release dropped ones).
@@ -598,9 +633,11 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
     }
     let res: SafeFetchResponse<any>;
-    const tierMatch = reservation?.eventId === event.id && reservation?.tierId === tier.id;
+    // Mixed selections never reuse an existing single-tier hold — every line
+    // must be re-quoted/holds re-balanced by the server atomically.
+    const tierMatch = !multiTypeItems && reservation?.eventId === event.id && reservation?.tierId === tier.id;
     const authHeaders = await authenticatedApiHeaders();
-    if (reservation && reservation.status === 'active' && tierMatch) {
+    if (!multiTypeItems && reservation && reservation.status === 'active' && tierMatch) {
       res = await safeFetch<any>(`/api/reservations/${reservation.reservationId}/selection`, {
         method: 'PUT',
         headers: authHeaders,
@@ -608,11 +645,21 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         signal: controller.signal,
       });
     } else {
-      const idempotencyKey = `idem_${getSessionId()}_${event.id}_${tier.id}_${seatIds.slice().sort().join(',')}`;
+      const lineSuffix = multiTypeItems
+        ? multiTypeItems.map((it) => `${it.tierId}x${it.quantity}`).join('+')
+        : tier.id;
+      const idempotencyKey = `idem_${getSessionId()}_${event.id}_${lineSuffix}_${seatIds.slice().sort().join(',')}`;
       res = await safeFetch<any>('/api/reservations', {
         method: 'POST',
         headers: authHeaders,
-        body: JSON.stringify({ eventId: event.id, tierId: tier.id, quantity, seatIds, idempotencyKey }),
+        body: JSON.stringify({
+          eventId: event.id,
+          tierId: primaryTierId,
+          quantity: totalQuantity,
+          seatIds,
+          ...(multiTypeItems ? { items: multiTypeItems } : {}),
+          idempotencyKey,
+        }),
         signal: controller.signal,
       });
     }
@@ -635,18 +682,19 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const next: ReservationState = {
       reservationId: data.reservationId,
       eventId: data.eventId ?? event.id,
-      tierId: data.tierId ?? tier.id,
-      quantity: data.quantity,
+      tierId: data.tierId ?? primaryTierId,
+      quantity: data.quantity ?? totalQuantity,
       seatIds: Array.isArray(data.seatIds) ? data.seatIds : [],
       status: data.status,
       ownerId: data.ownerId,
       expiresAt: data.expiresAt,
       serverNow: data.serverNow,
       holdTtlMs: data.holdTtlMs,
+      ...(Array.isArray(data.items) && data.items.length > 0 ? { items: data.items } : {}),
     };
     setReservation(next);
-    // Keep selection in sync
-    selectTicketsForCheckout(event, tier, quantity, Array.isArray(data.seatIds) ? data.seatIds : []);
+    // Keep selection in sync (seatless mixed flow passes an empty seat list).
+    selectTicketsForCheckout(event, tier, totalQuantity, Array.isArray(data.seatIds) ? data.seatIds : [], multiTypeItems || undefined);
     return next;
   };
 
@@ -671,6 +719,7 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       serverNow: data.serverNow,
       holdTtlMs: data.holdTtlMs,
       attendee: data.attendee,
+      ...(Array.isArray(data.items) && data.items.length > 0 ? { items: data.items } : {}),
       };
       setReservation(next);
       return next;
@@ -744,9 +793,10 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     event: EventItem,
     tier: TicketTier,
     quantity: number,
-    selectedSeats?: string[]
+    selectedSeats?: string[],
+    items?: TicketLineItem[]
   ) => {
-    setCurrentCheckout({ event, tier, quantity, selectedSeats });
+    setCurrentCheckout({ event, tier, quantity, selectedSeats, ...(items && items.length > 0 ? { items } : {}) });
     // A fresh checkout must always start at the Tickets step, never inherit a
     // saved step from a previous flow (bookingStep persists to localStorage).
     // But an in-flight update (e.g. picking seats on the seat map) must NEVER

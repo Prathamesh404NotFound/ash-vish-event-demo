@@ -322,7 +322,7 @@ const SEAT_HOLD_DURATION_MS = 10 * 60 * 1000; // 10 minutes
 // Backwards-compatible alias used by the reservation service (existing records
 // and clients reference RESERVATION_HOLD_TTL_MS).
 const RESERVATION_HOLD_TTL_MS = SEAT_HOLD_DURATION_MS;
-const MAX_TICKETS_PER_RESERVATION = 10;
+const MAX_TICKETS_PER_RESERVATION = 10; // max total tickets per booking (single or mixed)
 const RESERVATION_IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000; // 24h idempotency window
 
 /** In-memory idempotency cache keyed by sha256(idempotencyKey). */
@@ -349,6 +349,7 @@ interface ReservationQuote {
 interface ReservationRecord {
   reservationId: string;
   eventId: string;
+  /** Primary tier (first line) — kept for backward compatibility with single-tier flows. */
   tierId: string;
   quantity: number;
   seatIds: string[]; // normalized, sorted
@@ -358,6 +359,8 @@ interface ReservationRecord {
   createdAt: number;
   expiresAt: number;
   attendee?: { name: string; email: string; phone: string };
+  /** Multi-type ticket lines (e.g. 2 VIP + 3 Kids). Absent for legacy single-tier holds. */
+  items?: { tierId: string; tierName?: string; quantity: number }[];
 }
 
 function isPhysicalSeatId(value: unknown): value is string {
@@ -402,12 +405,18 @@ function seatPriceForRow(tiers: any[], seatMapTierName: string): number | undefi
 /**
  * Compute a server-authoritative quote for a reservation request.
  * Uses event seat map + ticket tiers; rejects when seat map is missing and seatIds are requested.
+ *
+ * Multi-type: when `items` is a non-empty array, each line is priced from the
+ * live event tier (the client never supplies prices) and the subtotal is the
+ * sum of every line. Only general-admission (non-seat-map) events can mix
+ * ticket types — seat-based bookings stay single-tier.
  */
 function computeReservationQuote(
   eventData: any,
   seatIds: string[] | null | undefined,
   quantity: number,
-  tierId: string
+  tierId: string,
+  items?: { tierId: string; tierName?: string; quantity: number }[] | null
 ): { quote: ReservationQuote; seatMapVersion: number; tier?: any } {
   // Firebase RTDB silently drops empty arrays — normalize to [] so every
   // caller is safe regardless of what the database returns.
@@ -417,8 +426,47 @@ function computeReservationQuote(
   // map was previously configured on the event.
   const seatMapEnabled = eventData.usesSeatMap !== false && Boolean(eventData.seatMap);
   const seatMap = seatMapEnabled ? eventData.seatMap : undefined;
+  const multiItems = Array.isArray(items) && items.length > 0 ? items : null;
   let subtotalMinor = 0;
   const tier = tiers.find((t: any) => t.id === tierId);
+
+  // Multi-type (general admission) quote — one line per ticket type, priced
+  // exclusively from the live event tiers. Never trusts client-side prices.
+  if (multiItems) {
+    if (seatMapEnabled) {
+      throw new Error("Mixed ticket types are only available for general-admission events without seat selection.");
+    }
+    if (multiItems.length > 5) {
+      throw new Error("A booking can mix at most 5 ticket types.");
+    }
+    const seen = new Set<string>();
+    let total = 0;
+    for (const line of multiItems) {
+      const lineTierId = String(line?.tierId || "").trim();
+      const lineQty = Number(line?.quantity);
+      if (!lineTierId) throw new Error("Each ticket line needs a ticket type.");
+      if (!Number.isInteger(lineQty) || lineQty < 1) {
+        throw new Error("Each ticket type needs a quantity of at least 1.");
+      }
+      if (seen.has(lineTierId)) throw new Error("Duplicate ticket types in selection.");
+      seen.add(lineTierId);
+      total += lineQty;
+      if (total > MAX_TICKETS_PER_RESERVATION) {
+        throw new Error(`A booking can hold at most ${MAX_TICKETS_PER_RESERVATION} tickets.`);
+      }
+      const lineTier = tiers.find((t: any, i: number) => t?.id === lineTierId || (!t?.id && String(i) === lineTierId));
+      if (!lineTier) throw new Error(`Requested ticket tier is not available for this event (${lineTierId}).`);
+      const linePrice = Number(lineTier.price);
+      if (!linePrice || linePrice <= 0) {
+        throw new Error("Ticket tier price is not configured for this event.");
+      }
+      if ((lineTier.remainingInventory ?? 0) < lineQty) {
+        throw new Error(`Not enough tickets remaining in ${lineTier.name || lineTierId}. Only ${lineTier.remainingInventory ?? 0} left.`);
+      }
+      subtotalMinor += linePrice * lineQty * 100;
+    }
+    return { quote: { currency: "INR", subtotalMinor, discountMinor: 0, feesMinor: 0, totalMinor: subtotalMinor }, seatMapVersion: 0, tier };
+  }
 
   if (normalizedSeatIds.length > 0) {
     // Flat pricing: every seat costs the selected ticket tier's price,
@@ -1004,6 +1052,26 @@ async function finalizeBookingServerSide(
   let eventId: string | undefined;
   let tierId: string | undefined;
   let quantity: number | undefined;
+  // Hoisted fulfillment outputs — the single-tier branch and the multi-type
+  // branch both set these; notifications and the processed-order record
+  // consume them after ticket generation.
+  let tierLines: { tierId: string; tierName: string; price: number; quantity: number }[] = [];
+  let isMultiItemOrder = false;
+  let ticketId = "";
+  let ticketNum = "";
+  let bookingId = "";
+  let newTicket: any = null;
+  let newBookingRecord: any = null;
+  let tierName = "General";
+  let price = 0;
+  let seatLabel = "General Section";
+  let eventTitle = "Live Event";
+  let eventPoster =
+    "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&q=80&w=800";
+  let venue = "Live Venue";
+  let city = "Mumbai";
+  let date = "Today";
+  let time = "07:30 PM";
 
   const authToken = userToken || (await getAdminAuthToken());
 
@@ -1096,9 +1164,33 @@ async function finalizeBookingServerSide(
     let dbRecheckPrice = 0;
     try {
       const evtForRecheck = (await rtdbGet(`events/${eventId}`, authToken))?.data as any;
-      const dbTier = normalizeTiers(evtForRecheck?.ticketTiers).find((t: any) => t.id === tierId);
+      const dbTiers = normalizeTiers(evtForRecheck?.ticketTiers);
+      const dbTier = dbTiers.find((t: any) => t.id === tierId);
       if (dbTier && typeof dbTier.price === "number" && dbTier.price > 0) {
         dbRecheckPrice = dbTier.price;
+      }
+      // Multi-type: build fulfillment lines from LIVE tier prices (never from
+      // client-supplied values) and derive the expected amount from them.
+      const pendingItems = pendingOrder?.items;
+      if (Array.isArray(pendingItems) && pendingItems.length > 1) {
+        isMultiItemOrder = true;
+        tierLines = pendingItems.map((it: any) => {
+          const t = dbTiers.find((x: any, i: number) => x?.id === it.tierId || (!x?.id && String(i) === it.tierId));
+          return {
+            tierId: String(it?.tierId || ""),
+            tierName: t?.name || it?.tierName || "General",
+            price: typeof t?.price === "number" ? t.price : 0,
+            quantity: Number(it?.quantity) || 1,
+          };
+        });
+        serverCalculatedRecheck = tierLines.reduce((s, l) => s + (l.price || 0) * (l.quantity || 0), 0);
+      } else if (Array.isArray(pendingItems) && pendingItems.length === 1) {
+        // Single-line items behave exactly like the legacy single-tier path.
+        const it = pendingItems[0];
+        const t = dbTiers.find((x: any, i: number) => x?.id === it.tierId || (!x?.id && String(i) === it.tierId));
+        if (t && typeof t.price === "number" && t.price > 0) {
+          dbRecheckPrice = t.price;
+        }
       }
     } catch {}
     if (dbRecheckPrice > 0) {
@@ -1181,6 +1273,14 @@ async function finalizeBookingServerSide(
 
     // 5. Decrement ticket tier inventory
     let inventoryError: string | null = null;
+    const deductMap = new Map<string, number>();
+    if (isMultiItemOrder) {
+      for (const line of tierLines) {
+        deductMap.set(line.tierId, (deductMap.get(line.tierId) || 0) + line.quantity);
+      }
+    } else {
+      deductMap.set(tierId || "", quantity || 1);
+    }
     const inventoryTxResult = await rtdbTransaction(`events/${eventId}`, (currEvent: any) => {
       if (!currEvent || !currEvent.ticketTiers) {
         inventoryError = "Event or ticket tiers not found.";
@@ -1189,46 +1289,48 @@ async function finalizeBookingServerSide(
 
       // Handle both array and object storage formats in RTDB
       const isArray = Array.isArray(currEvent.ticketTiers);
-      const tierEntries = isArray ? currEvent.ticketTiers : Object.entries(currEvent.ticketTiers);
-      
-      let tierFound = false;
       const updatedTiers = isArray ? [] : {};
+      let foundInTx = 0;
 
       if (isArray) {
         for (let i = 0; i < currEvent.ticketTiers.length; i++) {
-          let t = currEvent.ticketTiers[i];
-          if (t && (t.id === tierId || (!t.id && String(i) === tierId))) {
-            tierFound = true;
+          const t = currEvent.ticketTiers[i];
+          const matchId = t ? (t.id || String(i)) : null;
+          const lineQty = matchId !== null ? deductMap.get(matchId) : undefined;
+          if (t && lineQty !== undefined) {
+            foundInTx++;
             const currentRem = typeof t.remainingInventory === 'number' ? t.remainingInventory : (t.totalInventory || t.capacity || 0);
-            if (currentRem < quantity) {
+            if (currentRem < lineQty) {
               inventoryError = `Not enough tickets remaining. Only ${currentRem} tickets left.`;
               (updatedTiers as any[]).push(t);
               continue;
             }
-            (updatedTiers as any[]).push({ ...t, remainingInventory: currentRem - quantity });
+            (updatedTiers as any[]).push({ ...t, remainingInventory: currentRem - lineQty });
           } else {
             (updatedTiers as any[]).push(t);
           }
         }
       } else {
-        for (const [key, t] of Object.entries(currEvent.ticketTiers as any)) {
-          const tier = t as any;
-          if (tier && (tier.id === tierId || key === tierId)) {
-            tierFound = true;
+        for (const [key, tRaw] of Object.entries(currEvent.ticketTiers as any)) {
+          const tier = tRaw as any;
+          const matchId = tier ? (tier.id || key) : null;
+          const lineQty = matchId !== null ? deductMap.get(matchId) : undefined;
+          if (tier && lineQty !== undefined) {
+            foundInTx++;
             const currentRem = typeof tier.remainingInventory === 'number' ? tier.remainingInventory : (tier.totalInventory || tier.capacity || 0);
-            if (currentRem < quantity) {
+            if (currentRem < lineQty) {
               inventoryError = `Not enough tickets remaining. Only ${currentRem} tickets left.`;
               (updatedTiers as any)[key] = tier;
               continue;
             }
-            (updatedTiers as any)[key] = { ...tier, remainingInventory: currentRem - quantity };
+            (updatedTiers as any)[key] = { ...tier, remainingInventory: currentRem - lineQty };
           } else {
             (updatedTiers as any)[key] = tier;
           }
         }
       }
 
-      if (!tierFound || inventoryError) return undefined;
+      if (foundInTx !== deductMap.size || inventoryError) return undefined;
       currEvent.ticketTiers = updatedTiers;
       return currEvent;
     }, authToken);
@@ -1266,24 +1368,167 @@ async function finalizeBookingServerSide(
     }
     // 6. Generate Ticket and Booking records
     const isDeferred = deferPayment === true;
-    const ticketId = 'tkt_' + Date.now() + '_' + secureRandomHex(8);
-    const bookingId = 'bkg_' + Date.now() + '_' + secureRandomHex(4);
-    const ticketNum = isDeferred
+    if (isMultiItemOrder) {
+      // Multi-type purchase: one pass record per ticket type line (e.g.
+      // 2 VIP + 3 Kids -> two tickets, each with its own tier, price,
+      // quantity, QR token, and pass slug).
+      const eventRes = await rtdbGet(`events/${eventId}`, authToken);
+      const eventData = eventRes.data || {};
+      eventTitle = eventData.title || "Live Event";
+      eventPoster =
+        eventData.posterUrl ||
+        "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&q=80&w=800";
+      venue = eventData.venue || "Live Venue";
+      city = eventData.city || "Mumbai";
+      date = eventData.date || "Today";
+      time = eventData.time || "07:30 PM";
+      bookingId = 'bkg_' + Date.now() + '_' + secureRandomHex(4);
+      const subtotalTotal = tierLines.reduce((s, l) => s + (l.price || 0) * (l.quantity || 0), 0);
+      const createdTicketIds: string[] = [];
+      for (let li = 0; li < tierLines.length; li++) {
+        const line = tierLines[li];
+        const lineQty = line.quantity || 1;
+        const lineSubtotal = (line.price || 0) * lineQty;
+        const lineShare = subtotalTotal > 0 ? lineSubtotal / subtotalTotal : 1 / tierLines.length;
+        const tId = 'tkt_' + Date.now() + '_' + secureRandomHex(8) + '_' + li;
+        const tNum = isDeferred
+          ? `ASH-RES-${Math.floor(1000 + Math.random() * 9000)}`
+          : `ASH-${Math.floor(1000 + Math.random() * 9000)}-SRV`;
+        const tSeatLabel = `${line.tierName}, General Floor`;
+        const tIssuedAt = new Date().toISOString();
+        const tPayload = `${bookingId}|${eventId}|${tSeatLabel}|${tId}|${tIssuedAt}`;
+        const tSig = signHmac(tPayload).substring(0, 16);
+        const tQr = `${isDeferred ? 'ASH_RES' : 'ASH_PASS'}.${Buffer.from(tPayload).toString('base64url')}.${tSig}`;
+        const tPassId = crypto.randomBytes(24).toString('base64url');
+        const tPassSig = signHmac(`${tPassId}|${tId}`).substring(0, 16);
+        const tPassSlug = { id: tPassId, sig: tPassSig, createdAt: Date.now() };
+        const t = {
+          id: tId,
+          ticketNumber: tNum,
+          eventId,
+          orderId,
+          bookingId,
+          eventTitle,
+          eventPoster,
+          venue,
+          city,
+          date,
+          time,
+          tierName: line.tierName,
+          price: line.price || 0,
+          quantity: lineQty,
+          totalPaid: isDeferred
+            ? 0
+            : Math.round(((pendingOrder.isPartial ? (Number(pendingOrder.amountPaid) || 0) : (Number(amount) || 0)) * lineShare) * 100) / 100,
+          discount: Math.round((Number(discountAmount) || 0) * lineShare * 100) / 100,
+          seatNumber: tSeatLabel,
+          selectedSeats: seatIds || [],
+          attendeeName: customerDetails.name,
+          attendeeEmail: customerDetails.email,
+          attendeePhone: customerDetails.phone,
+          qrCodeValue: tQr,
+          passSlug: tPassSlug,
+          tierId: line.tierId || "",
+          eventGoogleMapsQuery: eventData.mapsUrl || (eventData as any).eventGoogleMapsQuery || `${venue}, ${city}`,
+          passType: isDeferred ? 'reservation' : (pendingOrder.isPartial ? 'reservation' : 'entry'),
+          paymentStatus: isDeferred ? 'pending' : (pendingOrder.isPartial ? 'partial' : 'paid'),
+          amountDue: isDeferred
+            ? Math.round((Number(amount) || 0) * lineShare * 100) / 100
+            : (pendingOrder.isPartial ? Math.round((Number(pendingOrder.amountDue) || 0) * lineShare * 100) / 100 : 0),
+          status: 'valid',
+          purchasedAt: new Date().toISOString(),
+          ownerId: userId,
+          scannedByStaffId: pendingOrder?.scannedByStaffId || null,
+          createdByStaffId: pendingOrder?.scannedByStaffId || null,
+          shiftId: pendingOrder?.shiftId || null,
+          counterId: pendingOrder?.counterId || null,
+          counterName: pendingOrder?.counterName || null,
+          issuedBySubUserId: pendingOrder?.issuedBySubUserId || null,
+          issuedBySubUserName: pendingOrder?.issuedBySubUserName || null,
+          payments: pendingOrder?.payments || null,
+          paymentMethod: pendingOrder?.paymentMethod || paymentMethod,
+          ...(pendingOrder?.reservationId ? { reservationId: pendingOrder.reservationId } : {}),
+        };
+        createdTicketIds.push(tId);
+        if (li === 0) {
+          ticketId = tId;
+          ticketNum = tNum;
+          newTicket = t;
+          tierName = line.tierName;
+          price = line.price || 0;
+          seatLabel = tSeatLabel;
+        }
+        await rtdbSet(`tickets/${tId}`, t, authToken);
+        await rtdbSet(`users/${userId}/tickets/${tId}`, t, authToken);
+        await rtdbSet(`passes/${tPassId}`, {
+          ticketId: tId,
+          signature: tPassSig,
+          ticketNumber: tNum,
+          eventTitle,
+          eventPoster,
+          venue,
+          city,
+          date,
+          time,
+          tierName: line.tierName,
+          quantity: lineQty,
+          seatNumber: tSeatLabel,
+          attendeeName: customerDetails.name,
+          qrCodeValue: tQr,
+          status: 'valid',
+          passType: isDeferred ? 'reservation' : 'entry',
+          paymentStatus: isDeferred ? 'pending' : 'paid',
+          amountDue: isDeferred ? amount : 0,
+          redeemedAt: null,
+          redeemedBy: null,
+          createdAt: Date.now(),
+          openCount: 0,
+          eventGoogleMapsQuery: eventData.mapsUrl || (eventData as any).eventGoogleMapsQuery || `${venue}, ${city}`,
+        }, authToken);
+      }
+      newBookingRecord = {
+        bookingId,
+        userId,
+        eventId,
+        seatIds: seatIds || [],
+        totalAmount: amount,
+        discount: discountAmount,
+        status: 'confirmed',
+        paymentStatus: isDeferred ? 'pending' : (pendingOrder.isPartial ? 'partial' : 'paid'),
+        amountDue: isDeferred ? amount : (pendingOrder.isPartial ? pendingOrder.amountDue : 0),
+        createdAt: new Date().toISOString(),
+        paymentMethod,
+        attendeeName: customerDetails.name,
+        attendeePhone: customerDetails.phone,
+        attendeeEmail: customerDetails.email,
+        ticketId,
+        ticketIds: createdTicketIds,
+        isWalkIn: paymentMethod.includes('walkin'),
+        issuedBySubUserId: pendingOrder?.issuedBySubUserId || null,
+        issuedBySubUserName: pendingOrder?.issuedBySubUserName || null,
+        ...(pendingOrder?.reservationId ? { reservationId: pendingOrder.reservationId } : {}),
+      };
+      await rtdbSet(`bookings/${bookingId}`, newBookingRecord, authToken);
+      await rtdbSet(`users/${userId}/bookings/${bookingId}`, newBookingRecord, authToken);
+    } else {
+    ticketId = 'tkt_' + Date.now() + '_' + secureRandomHex(8);
+    bookingId = 'bkg_' + Date.now() + '_' + secureRandomHex(4);
+    ticketNum = isDeferred
       ? `ASH-RES-${Math.floor(1000 + Math.random() * 9000)}`
       : `ASH-${Math.floor(1000 + Math.random() * 9000)}-SRV`;
 
     const eventRes = await rtdbGet(`events/${eventId}`, authToken);
     const eventData = eventRes.data || {};
-    const eventTitle = eventData.title || "Live Event";
-    const eventPoster =
+    eventTitle = eventData.title || "Live Event";
+    eventPoster =
       eventData.posterUrl ||
       "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&q=80&w=800";
-    const venue = eventData.venue || "Live Venue";
-    const city = eventData.city || "Mumbai";
-    const date = eventData.date || "Today";
-    const time = eventData.time || "07:30 PM";
-    let tierName = "General";
-    let price = amount / quantity;
+    venue = eventData.venue || "Live Venue";
+    city = eventData.city || "Mumbai";
+    date = eventData.date || "Today";
+    time = eventData.time || "07:30 PM";
+    tierName = "General";
+    price = amount / quantity;
 
     const t = normalizeTiers(eventData.ticketTiers).find((tier: any) => tier.id === tierId);
     if (t) {
@@ -1291,7 +1536,7 @@ async function finalizeBookingServerSide(
       price = t.price;
     }
 
-    let seatLabel = `${tierName} Section`;
+    seatLabel = `${tierName} Section`;
     if (seatIds && seatIds.length > 0) {
       seatLabel = seatIds
         .map((s: string) => {
@@ -1317,7 +1562,7 @@ async function finalizeBookingServerSide(
     const passSig = signHmac(`${passId}|${ticketId}`).substring(0, 16);
     const passSlug = { id: passId, sig: passSig, createdAt: Date.now() };
 
-    const newTicket = {
+    newTicket = {
       id: ticketId,
       ticketNumber: ticketNum,
       eventId,
@@ -1361,7 +1606,7 @@ async function finalizeBookingServerSide(
       ...(pendingOrder?.reservationId ? { reservationId: pendingOrder.reservationId } : {}),
     };
 
-    const newBookingRecord = {
+    newBookingRecord = {
       bookingId,
       userId,
       eventId,
@@ -1434,6 +1679,7 @@ async function finalizeBookingServerSide(
       }
     }
 
+    }
     const processedOrder: any = {
       orderId,
       ticketId,
@@ -1616,7 +1862,13 @@ async function finalizeBookingServerSide(
     // If we failed after inventory was deducted but before final success,
     // attempt to restore it so the count doesn't stay permanently stuck.
     if (inventoryDeducted) {
-      await restoreInventoryTier(authToken, eventId, tierId, quantity).catch(() => {});
+      if (isMultiItemOrder) {
+        for (const line of tierLines) {
+          await restoreInventoryTier(authToken, eventId, line.tierId, line.quantity).catch(() => {});
+        }
+      } else {
+        await restoreInventoryTier(authToken, eventId, tierId, quantity).catch(() => {});
+      }
     }
     await rtdbDelete(`processed_orders/${orderId}`, authToken).catch(() => {});
     console.error("Error finalizing booking server side:", err);
@@ -2576,9 +2828,17 @@ export async function createApp() {
       if (!checkRateLimit(`res:${_rIp}:${_rSid}`, 60 * 1000, 10)) {
         return res.status(429).json({ success: false, error: "Too many reservation requests. Please wait a moment." });
       }
-      const { eventId, tierId, quantity, seatIds, idempotencyKey } = req.body || {};
+      const { eventId, tierId, quantity, seatIds, idempotencyKey, items: rawItems } = req.body || {};
 
-      if (!eventId || !tierId || !quantity) {
+      if (!eventId) {
+        return res.status(400).json({ success: false, error: "Missing eventId." });
+      }
+      // Multi-type purchase: `items` carries one line per ticket type (e.g.
+      // [{tierId: "vip", quantity: 2}, {tierId: "kids", quantity: 3}]). The
+      // server derives the total from the lines; legacy single-tier clients
+      // keep sending tierId + quantity exactly as before.
+      const hasItems = Array.isArray(rawItems) && rawItems.length > 0;
+      if (!tierId || !Number.isInteger(quantity)) {
         return res.status(400).json({ success: false, error: "Missing eventId, tierId, or quantity." });
       }
       if (!Number.isInteger(quantity) || quantity < 1 || quantity > MAX_TICKETS_PER_RESERVATION) {
@@ -2623,6 +2883,45 @@ export async function createApp() {
       }
 
       let normalizedSeats = normalizeSeatIds(seatIds || []);
+      // Multi-type purchases run as general admission — no seat selection.
+      let items: ReservationRecord["items"] = undefined;
+      if (hasItems) {
+        if (eventData.usesSeatMap !== false && Boolean(eventData.seatMap)) {
+          return res.status(400).json({ success: false, error: "Mixed ticket types are only available for general-admission events without seat selection." });
+        }
+        if (normalizedSeats.length > 0) {
+          return res.status(400).json({ success: false, error: "Seat selection is not available with mixed ticket types." });
+        }
+        // Server-side mirror of the client rules; full per-tier validation
+        // happens inside computeReservationQuote (authoritative pricing).
+        if (rawItems.length > 5) {
+          return res.status(400).json({ success: false, error: "A booking can mix at most 5 ticket types." });
+        }
+        const seen = new Set<string>();
+        let itemTotal = 0;
+        const tierList: any[] = normalizeTiers(eventData.ticketTiers);
+        for (const raw of rawItems) {
+          const itId = String(raw?.tierId || "").trim();
+          const itQty = Number(raw?.quantity);
+          if (!itId) return res.status(400).json({ success: false, error: "Each ticket line needs a ticket type." });
+          if (!Number.isInteger(itQty) || itQty < 1) {
+            return res.status(400).json({ success: false, error: "Each ticket type needs a quantity of at least 1." });
+          }
+          if (seen.has(itId)) return res.status(400).json({ success: false, error: "Duplicate ticket types in selection." });
+          seen.add(itId);
+          itemTotal += itQty;
+          if (itemTotal > MAX_TICKETS_PER_RESERVATION) {
+            return res.status(400).json({ success: false, error: `A booking can hold at most ${MAX_TICKETS_PER_RESERVATION} tickets.` });
+          }
+          const dbT = tierList.find((t: any, i: number) => t?.id === itId || (!t?.id && String(i) === itId));
+          if (!dbT) return res.status(400).json({ success: false, error: `Ticket tier "${itId}" is not available for this event.` });
+        }
+        items = rawItems.map((r: any) => ({
+          tierId: String(r.tierId).trim(),
+          tierName: r.tierName ? String(r.tierName) : undefined,
+          quantity: Number(r.quantity),
+        }));
+      }
       if (normalizedSeats.length > 0 && normalizedSeats.length !== quantity) {
         return res.status(400).json({ success: false, error: "Number of selected seats must equal the requested quantity." });
       }
@@ -2631,14 +2930,14 @@ export async function createApp() {
 
       let quoteResult;
       try {
-        quoteResult = computeReservationQuote(eventData, normalizedSeats, quantity, tierId);
+        quoteResult = computeReservationQuote(eventData, normalizedSeats, quantity, tierId, items);
       } catch (e: any) {
         return res.status(400).json({ success: false, error: e.message });
       }
 
-      // Inventory check (tier-level)
+      // Inventory check (tier-level; multi-item lines are checked inside the quote)
       const tier = quoteResult.tier;
-      if (tier && (tier.remainingInventory ?? 0) < quantity) {
+      if (!hasItems && tier && (tier.remainingInventory ?? 0) < quantity) {
         return res.status(409).json({ success: false, error: `Only ${tier.remainingInventory ?? 0} tickets remain in this tier.` });
       }
 
@@ -2680,6 +2979,7 @@ export async function createApp() {
         status: "active",
         createdAt: now,
         expiresAt: now + RESERVATION_HOLD_TTL_MS,
+        ...(items ? { items } : {}),
       };
 
       await rtdbSet(`reservations/${reservationId}`, record, authToken);
@@ -2691,6 +2991,7 @@ export async function createApp() {
         status: record.status,
         seatIds: record.seatIds,
         quantity: record.quantity,
+        ...(record.items ? { items: record.items } : {}),
         expiresAt: record.expiresAt,
         serverNow: now,
         holdTtlMs: RESERVATION_HOLD_TTL_MS,
@@ -2877,6 +3178,10 @@ export async function createApp() {
       if (!eventData) return res.status(404).json({ success: false, error: "Event not found." });
       // Inventory check for the final set (tier-level)
       const tierId = record.tierId;
+      // Multi-type holds cannot be combined with seat selection.
+      if (record.items && record.items.length > 0) {
+        return res.status(400).json({ success: false, error: "Mixed ticket types cannot be combined with seat selection." });
+      }
       let quoteResult;
       try {
         quoteResult = computeReservationQuote(eventData, seatIds, quantity, tierId);
@@ -2983,7 +3288,7 @@ export async function createApp() {
       const eventRes = await rtdbGet(`events/${record.eventId}`, authToken);
       const eventData = eventRes.data;
       if (!eventData) return res.status(404).json({ success: false, error: "Event no longer available." });
-      const quoteResult = computeReservationQuote(eventData, record.seatIds, record.quantity, record.tierId);
+      const quoteResult = computeReservationQuote(eventData, record.seatIds, record.quantity, record.tierId, record.items);
       let discountMinor = 0;
       let appliedCoupon: any = null;
       if (couponCode) {
@@ -3037,7 +3342,7 @@ export async function createApp() {
         return res.status(404).json({ success: false, error: "Event no longer available." });
       }
 
-      const quoteResult = computeReservationQuote(eventData, record.seatIds, record.quantity, record.tierId);
+      const quoteResult = computeReservationQuote(eventData, record.seatIds, record.quantity, record.tierId, record.items);
       let discountMinor = 0;
       let appliedCoupon: any = null;
       if (couponCode) {
@@ -3060,6 +3365,7 @@ export async function createApp() {
         tierId: record.tierId,
         seatIds: record.seatIds,
         quantity: record.quantity,
+        ...(record.items ? { items: record.items } : {}),
         couponCode: appliedCoupon ? appliedCoupon.code : null,
         customerDetails,
         userId: owner.ownerId,
@@ -3133,7 +3439,7 @@ export async function createApp() {
         return res.status(404).json({ success: false, error: "Event no longer available." });
       }
 
-      const quoteResult = computeReservationQuote(eventData, record.seatIds, record.quantity, record.tierId);
+      const quoteResult = computeReservationQuote(eventData, record.seatIds, record.quantity, record.tierId, record.items);
       let discountMinor = 0;
       let appliedCoupon: any = null;
       if (couponCode) {
@@ -3156,6 +3462,7 @@ export async function createApp() {
         tierId: record.tierId,
         seatIds: record.seatIds,
         quantity: record.quantity,
+        ...(record.items ? { items: record.items } : {}),
         couponCode: appliedCoupon ? appliedCoupon.code : null,
         customerDetails: record.attendee || {},
         userId: owner.ownerId,
@@ -3230,7 +3537,7 @@ export async function createApp() {
         return res.status(404).json({ success: false, error: "Event no longer available." });
       }
 
-      const quoteResult = computeReservationQuote(eventData, record.seatIds, record.quantity, record.tierId);
+      const quoteResult = computeReservationQuote(eventData, record.seatIds, record.quantity, record.tierId, record.items);
       let discountMinor = 0;
       let appliedCoupon: any = null;
       const couponCode = String(req.body?.couponCode || "").trim();
@@ -3277,6 +3584,7 @@ export async function createApp() {
         tierId: record.tierId,
         seatIds: record.seatIds,
         quantity: record.quantity,
+        ...(record.items ? { items: record.items } : {}),
         couponCode: appliedCoupon ? appliedCoupon.code : null,
         couponDiscountMinor: discountMinor,
         customerDetails: record.attendee || {},

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, CheckCircle2, AlertCircle, Lock, Clock, RefreshCw, ShieldCheck, Ticket, Building2 } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CheckCircle2, AlertCircle, Lock, Clock, RefreshCw, ShieldCheck, Ticket, Building2, FileText, Check } from 'lucide-react';
 import { useBooking, ReservationState, QuoteResult, getSessionId } from '../contexts/BookingContext';
 import { useAuth } from '../contexts/AuthContext';
 import { CountdownTimer } from '../components/CountdownTimer';
@@ -125,7 +125,11 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
     );
   }
 
-  const { event, tier, quantity, selectedSeats } = currentCheckout;
+  const { event, tier, quantity, selectedSeats, items } = currentCheckout;
+  // Multi-type checkout (e.g. 2 VIP + 3 Kids in one transaction): tier is the
+  // primary (first) line and quantity the summed count, so every legacy server
+  // contract keeps working; items carries the full line set for display.
+  const lineItems = Array.isArray(items) && items.length > 0 ? items : null;
   // Admin-controlled: usesSeatMap=false forces general admission even when
   // a seat map is configured on the event.
   const hasSeatMap = isSeatBasedEvent(event);
@@ -134,8 +138,17 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
   const reviewStep = attendeeStep + 1;
   const paymentStep = reviewStep + 1;
 
+  /** Display label: "2 × VIP + 3 × Kids" for mixed bookings, legacy text otherwise. */
+  const ticketSummaryLabel = () => {
+    if (lineItems) {
+      return lineItems.map((it) => `${it.quantity} × ${it.tierName || 'Ticket'}`).join(' + ');
+    }
+    return `${tier.name} • ${quantity} ticket${quantity === 1 ? '' : 's'}`;
+  };
 
-  const originalTotalPrice = tier.price * quantity;
+  const originalTotalPrice = lineItems
+    ? lineItems.reduce((s, it) => s + (it.price ?? 0) * it.quantity, 0)
+    : tier.price * quantity;
   // If the server returned a quote, it is the payment authority (includes coupon).
   const serverSubtotalMinor = quote?.quote.subtotalMinor;
   const serverTotalMinor = quote?.quote.totalMinor;
@@ -649,7 +662,19 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
               <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#D4AF37]/10 text-[#D4AF37] border border-[#D4AF37]/20">{tier.name}</span>
               <h4 className="font-heading font-bold text-base text-white">{event.title}</h4>
               <p className="text-xs text-gray-400">{event.date} • {event.venue}</p>
-              <p className="text-sm font-bold text-[#D4AF37]">{quantity} × {formatINR(tier.price)} = {formatINR(originalTotalPrice)}</p>
+              {lineItems ? (
+                <div className="space-y-1">
+                  {lineItems.map((it) => (
+                    <p key={it.tierId} className="text-xs text-gray-400">
+                      {it.quantity} × {it.tierName || 'Ticket'}{" "}
+                      <span className="font-bold text-gray-200">{formatINR((it.price ?? 0) * it.quantity)}</span>
+                    </p>
+                  ))}
+                  <p className="text-sm font-bold text-[#D4AF37]">Total: {formatINR(originalTotalPrice)}</p>
+                </div>
+              ) : (
+                <p className="text-sm font-bold text-[#D4AF37]">{quantity} × {formatINR(tier.price)} = {formatINR(originalTotalPrice)}</p>
+              )}
             </div>
           </div>
           <button
@@ -810,9 +835,25 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
                   <p className="text-xs text-gray-400">{event.date} • {event.time} • {event.venue}</p>
                 </div>
                 <div className="bg-[#1C1C1C] rounded-2xl p-4 space-y-1">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Tier & Quantity</p>
-                  <p className="font-bold text-white">{tier.name} — {quantity} ticket(s)</p>
-                  <p className="text-xs text-gray-400">{formatINR(tier.price)} per ticket</p>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                    {lineItems ? 'Tickets (Mixed)' : 'Tier & Quantity'}
+                  </p>
+                  {lineItems ? (
+                    <div className="space-y-1">
+                      {lineItems.map((it) => (
+                        <p key={it.tierId} className="font-bold text-white text-xs">
+                          {it.quantity} × {it.tierName || 'Ticket'}{" "}
+                          <span className="text-[#D4AF37]">({formatINR(it.price ?? 0)} each)</span>
+                        </p>
+                      ))}
+                      <p className="text-xs text-gray-400">{quantity} tickets total • {formatINR(originalTotalPrice)} before discount</p>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="font-bold text-white">{tier.name} — {quantity} ticket(s)</p>
+                      <p className="text-xs text-gray-400">{formatINR(tier.price)} per ticket</p>
+                    </>
+                  )}
                 </div>
                 {hasSeatMap && reservation && (reservation.seatIds || []).length > 0 && (
                   <div className="bg-[#1C1C1C] rounded-2xl p-4 space-y-1">
@@ -831,10 +872,19 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
 
               {/* Totals (server-authoritative) */}
               <div className="border-t border-white/10 pt-4 space-y-2 text-xs text-gray-300">
-                <div className="flex justify-between">
-                  <span>{tier.name} × {quantity}</span>
-                  <span className="font-semibold text-white">{formatINR(serverSubtotal)}</span>
-                </div>
+                {lineItems ? (
+                  lineItems.map((it) => (
+                    <div key={it.tierId} className="flex justify-between">
+                      <span>{it.quantity} × {it.tierName || 'Ticket'}</span>
+                      <span className="font-semibold text-white">{formatINR((it.price ?? 0) * it.quantity)}</span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="flex justify-between">
+                    <span>{tier.name} × {quantity}</span>
+                    <span className="font-semibold text-white">{formatINR(serverSubtotal)}</span>
+                  </div>
+                )}
                 <div className="flex justify-between">
                   <span>GST & Service Charge</span>
                   <span className="font-semibold text-emerald-400">INCLUDED</span>
@@ -891,18 +941,76 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
                 )}
               </div>
 
-              {/* Explicit confirmation gate */}
-              <label className="flex items-start gap-3 p-4 rounded-2xl bg-[#1C1C1C] border border-white/10 cursor-pointer select-none">
+              {/* Terms & Conditions — a clearly visible button on this final step */}
+              <div className="border-t border-white/10 pt-4">
+                <div className="rounded-2xl border border-[#D4AF37]/40 bg-[#1C1C1C] p-4 space-y-2.5">
+                  <p className="text-xs font-bold text-white flex items-center gap-2">
+                    <FileText className="w-4 h-4 text-[#D4AF37]" />
+                    Booking Terms & Conditions
+                  </p>
+                  <a
+                    href="/terms"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex w-full sm:w-auto items-center justify-center gap-2 rounded-xl border-2 border-[#D4AF37] bg-[#D4AF37]/15 px-4 py-2.5 text-xs font-bold uppercase tracking-wide text-[#F3E5AB] hover:bg-[#D4AF37] hover:text-black transition-colors cursor-pointer"
+                  >
+                    Read Full Terms & Conditions
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </a>
+                  <p className="text-[11px] text-gray-400">
+                    Opens in a new tab. By confirming below you accept the no-refund booking policy.
+                  </p>
+                </div>
+              </div>
+
+              {/* Confirmation gate — a big, obvious tap-to-proceed control on every screen size.
+                  The whole row is the checkbox target (min 72px tall for touch). */}
+              <label
+                className={`group relative flex items-center gap-3.5 sm:gap-4 w-full min-h-[76px] rounded-2xl border-2 p-4 cursor-pointer select-none transition-all duration-150 active:scale-[0.99] has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[#F3E5AB] has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-[#141414] ${
+                  reviewConfirmed
+                    ? 'border-emerald-400/80 bg-emerald-500/15'
+                    : 'border-[#D4AF37] bg-gradient-to-r from-[#D4AF37]/30 via-[#D4AF37]/10 to-[#1C1C1C] shadow-lg shadow-[#D4AF37]/15 hover:border-[#F3E5AB] hover:from-[#D4AF37]/40'
+                }`}
+              >
                 <input
                   type="checkbox"
                   checked={reviewConfirmed}
                   onChange={(e) => setReviewConfirmed(e.target.checked)}
-                  className="mt-0.5 w-4 h-4 accent-[#D4AF37]"
+                  aria-label="I confirm my ticket booking and accept the booking Terms and Conditions"
+                  className="peer sr-only"
                 />
-                <span className="text-xs text-gray-300 leading-relaxed">
-                  <span className="font-bold text-white">I confirm my selection.</span> I understand the total amount is{' '}
-                  <span className="font-bold text-[#D4AF37]">{formatINR(serverTotal)}</span>, that my seats are held{' '}
-                  <span className="font-bold">{minutesRemaining > 0 ? `${minutesRemaining} min` : 'until'}</span> and will be released if I do not confirm, and that this cannot be refunded by the box office after confirmation except as per the event policy.
+                {/* Proper custom checkbox — large enough to see and tap on mobile */}
+                <span
+                  aria-hidden="true"
+                  className={`flex items-center justify-center w-8 h-8 sm:w-9 sm:h-9 rounded-xl border-2 shrink-0 transition-all duration-200 ${
+                    reviewConfirmed
+                      ? 'border-emerald-400 bg-emerald-400 text-black shadow-md shadow-emerald-400/30'
+                      : 'border-[#D4AF37] bg-black/60 text-transparent group-hover:bg-[#D4AF37]/25 group-active:bg-[#D4AF37]/40'
+                  }`}
+                >
+                  <Check className="w-5 h-5 sm:w-6 sm:h-6 stroke-[3.5]" />
+                </span>
+                <span className="flex-1 min-w-0">
+                  <span className="block font-heading font-bold text-sm sm:text-base text-white leading-snug">
+                    {reviewConfirmed
+                      ? 'Booking confirmed — thank you!'
+                      : 'Tap to confirm my ticket booking'}
+                  </span>
+                  <span className="block text-[11px] sm:text-xs text-gray-300 mt-1 leading-relaxed">
+                    Paying <span className="font-extrabold text-[#F3E5AB]">{formatINR(serverTotal)}</span> • tickets held{' '}
+                    <span className="font-bold text-white">{minutesRemaining > 0 ? `${minutesRemaining} min` : 'until'}</span> •
+                    I accept the booking{' '}
+                    <span className="font-bold text-[#F3E5AB] underline underline-offset-2">Terms & Conditions</span>
+                  </span>
+                </span>
+                <span
+                  className={`shrink-0 rounded-full px-3 py-1 text-[10px] font-extrabold uppercase tracking-wider ${
+                    reviewConfirmed
+                      ? 'bg-emerald-400 text-black'
+                      : 'bg-amber-400 text-black animate-pulse'
+                  }`}
+                >
+                  {reviewConfirmed ? 'Done' : 'Required'}
                 </span>
               </label>
             </div>
@@ -916,7 +1024,10 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
             <Lock className="w-5 h-5" /> Continue to Confirm <ArrowRight className="w-5 h-5" />
           </button>
           {!reviewConfirmed && (
-            <p className="text-center text-[11px] text-gray-500">Check the confirmation box above to continue.</p>
+            <p className="text-center text-xs sm:text-sm font-bold text-amber-300 flex items-center justify-center gap-2 bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-3">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              Tap the gold confirmation box above to proceed to payment
+            </p>
           )}
         </div>
       )}
@@ -929,7 +1040,7 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
             <div className="flex items-center justify-between flex-wrap gap-2">
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Booking</p>
-                <p className="font-bold text-white text-sm">{event.title} • {tier.name} • {quantity} ticket(s)</p>
+                <p className="font-bold text-white text-sm">{event.title} • {ticketSummaryLabel()}</p>
                 {hasSeatMap && reservation && (reservation.seatIds || []).length > 0 && (
                   <p className="text-xs text-[#D4AF37] font-bold mt-0.5">Seats: {seatLabelFor(reservation.seatIds)}</p>
                 )}
@@ -999,6 +1110,30 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
               </div>
             </div>
           )}
+          {/* Terms & Conditions — clearly visible (gold on dark, WCAG AA+ contrast) */}
+          <div className="rounded-2xl border border-white/15 bg-[#1C1C1C] p-4 flex flex-col sm:flex-row items-center justify-center gap-3 text-center">
+            <a
+              href="/terms"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 rounded-xl border-2 border-[#D4AF37] bg-[#D4AF37]/15 px-4 py-2 text-xs font-bold uppercase tracking-wide text-[#F3E5AB] hover:bg-[#D4AF37] hover:text-black transition-colors cursor-pointer"
+            >
+              <FileText className="w-4 h-4" />
+              <span>Read Booking Terms & Conditions</span>
+            </a>
+            <p className="text-[11px] text-gray-300 leading-relaxed">
+              By paying you agree to the booking{" "}
+              <a
+                href="/terms"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-bold text-[#F3E5AB] underline underline-offset-2 hover:text-[#D4AF37] transition-colors"
+              >
+                Terms & Conditions
+              </a>{" "}
+              and the no-refund box office policy.
+            </p>
+          </div>
           <div className="flex items-center justify-center gap-2 text-[11px] text-gray-400 text-center">
             <ShieldCheck className="w-4 h-4 text-emerald-400" />
             <span>Atomic Seat Confirmation • 100% Guaranteed Pass</span>

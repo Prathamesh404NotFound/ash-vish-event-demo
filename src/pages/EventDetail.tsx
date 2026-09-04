@@ -31,11 +31,22 @@ import { formatINR } from '../utils/formatters';
 import { isSeatBasedEvent } from '../lib/seatMap';
 import { useSEO } from '../hooks/useSEO';
 import { generateEventSchema, generateOrganizationSchema } from '../utils/structuredData';
+import { TicketLineItem, sumItemQuantities } from '../lib/ticketItems';
 
 interface EventDetailProps {
   event: EventItem;
   onBack: () => void;
-  onProceedToCheckout: (event: EventItem, tier: TicketTier, quantity: number, selectedSeats?: string[]) => void;
+  /**
+   * items (optional) carries a mixed ticket selection — e.g. 2 VIP + 3 Kids in
+   * one transaction. Legacy single-type flows omit it.
+   */
+  onProceedToCheckout: (
+    event: EventItem,
+    tier: TicketTier,
+    quantity: number,
+    selectedSeats?: string[],
+    items?: TicketLineItem[]
+  ) => void;
   onSelectEvent: (event: EventItem) => void;
 }
 
@@ -80,8 +91,57 @@ export const EventDetail: React.FC<EventDetailProps> = ({
   );
   const selectedTier = ticketTiers.find((t) => t.id === selectedTierId);
   const [quantity, setQuantity] = useState(1);
+  // Multi-type selection (general-admission events only): tierId -> quantity.
+  // Lets one transaction mix ticket types, e.g. 2 VIP + 3 Kids.
+  const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(0);
   const [allCounters, setAllCounters] = useState<PublicCounter[]>([]);
+
+  // Mixed bookings are reserved for general-admission events (no seat map) with
+  // more than one ticket type; seat-based and single-type events keep the
+  // classic single-tier flow below.
+  const multiMode =
+    ticketTiers.length > 1 && !isSeatBasedEvent(event);
+
+  // Reset the mixed selection whenever the event changes.
+  React.useEffect(() => {
+    setQuantities({});
+    setQuantity(1);
+  }, [event.id]);
+
+  /** Add/remove a tier quantity with shared caps (per line and overall). */
+  const changeQty = (tierId: string, next: number) => {
+    setQuantities((prev) => {
+      const cur = prev[tierId] || 0;
+      let currentTotal = 0;
+      for (const k of Object.keys(prev)) currentTotal += prev[k] || 0;
+      const tier = ticketTiers.find((t) => t.id === tierId);
+      let clamped = Math.max(0, Math.floor(next));
+      if (tier) {
+        clamped = Math.min(clamped, tier.remainingInventory ?? 0);
+      }
+      clamped = Math.min(clamped, 6); // per line, matches the classic stepper cap
+      const overage = currentTotal - cur + clamped - 10; // 10 tickets max per booking (server cap)
+      if (overage > 0) clamped = Math.max(0, clamped - overage);
+      if (clamped === cur) return prev;
+      const nxt = { ...prev };
+      if (clamped <= 0) delete nxt[tierId];
+      else nxt[tierId] = clamped;
+      return nxt;
+    });
+  };
+
+  // Derived mixed selection: one line per tier with a quantity above zero.
+  const selectedLines: TicketLineItem[] = ticketTiers
+    .filter((t) => (quantities[t.id] ?? 0) > 0)
+    .map((t) => ({
+      tierId: t.id,
+      tierName: t.name,
+      price: t.price,
+      quantity: quantities[t.id],
+    }));
+  const totalSelectedTickets = sumItemQuantities(selectedLines);
+  const totalSelectedAmount = selectedLines.reduce((s, l) => s + (l.price ?? 0) * l.quantity, 0);
 
   React.useEffect(() => {
     const fetchCounters = async () => {
@@ -110,6 +170,15 @@ export const EventDetail: React.FC<EventDetailProps> = ({
   const similarEvents = events.filter((e) => e.category === event.category && e.id !== event.id);
 
   const handleBookNow = () => {
+    if (multiMode) {
+      if (selectedLines.length === 0) return;
+      // Primary tier = first selected line; items carries the full mixed set.
+      const primaryTier = ticketTiers.find((t) => t.id === selectedLines[0].tierId) || ticketTiers[0];
+      if (!primaryTier) return;
+      // General admission: seat selection is skipped entirely.
+      onProceedToCheckout(event, primaryTier, totalSelectedTickets, [], selectedLines);
+      return;
+    }
     // Use the selected tier, or fall back to the first tier
     const tierToBook = selectedTier || ticketTiers[0];
     if (!tierToBook) {
@@ -421,6 +490,23 @@ export const EventDetail: React.FC<EventDetailProps> = ({
                   }`}>
                     {ticketTiers.map((tier) => {
                       const isVip = tier.name.toLowerCase().includes('vip');
+                      if (multiMode) {
+                        // Multi-type mode: each card carries an add-to-booking
+                        // stepper so the user can mix VIP, VVIP and Kids passes
+                        // into a single checkout.
+                        return (
+                          <TicketCard
+                            key={tier.id}
+                            tier={tier}
+                            isVip={isVip}
+                            isPopular={tier.popular}
+                            selectedTierId={undefined}
+                            onSelect={() => {}}
+                            quantity={quantities[tier.id] || 0}
+                            onQuantityChange={(t, n) => changeQty(t.id, n)}
+                          />
+                        );
+                      }
                       return (
                         <TicketCard
                           key={tier.id}
@@ -722,9 +808,91 @@ export const EventDetail: React.FC<EventDetailProps> = ({
                     : 'Please visit the venue ticket counter for ticket purchasing and gate entry.'}
                 </p>
               </div>
-            ) : (
-              <>
-                {/* Selected Ticket Summary */}
+          ) : multiMode ? (
+            <>
+              {/* Multi-type Selection Summary (general admission — mix ticket types) */}
+              <div className="border-b border-white/10 pb-4">
+                <span className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold block">
+                  Your Selection — Mix & Match
+                </span>
+                {selectedLines.length === 0 ? (
+                  <p className="text-xs text-gray-400 mt-2 leading-relaxed">
+                    Use the + buttons on the ticket cards to add passes — you can book VIP, VVIP and Kids
+                    tickets together in a single checkout.
+                  </p>
+                ) : (
+                  <div className="mt-3 space-y-2.5">
+                    {selectedLines.map((line) => (
+                      <div key={line.tierId} className="flex items-center justify-between gap-2 text-xs">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="px-2 py-0.5 rounded-md bg-[#D4AF37]/10 text-[#D4AF37] border border-[#D4AF37]/25 font-bold text-[10px] uppercase tracking-wider shrink-0">
+                            {line.tierName || 'Ticket'}
+                          </span>
+                          <span className="text-gray-300 font-semibold truncate">
+                            {line.quantity} × {formatINR(line.price ?? 0)}
+                          </span>
+                        </div>
+                        <span className="flex items-center gap-2 shrink-0">
+                          <span className="font-bold text-white">{formatINR((line.price ?? 0) * line.quantity)}</span>
+                          <button
+                            type="button"
+                            aria-label={`Remove ${line.tierName || 'ticket'} from booking`}
+                            onClick={() => changeQty(line.tierId, 0)}
+                            className="w-6 h-6 rounded-md bg-[#1C1C1C] hover:bg-red-500/20 border border-white/10 text-gray-400 hover:text-red-400 flex items-center justify-center transition-colors cursor-pointer"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Multi-type totals */}
+              <div className="space-y-2 text-xs text-gray-300">
+                <div className="flex justify-between items-center">
+                  <span className="font-heading font-bold text-sm text-white">
+                    Total ({totalSelectedTickets} {totalSelectedTickets === 1 ? 'ticket' : 'tickets'})
+                  </span>
+                  <span className="font-heading font-extrabold text-2xl text-[#D4AF37]">
+                    {formatINR(totalSelectedAmount)}
+                  </span>
+                </div>
+                <p className="text-[10px] text-gray-400">
+                  GST & service charges included. One QR gate pass is issued per ticket.
+                </p>
+              </div>
+
+              {/* Book Now Button (multi-type) */}
+              <button
+                onClick={handleBookNow}
+                disabled={totalSelectedTickets === 0 || isLoadingTickets}
+                className={`
+                  w-full py-4 rounded-2xl font-extrabold text-base flex items-center justify-center gap-2 shadow-xl transition-all
+                  ${isLoadingTickets || totalSelectedTickets === 0
+                    ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
+                    : 'bg-gradient-to-r from-[#F3E5AB] via-[#D4AF37] to-[#C5A059] hover:brightness-110 text-black hover:scale-[1.02] active:scale-[0.98] shadow-[#D4AF37]/20'
+                  }
+                `}
+              >
+                <Ticket className="w-5 h-5 stroke-[2.5]" />
+                <span>
+                  {isLoadingTickets
+                    ? 'Loading Tickets...'
+                    : totalSelectedTickets === 0
+                      ? 'Select Tickets Above'
+                      : `Book ${totalSelectedTickets} ${totalSelectedTickets === 1 ? 'Ticket' : 'Tickets'} — ${formatINR(totalSelectedAmount)}`}
+                </span>
+              </button>
+
+              <p className="text-[11px] text-gray-400 text-center flex items-center justify-center gap-1">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> Instant QR Pass Confirmation
+              </p>
+            </>
+          ) : (
+            <>
+              {/* Selected Ticket Summary */}
                 <div className="border-b border-white/10 pb-4">
                   <span className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold block">
                     Selected Ticket

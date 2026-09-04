@@ -163,8 +163,8 @@ function EventDetailRoute() {
     <EventDetail
       event={event}
       onBack={() => navigate('/')}
-      onProceedToCheckout={(evt, tier, quantity, selectedSeats) => {
-        selectTicketsForCheckout(evt, tier, quantity, selectedSeats);
+      onProceedToCheckout={(evt, tier, quantity, selectedSeats, items) => {
+        selectTicketsForCheckout(evt, tier, quantity, selectedSeats, items);
         navigate('/checkout');
       }}
       onSelectEvent={(evt) => navigate(`/events/${evt.id}`)}

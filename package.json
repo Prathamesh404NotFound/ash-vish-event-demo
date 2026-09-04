@@ -14,7 +14,8 @@
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
     "test:smoke": "tsx scripts/smoke-test.ts",
-    "test:seat-selection": "tsx scripts/test-contiguous-seat-selection.ts"
+    "test:seat-selection": "tsx scripts/test-contiguous-seat-selection.ts",
+    "test:multi-type": "tsx scripts/test-multi-type-tickets.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
