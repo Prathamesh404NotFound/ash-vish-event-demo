@@ -991,6 +991,68 @@ async function recordOrder(params: {
 }
 
 /**
+ * Attempt to reconstruct an order record from tickets/bookings when the
+ * canonical orders/<orderId> path is missing (e.g. recordOrder failed).
+ */
+async function reconstructOrderFromTickets(orderId: string, authToken: string): Promise<Record<string, any> | null> {
+  try {
+    const [ticketsSnap, bookingsSnap] = await Promise.all([
+      rtdbGet("tickets", authToken),
+      rtdbGet("bookings", authToken),
+    ]);
+    const allTickets = Object.values((ticketsSnap.data || {}) as Record<string, any>);
+    const allBookings = Object.values((bookingsSnap.data || {}) as Record<string, any>);
+    const linkedTicket = allTickets.find((t: any) => t.orderId === orderId);
+    if (!linkedTicket) return null;
+    const linkedBooking = allBookings.find((b: any) => b.orderId === orderId || b.bookingId === linkedTicket.bookingId);
+    const isWalkIn = String(linkedTicket.paymentMethod || "").startsWith("walkin");
+    const quantity = Number(linkedTicket.quantity || 1) || 1;
+    const order = {
+      orderId,
+      eventId: linkedTicket.eventId || linkedBooking?.eventId || null,
+      tierId: linkedTicket.tierId || "",
+      seatIds: linkedTicket.selectedSeats || [],
+      quantity,
+      customerDetails: {
+        name: linkedTicket.attendeeName || linkedBooking?.attendeeName || "",
+        email: linkedTicket.attendeeEmail || linkedBooking?.attendeeEmail || "",
+        phone: linkedTicket.attendeePhone || linkedBooking?.attendeePhone || "",
+      },
+      amount: Number(linkedTicket.totalPaid || 0) || Number(linkedBooking?.totalAmount || 0) || 0,
+      discount: Number(linkedTicket.discount || 0) || Number(linkedBooking?.discount || 0) || 0,
+      couponCode: null,
+      paymentMethod: linkedTicket.paymentMethod || linkedBooking?.paymentMethod || "",
+      paymentStatus: "paid",
+      amountDue: 0,
+      channel: isWalkIn ? "counter" : "online",
+      status: "confirmed",
+      refundReason: null,
+      refundAmount: null,
+      ticketId: linkedTicket.id || null,
+      bookingId: linkedBooking?.bookingId || linkedTicket.bookingId || null,
+      eventTitle: linkedTicket.eventTitle || null,
+      tierName: linkedTicket.tierName || null,
+      ticketNumber: linkedTicket.ticketNumber || null,
+      seatLabels: linkedTicket.selectedSeats || (linkedTicket.seatNumber ? [linkedTicket.seatNumber] : []),
+      counterName: linkedTicket.counterName || linkedBooking?.counterName || null,
+      issuedBySubUserName: linkedTicket.issuedBySubUserName || linkedBooking?.issuedBySubUserName || null,
+      shiftId: linkedTicket.shiftId || linkedBooking?.shiftId || null,
+      counterId: linkedTicket.counterId || linkedBooking?.counterId || null,
+      createdBy: linkedTicket.scannedByStaffId || linkedTicket.createdByStaffId || "system",
+      createdAt: linkedTicket.purchasedAt || linkedBooking?.createdAt || new Date().toISOString(),
+      _reconstructed: true,
+    };
+    await rtdbSet(`orders/${orderId}`, order, authToken).catch(() => {});
+    console.log(`[ORDERS] Reconstructed order ${orderId} from ticket ${linkedTicket.id}`);
+    return order;
+  } catch (err: any) {
+    console.error("[ORDERS] reconstructOrderFromTickets failed:", err?.message || err);
+    return null;
+  }
+}
+
+
+/**
  * Normalize ticket tiers regardless of RTDB storage shape.
  * RTDB may store tiers as an object map with numeric keys (entries without an `id`),
  * possibly alongside id-bearing entries (duplicates). Returns a stable array keyed by `id`,
@@ -1720,7 +1782,17 @@ async function finalizeBookingServerSide(
         issuedBySubUserId: pendingOrder?.issuedBySubUserId || null,
         issuedBySubUserName: pendingOrder?.issuedBySubUserName || null,
         scannedByStaffId: pendingOrder?.scannedByStaffId || null,
-      }).catch(() => {});
+      }).catch((recErr: any) => {
+        console.error("[ORDERS] Canonical order record write failed for", orderId, recErr?.message || recErr);
+        rtdbSet(`deferred_orders/${orderId}`, {
+          orderId, eventId, tierId: tierId || "", ticketId, bookingId,
+          amount, quantity, paymentMethod,
+          channel: isWalkInChannel ? "counter" : "online",
+          customerDetails: customerDetails || {}, seatIds: seatIds || [],
+          createdAt: new Date().toISOString(),
+          error: String(recErr?.message || recErr).slice(0, 500),
+        }, authToken).catch(() => {});
+      });
 
     // Confirmation email (Prompt B Item 6): send on order confirmation. When
     // SMTP is not configured, the mail helper records the send in the
@@ -5656,14 +5728,67 @@ export async function createApp() {
     }
   });
 
+
+  // GET single order by ID — serves both canonical orders/ records and
+  // reconstructed records from tickets/bookings for walk-in orders whose
+  // recordOrder() write failed.
+  app.get("/api/admin/orders/:orderId", requireRole(["super_admin", "event_manager", "counter_staff"]), async (req: any, res) => {
+    try {
+      const { orderId } = req.params;
+      if (!orderId || typeof orderId !== "string" || orderId.length > 200) {
+        return res.status(400).json({ success: false, error: "Invalid order ID." });
+      }
+      const adminToken = await getAdminAuthToken();
+      let orderSnap = await rtdbGet(`orders/${orderId}`, adminToken);
+      let order = orderSnap.data as any;
+      if (!order) {
+        order = await reconstructOrderFromTickets(orderId, adminToken);
+      }
+      if (!order) {
+        const pendingSnap = await rtdbGet(`pending_orders/${orderId}`, adminToken);
+        if (pendingSnap.data) {
+          order = { ...pendingSnap.data, status: "pending", orderId };
+        }
+      }
+      if (!order) {
+        const processedSnap = await rtdbGet(`processed_orders/${orderId}`, adminToken);
+        if (processedSnap.data?.ticket) {
+          const t = processedSnap.data.ticket;
+          const isWalkIn = String(t.paymentMethod || "").startsWith("walkin");
+          order = {
+            orderId, eventId: t.eventId, tierId: t.tierId || "",
+            ticketId: t.id, bookingId: t.bookingId,
+            quantity: Number(t.quantity || 1) || 1,
+            customerDetails: { name: t.attendeeName || "", email: t.attendeeEmail || "", phone: t.attendeePhone || "" },
+            amount: Number(t.totalPaid || 0), paymentMethod: t.paymentMethod || "",
+            paymentStatus: t.paymentStatus || "paid",
+            channel: isWalkIn ? "counter" : "online", status: "confirmed",
+            ticketNumber: t.ticketNumber, tierName: t.tierName, createdAt: t.purchasedAt,
+            _reconstructed: true,
+          };
+          await rtdbSet(`orders/${orderId}`, order, adminToken).catch(() => {});
+        }
+      }
+      if (!order) {
+        return res.status(404).json({ success: false, error: "Order not found." });
+      }
+      return res.json({ success: true, order });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   // -- Item 4: edit order (seat/customer changes with locking) ---------------
   app.put("/api/admin/orders/:orderId", requireRole(["super_admin", "event_manager", "counter_staff"]), async (req: any, res) => {
     try {
       const { orderId } = req.params;
       const adminToken = await getAdminAuthToken();
-      const orderSnap = await rtdbGet(`orders/${orderId}`, adminToken);
-      const order = orderSnap.data as any;
-      if (!order) return res.status(404).json({ success: false, error: "Order not found." });
+      let orderSnap = await rtdbGet(`orders/${orderId}`, adminToken);
+      let order = orderSnap.data as any;
+      if (!order) {
+        order = await reconstructOrderFromTickets(orderId, adminToken);
+      }
+      if (!order) return res.status(404).json({ success: false, error: "Order not found. The ticket may exist but the order record could not be located." });
       if (order.status !== "confirmed") return res.status(400).json({ success: false, error: `Order cannot be edited (status: ${order.status}).` });
 
       const {
