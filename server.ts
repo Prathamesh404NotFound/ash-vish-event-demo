@@ -9053,6 +9053,174 @@ app.delete("/api/admin/counters/:counterId", requireRole(["super_admin"]), async
   }
 });
 
+
+  // ─── PUBLIC TICKET VERIFICATION (no auth) ───────────────────────────────
+  // Allows anyone to verify a ticket by number — returns validity, usage
+  // status, and basic event info. No authentication required.
+  app.get("/api/public/verify-ticket", async (req: any, res) => {
+    try {
+      const { ticketNumber } = req.query || {};
+      if (!ticketNumber || typeof ticketNumber !== "string") {
+        return res.status(400).json({ success: false, error: "ticketNumber parameter is required." });
+      }
+      const adminToken = await getAdminAuthToken();
+      const ticketsSnap = await rtdbGet("tickets", adminToken);
+      const allTickets = Object.values((ticketsSnap.data || {}) as Record<string, any>);
+      const trimmed = ticketNumber.trim().toLowerCase();
+      const matched = allTickets.find(
+        (t: any) => String(t.ticketNumber || "").toLowerCase() === trimmed
+      );
+      if (!matched) {
+        return res.status(404).json({ success: false, error: "Ticket not found.", valid: false });
+      }
+      const isUsed = matched.status === "redeemed" || matched.redeemedAt;
+      return res.json({
+        success: true,
+        valid: true,
+        used: isUsed,
+        ticketNumber: matched.ticketNumber,
+        eventTitle: matched.eventTitle || null,
+        venue: matched.venue || null,
+        date: matched.date || null,
+        time: matched.time || null,
+        tierName: matched.tierName || null,
+        attendeeName: matched.attendeeName || null,
+        quantity: matched.quantity || 1,
+        seatNumber: matched.seatNumber || null,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || "Verification failed." });
+    }
+  });
+
+  // ─── PUBLIC ICS DOWNLOAD ─────────────────────────────────────────────────
+  // Generates a downloadable .ics calendar file for an event.
+  app.get("/api/public/events/:eventId/ics", async (req: any, res) => {
+    try {
+      const { eventId } = req.params;
+      if (!eventId) return res.status(400).json({ success: false, error: "eventId required." });
+      const adminToken = await getAdminAuthToken();
+      const eventSnap = await rtdbGet(`events/${eventId}`, adminToken);
+      const event = eventSnap.data as any;
+      if (!event) return res.status(404).json({ success: false, error: "Event not found." });
+
+      // Parse date + time into ICS format
+      const eventDate = event.date || "";
+      const eventTime = event.time || "19:30";
+      const title = String(event.title || "Event").replace(/[,;\\]/g, "\$&");
+      const venue = String(event.venue || "").replace(/[,;\\]/g, "\$&");
+      const city = String(event.city || "").replace(/[,;\\]/g, "\$&");
+      const description = String(event.description || "").replace(/[,;\\]/g, "\$&").replace(/\n/g, "\\n");
+      const mapsUrl = event.mapsUrl || `https://www.google.com/maps/search/${encodeURIComponent(venue + ", " + city)}`;
+
+      // Try to parse date string (e.g. "2026-09-15" or "15 Sep 2026")
+      let dtStart = "";
+      try {
+        const d = new Date(eventDate + " " + eventTime);
+        if (!isNaN(d.getTime())) {
+          dtStart = d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+        }
+      } catch {}
+      const dtEnd = dtStart ? new Date(new Date(dtStart).getTime() + 3 * 3600 * 1000).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "") : "";
+
+      const ics = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//Ash-vish Events//EN",
+        "CALSCALE:GREGORIAN",
+        "METHOD:PUBLISH",
+        "BEGIN:VEVENT",
+        dtStart ? `DTSTART:${dtStart}` : "",
+        dtEnd ? `DTEND:${dtEnd}` : "",
+        `SUMMARY:${title}`,
+        `LOCATION:${venue}, ${city}`,
+        `DESCRIPTION:${description}\\n\\nGet tickets: https://ashvishevents.com/events/${eventId}`,
+        `URL:https://ashvishevents.com/events/${eventId}`,
+        "STATUS:CONFIRMED",
+        `UID:${eventId}@ashvishevents.com`,
+        "END:VEVENT",
+        "END:VCALENDAR",
+      ].filter(Boolean).join("\r\n");
+
+      res.setHeader("Content-Type", "text/calendar; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="${title.replace(/[^a-zA-Z0-9]/g, "_")}.ics"`);
+      return res.send(ics);
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+
+  // ─── LIVE CHECK-IN DASHBOARD (admin) ────────────────────────────────────
+  // Returns real-time gate scan counts vs tickets sold for an event.
+  app.get("/api/admin/checkin-dashboard", requireRole(["super_admin", "event_manager", "counter_staff"]), async (req: any, res) => {
+    try {
+      const { eventId } = req.query || {};
+      if (!eventId) return res.status(400).json({ success: false, error: "eventId required." });
+      const adminToken = await getAdminAuthToken();
+      const [ticketsSnap, eventSnap] = await Promise.all([
+        rtdbGet("tickets", adminToken),
+        rtdbGet(`events/${eventId}`, adminToken),
+      ]);
+      const event = eventSnap.data as any;
+      const allTickets = Object.values((ticketsSnap.data || {}) as Record<string, any>);
+      const eventTickets = allTickets.filter(
+        (t: any) => t.eventId === eventId && t.status !== "deleted"
+      );
+
+      let totalQuantity = 0;
+      let checkedInQuantity = 0;
+      let checkedIn = 0;
+      const recentScans: any[] = [];
+      const tierMap = new Map<string, { total: number; checkedIn: number }>();
+
+      for (const ticket of eventTickets) {
+        const qty = Number(ticket.quantity || 1) || 1;
+        totalQuantity += qty;
+        const isScanned = ticket.status === "redeemed" || ticket.redeemedAt;
+        if (isScanned) {
+          checkedIn++;
+          checkedInQuantity += qty;
+          recentScans.push({
+            ticketNumber: ticket.ticketNumber,
+            attendeeName: ticket.attendeeName || "",
+            scannedAt: ticket.redeemedAt || ticket.updatedAt || "",
+            tierName: ticket.tierName || "General",
+          });
+        }
+        const tierName = ticket.tierName || "General";
+        const existing = tierMap.get(tierName) || { total: 0, checkedIn: 0 };
+        existing.total += qty;
+        if (isScanned) existing.checkedIn += qty;
+        tierMap.set(tierName, existing);
+      }
+
+      recentScans.sort((a: any, b: any) => String(b.scannedAt).localeCompare(String(a.scannedAt)));
+
+      return res.json({
+        success: true,
+        data: {
+          eventId,
+          eventTitle: event?.title || "Unknown Event",
+          totalTickets: eventTickets.length,
+          totalQuantity,
+          checkedIn,
+          checkedInQuantity,
+          remaining: totalQuantity - checkedInQuantity,
+          checkInRate: totalQuantity > 0 ? checkedInQuantity / totalQuantity : 0,
+          lastScanAt: recentScans[0]?.scannedAt || null,
+          recentScans: recentScans.slice(0, 50),
+          byTier: Array.from(tierMap.entries()).map(([tierName, counts]) => ({
+            tierName,
+            ...counts,
+          })),
+        },
+      });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   app.get(["/sitemap.xml", "/public/sitemap.xml", "/public/sitemap"], (req, res) => {
     res.setHeader("Content-Type", "application/xml; charset=utf-8");
     const publicPath = path.join(process.cwd(), "public", "sitemap.xml");

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { Ticket, ShieldCheck, LayoutDashboard, Calendar, Users, QrCode, Settings, ArrowLeft, Tag, MessageSquare, Armchair, Building2, BarChart3, UserCheck, Clock, ChevronLeft, ChevronRight, Menu, X } from 'lucide-react';
+import { Ticket, ShieldCheck, LayoutDashboard, Calendar, Users, QrCode, Settings, ArrowLeft, Tag, MessageSquare, Armchair, Building2, BarChart3, UserCheck, Clock, ChevronLeft, ChevronRight, Menu, X, Activity } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 export const AdminLayoutPage: React.FC = () => {
@@ -24,6 +24,7 @@ export const AdminLayoutPage: React.FC = () => {
     { title: 'Reports', path: '/admin/reports', icon: BarChart3 },
     { title: 'Reviews', path: '/admin/reviews', icon: MessageSquare },
     { title: 'Scanner', path: '/admin/scan', icon: QrCode },
+    { title: 'Check-in Dashboard', path: '/admin/checkin', icon: Activity },
     { title: 'Counters', path: '/admin/counters', icon: Armchair, superAdminOnly: true },
     { title: 'Settings', path: '/admin/settings', icon: Settings },
   ].filter((item) => !item.superAdminOnly || isSuperAdmin);

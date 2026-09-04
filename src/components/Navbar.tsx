@@ -19,6 +19,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useBooking } from '../contexts/BookingContext';
 import { useRoleAuth } from '../hooks/useRoleAuth';
 import { UserAvatar } from './UserAvatar';
+import { LanguageToggle } from './LanguageToggle';
 
 interface NavbarProps {
   onOpenSearch?: () => void;
@@ -121,6 +122,11 @@ export const Navbar: React.FC<NavbarProps> = React.memo(({ onOpenSearch }) => {
 
             {/* Right Actions */}
             <div className="flex items-center gap-2 shrink-0">
+              {/* Language Toggle */}
+              <div className="hidden sm:block">
+                <LanguageToggle />
+              </div>
+
               {/* Search */}
               {onOpenSearch && (
                 <button

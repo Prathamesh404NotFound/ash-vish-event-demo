@@ -1,21 +1,47 @@
 {
-  "name": "Ash-vish Events",
+  "name": "Ash-vish Events — Premium Ticketing",
   "short_name": "AshEvents",
-  "description": "Premium Concert & Event Ticket Booking with Live QR Scanning and Seat Maps",
+  "description": "Premium Concert & Event Ticket Booking with Live QR Scanning, Digital Passes, and Gate Entry",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#070707",
   "theme_color": "#D4AF37",
+  "orientation": "any",
+  "categories": ["entertainment", "events", "tickets"],
+  "lang": "en",
+  "dir": "ltr",
+  "scope": "/",
+  "prefer_related_applications": false,
   "icons": [
     {
       "src": "/favicon-192.png",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
     },
     {
       "src": "/favicon-512.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [],
+  "shortcuts": [
+    {
+      "name": "Browse Events",
+      "url": "/events",
+      "icons": [{ "src": "/favicon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Verify Ticket",
+      "url": "/verify",
+      "icons": [{ "src": "/favicon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "My Tickets",
+      "url": "/account/tickets",
+      "icons": [{ "src": "/favicon-192.png", "sizes": "192x192" }]
     }
   ]
 }

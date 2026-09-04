@@ -17,6 +17,7 @@ import {
   Building2,
   HelpCircle,
   Phone,
+  ShieldCheck,
   ExternalLink,
   Image,
 } from 'lucide-react';
@@ -1030,6 +1031,72 @@ export const EventDetail: React.FC<EventDetailProps> = ({
         </div>
       )}
 
+      {/* ICS Download + Verify Ticket */}
+      <div className="flex flex-wrap gap-3">
+        <a
+          href={`/api/public/events/${event.id}/ics`}
+          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-gray-300 text-xs font-bold hover:bg-white/10 transition-all"
+          download
+        >
+          <Calendar className="w-3.5 h-3.5" />
+          Add to Calendar
+        </a>
+        <a
+          href="/verify"
+          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-gray-300 text-xs font-bold hover:bg-white/10 transition-all"
+        >
+          <ShieldCheck className="w-3.5 h-3.5" />
+          Verify Ticket
+        </a>
+      </div>
+
+      {/* Per-Event JSON-LD Structured Data */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify({
+            '@context': 'https://schema.org',
+            '@type': 'Event',
+            name: event.title,
+            description: event.description,
+            image: event.posterUrl || event.coverUrl,
+            startDate: event.date && event.time ? `${event.date}T${event.time}` : event.date,
+            eventStatus: event.status === 'published' ? 'https://schema.org/EventScheduled' : 'https://schema.org/EventCancelled',
+            eventAttendanceMode: 'https://schema.org/OfflineEventAttendanceMode',
+            location: {
+              '@type': 'Place',
+              name: event.venue,
+              address: {
+                '@type': 'PostalAddress',
+                addressLocality: event.city,
+                addressRegion: 'Maharashtra',
+                addressCountry: 'IN',
+              },
+            },
+            organizer: {
+              '@type': 'Organization',
+              name: event.organizer || event.organizerName || 'Ash-vish Events',
+              url: 'https://ashvishevents.com',
+            },
+            performer: (event.artists || []).map((a: any) => ({
+              '@type': 'Person',
+              name: a.name,
+              jobTitle: a.role,
+              image: a.image,
+            })),
+            offers: (event.ticketTiers || []).map((tier: any) => ({
+              '@type': 'Offer',
+              name: tier.name,
+              price: tier.price,
+              priceCurrency: 'INR',
+              availability: tier.remainingInventory > 0 ? 'https://schema.org/InStock' : 'https://schema.org/SoldOut',
+              url: `https://ashvishevents.com/events/${event.id}`,
+            })),
+            inLanguage: 'hi',
+            isAccessibleForFree: false,
+          }),
+        }}
+      />
     </div>
   );
 };

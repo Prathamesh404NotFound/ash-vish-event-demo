@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, useNavigate, useParams, Outlet 
 import { AuthProvider } from './contexts/AuthContext';
 import { BookingProvider, useBooking } from './contexts/BookingContext';
 import { ToastProvider } from './contexts/ToastContext';
+import { LocaleProvider } from './contexts/LocaleContext';
 import { Navbar } from './components/Navbar';
 import { Footer } from './components/Footer';
 import { RoleRoute } from './components/RoleRoute';
@@ -78,6 +79,13 @@ const ShiftPage = lazyWithRetry(() => import('./pages/counter/ShiftPage').then(m
 const CounterOrders = lazyWithRetry(() => import('./pages/counter/CounterOrders').then(m => ({ default: m.CounterOrders })));
 const MySalesPage = lazyWithRetry(() => import('./pages/counter/MySalesPage').then(m => ({ default: m.MySalesPage })));
 import { readPreferredStoredActiveShift } from './lib/counterSession';
+
+// New Feature Pages (lazy-loaded)
+const VerifyTicketPage = lazyWithRetry(() => import('./pages/VerifyTicketPage').then(m => ({ default: m.VerifyTicketPage })));
+const CategoryLandingPage = lazyWithRetry(() => import('./pages/CategoryLandingPage').then(m => ({ default: m.CategoryLandingPage })));
+const FestivalHubPage = lazyWithRetry(() => import('./pages/FestivalHubPage').then(m => ({ default: m.FestivalHubPage })));
+const AdminCheckinDashboard = lazyWithRetry(() => import('./pages/admin/AdminCheckinDashboard').then(m => ({ default: m.AdminCheckinDashboard })));
+import { PWAInstallPrompt, registerServiceWorker } from './components/PWAInstallPrompt';
 
 // Retry helper for lazy imports — when a chunk hash is stale after deploy,
 // the old file no longer exists. Retry once with a cache-busting query so
@@ -263,11 +271,15 @@ function SuspenseWrapper({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
+  // Register service worker on mount
+  React.useEffect(() => { registerServiceWorker(); }, []);
+
   return (
     <ErrorBoundary>
     <ToastProvider>
     <AuthProvider>
       <BookingProvider>
+        <LocaleProvider>
         <BrowserRouter>
           <HashPassRedirectHandler />
           <SuspenseWrapper>
@@ -295,6 +307,19 @@ export default function App() {
               <Route path="terms" element={<TermsPage />} />
               <Route path="payment/phonepe/return" element={<PaymentCallbackPage />} />
               <Route path="payment-callback" element={<PaymentCallbackPage />} />
+              <Route path="verify" element={<VerifyTicketPage />} />
+              <Route path="verify/:ticketNumber" element={<VerifyTicketPage />} />
+
+              {/* Category Landing Pages for SEO */}
+              <Route path="concerts-in-kolhapur" element={<CategoryLandingPage />} />
+              <Route path="comedy-shows-kolhapur" element={<CategoryLandingPage />} />
+              <Route path="ganeshotsav-events" element={<CategoryLandingPage />} />
+              <Route path="sports-events-kolhapur" element={<CategoryLandingPage />} />
+              <Route path="theatre-plays-kolhapur" element={<CategoryLandingPage />} />
+              <Route path="navratri-events-kolhapur" element={<CategoryLandingPage />} />
+
+              {/* Festival Season Hubs */}
+              <Route path="festival/:festivalId" element={<FestivalHubPage />} />
 
               {/* Guarded Account Routes */}
               <Route
@@ -333,6 +358,7 @@ export default function App() {
               <Route path="counters" element={<AdminCounters />} />
               <Route path="shifts" element={<AdminShiftPage />} />
               <Route path="scan" element={<QRScanner />} />
+              <Route path="checkin" element={<AdminCheckinDashboard />} />
               <Route path="settings" element={<AdminSettings />} />
               <Route path="*" element={<Navigate to="/admin" replace />} />
             </Route>
@@ -363,6 +389,8 @@ export default function App() {
           </Routes>
           </SuspenseWrapper>
         </BrowserRouter>
+        <PWAInstallPrompt />
+        </LocaleProvider>
       </BookingProvider>
     </AuthProvider>
     </ToastProvider>
