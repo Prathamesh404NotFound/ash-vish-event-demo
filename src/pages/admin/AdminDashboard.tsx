@@ -98,8 +98,14 @@ export const AdminDashboard: React.FC = () => {
 
   const totalRevenue = report?.summary?.totalRevenue ??
     paidTickets.reduce((sum, t) => sum + (t.totalPaid || 0), 0);
+  // Tickets Sold: server report is authoritative; local fallback counts active
+  // ticket records directly (one pass per ticket record), because the operational
+  // ticket store (RTDB) treats each issued pass as its own ticket record.
   const ticketsSold = report?.summary?.totalTickets ??
-    activeTickets.reduce((sum, t) => sum + (t.quantity || 1), 0);
+    // Fallback: same semantics as the server report — sum per-record quantity
+    // (bulk counter orders store N passes on one record), excluding
+    // deleted/cancelled/refunded/void tickets.
+    activeTickets.reduce((sum, t) => sum + (Number((t as any).quantity) || 1), 0);
 
   // Checked-In: count tickets with scannedAt set (same logic as the backend report).
   const checkedInCount = report?.attendanceVsCapacity?.reduce((sum, item) => sum + (item.checkedIn || 0), 0) ??

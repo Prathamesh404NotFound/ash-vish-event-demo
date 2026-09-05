@@ -123,7 +123,7 @@ export const AdminReports: React.FC = () => {
             <SummaryCard
               icon={<Users className="w-5 h-5 text-sky-400" />}
               label="Tickets Sold"
-              value={String(report.summary.totalTickets || 0)}
+              value={String(report.summary.totalTickets ?? 0)}
             />
           </div>
 
