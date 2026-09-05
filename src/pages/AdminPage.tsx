@@ -103,6 +103,32 @@ export const AdminPage: React.FC = () => {
       t.eventTitle.toLowerCase().includes(attendeeSearch.toLowerCase())
   );
 
+  // Attendee roster CSV export — downloads the currently filtered attendee
+  // table as a properly-escaped CSV file.
+  const handleExportRosterCsv = () => {
+    if (filteredBookings.length === 0) {
+      showToast('No attendees match the current filters to export.', 'error');
+      return;
+    }
+    const csvCell = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const headers = ['Ticket Ref', 'Attendee Name', 'Email', 'Phone', 'Event', 'Tier', 'Price Paid', 'Status'];
+    const rows = filteredBookings.map((b: any) =>
+      [b.ticketNumber, b.attendeeName, b.attendeeEmail || '', b.attendeePhone || '',
+       b.eventTitle, b.tierName || '', b.totalPaid ?? 0, b.status]
+        .map(csvCell).join(',')
+    );
+    const blob = new Blob(['\ufeff' + [headers.join(','), ...rows].join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `attendee_roster_${new Date().toISOString().split('T')[0]}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast(`Exported ${filteredBookings.length} attendee(s) to CSV.`, 'success');
+  };
+
   // Delete ticket handler
   const handleDeleteTicket = useCallback(async (ticketId: string, ticketNumber: string) => {
     if (!window.confirm(`Permanently delete ticket ${ticketNumber}? This action cannot be undone.`)) return;
@@ -418,7 +444,7 @@ export const AdminPage: React.FC = () => {
             </div>
 
             <button
-              onClick={() => alert('Attendees roster exported to CSV!')}
+              onClick={handleExportRosterCsv}
               className="px-4 py-2.5 rounded-xl bg-[#141414] border border-white/10 text-white font-semibold text-xs flex items-center gap-2"
             >
               <Download className="w-4 h-4" />

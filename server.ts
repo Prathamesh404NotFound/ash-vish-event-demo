@@ -6115,19 +6115,48 @@ export async function createApp() {
       if (!["export", "cancel", "email"].includes(bulkAction)) {
         return res.status(400).json({ success: false, error: "Bulk action must be 'export', 'cancel', or 'email'." });
       }
-      if (!Array.isArray(orderIds) || orderIds.length === 0) {
+      // Export without explicit orderIds exports all orders matching the filters.
+      if (bulkAction !== "export" && (!Array.isArray(orderIds) || orderIds.length === 0)) {
         return res.status(400).json({ success: false, error: "No order IDs provided." });
       }
       const adminToken = await getAdminAuthToken();
 
       if (bulkAction === "export") {
-        const rows = await Promise.all(orderIds.map(async (id) => (await rtdbGet(`orders/${id}`, adminToken)).data as any));
-        const csv = ["orderId,channel,status,amount,discount,createdAt,name,email,phone"]
+        // Explicit selection, or all orders matching the request filters.
+        let exportRows: any[] = [];
+        if (Array.isArray(orderIds) && orderIds.length > 0) {
+          exportRows = await Promise.all(orderIds.map(async (id) => (await rtdbGet(`orders/${id}`, adminToken)).data as any));
+        } else {
+          const ordersSnap = await rtdbGet("orders", adminToken);
+          let allOrders = Object.values((ordersSnap.data || {}) as Record<string, any>);
+          const q = req.body || {};
+          if (q.eventId) allOrders = allOrders.filter((o: any) => o.eventId === q.eventId);
+          if (q.status) allOrders = allOrders.filter((o: any) => o.status === q.status);
+          if (q.channel) allOrders = allOrders.filter((o: any) => o.channel === q.channel);
+          if (q.counterName) allOrders = allOrders.filter((o: any) => String(o.counterName || "").toLowerCase().includes(String(q.counterName).toLowerCase()));
+          if (q.issuer) allOrders = allOrders.filter((o: any) => String(o.issuedBySubUserName || o.issuedBy || "").toLowerCase().includes(String(q.issuer).toLowerCase()));
+          if (q.discountStatus === "applied") allOrders = allOrders.filter((o: any) => Number(o.discountAmount || o.discount || 0) > 0);
+          if (q.discountStatus === "none") allOrders = allOrders.filter((o: any) => Number(o.discountAmount || o.discount || 0) <= 0);
+          if (q.dateFrom) allOrders = allOrders.filter((o: any) => String(o.createdAt || "") >= String(q.dateFrom));
+          if (q.dateTo) allOrders = allOrders.filter((o: any) => String(o.createdAt || "") <= String(q.dateTo));
+          if (q.search) {
+            const needle = String(q.search).trim().toLowerCase();
+            allOrders = allOrders.filter((o: any) =>
+              [o.customerDetails?.name, o.customerDetails?.email, o.customerDetails?.phone, o.orderId, o.eventTitle, o.ticketNumber]
+                .map(String).join(" ").toLowerCase().includes(needle)
+            );
+          }
+          exportRows = allOrders;
+        }
+        const rows = exportRows;
+        const csvCell = (v: any) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+        const csv = ["orderId,event,customer,email,phone,tier,quantity,amount,discount,amountPaid,status,channel,counter,createdAt"]
           .concat(
             rows.filter(Boolean).map((o: any) =>
-              [o.orderId, o.channel, o.status, o.amount, o.discount || 0, o.createdAt,
-               JSON.stringify(String(o.customerDetails?.name || "").replace(/"/g, "")),
-               String(o.customerDetails?.email || ""), String(o.customerDetails?.phone || "")].join(",")
+              [o.orderId, o.eventTitle || "", o.customerDetails?.name || "", o.customerDetails?.email || "",
+               o.customerDetails?.phone || "", o.tierName || "", Number(o.quantity) || 1,
+               o.amount ?? "", o.discount || 0, o.amountPaid ?? o.amount ?? "", o.status, o.channel || "",
+               o.counterName || "", o.createdAt || ""].map(csvCell).join(",")
             )
           )
           .join("\n");
