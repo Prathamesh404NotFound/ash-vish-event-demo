@@ -168,15 +168,68 @@ async function sendWhatsAppText(phone: string, message: string): Promise<boolean
   const normalizedPhone = normalizePhoneNumber(phone);
   if (!normalizedPhone) return false;
 
-  try {
-    const targetUrl = `${baseUrl}/sendText?token=${encodeURIComponent(token)}&phone=${encodeURIComponent(normalizedPhone)}&message=${encodeURIComponent(message)}`;
-    const response = await fetch(targetUrl);
-    const data: any = await response.json();
-    return data.status === "success" || data.status === true || data.status === 200 || (data.data && data.data.messageIDs);
-  } catch (err) {
-    console.error("[OTP] enotify send failed:", err);
-    return false;
+  // Retry with exponential backoff (1s, 3s, 9s) on transient failures so a
+  // single blip never loses the message. Mirrors sendTicketWhatsApp.
+  const maxAttempts = 3;
+  const backoffs = [1000, 3000, 9000];
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    try {
+      const targetUrl = `${baseUrl}/sendText?token=${encodeURIComponent(token)}&phone=${encodeURIComponent(normalizedPhone)}&message=${encodeURIComponent(message)}`;
+      const response = await fetch(targetUrl, { signal: controller.signal });
+      const responseText = await response.text();
+      let data: any = {};
+      try { data = responseText ? JSON.parse(responseText) : {}; } catch { data = {}; }
+
+      // Hard failures: do not retry
+      if ([400, 401, 402, 403].includes(response.status)) {
+        console.error("[ENOTIFY] Hard failure HTTP", response.status, responseText);
+        return false;
+      }
+      // Retryable HTTP errors
+      if (response.status === 429 || response.status >= 500) {
+        console.warn(`[ENOTIFY] Retryable HTTP ${response.status} on attempt ${attempt}/${maxAttempts}`);
+        if (attempt < maxAttempts) {
+          await new Promise((r) => setTimeout(r, backoffs[attempt - 1]));
+          continue;
+        }
+        return false;
+      }
+      if (response.ok) {
+        const statusStr = data.status !== undefined && data.status !== null ? String(data.status).trim().toLowerCase() : "";
+        const messageIDs = data.data?.messageIDs || data.data?.messageIds || data.messageIDs || data.messageIds;
+        if (["400", "401", "402", "403", "error", "failed", "false"].includes(statusStr)) {
+          console.error("[ENOTIFY] Hard failure in body payload:", responseText);
+          return false;
+        }
+        if (
+          statusStr === "success" ||
+          data.status === true ||
+          data.status === 200 ||
+          statusStr === "200" ||
+          (Array.isArray(messageIDs) && messageIDs.length > 0) ||
+          data.data?.id ||
+          data.messageId
+        ) {
+          return true;
+        }
+        // Unknown payload — retry
+        console.warn(`[ENOTIFY] Unexpected payload on attempt ${attempt}/${maxAttempts}:`, responseText);
+      } else {
+        console.warn(`[ENOTIFY] Unexpected HTTP ${response.status} on attempt ${attempt}/${maxAttempts}`);
+      }
+    } catch (err: any) {
+      const isAbort = err?.name === "AbortError";
+      console.warn(`[ENOTIFY] ${isAbort ? "Timeout" : "Network"} error on attempt ${attempt}/${maxAttempts}:`, err?.message || err);
+    } finally {
+      clearTimeout(timeoutId);
+    }
+    if (attempt < maxAttempts) {
+      await new Promise((r) => setTimeout(r, backoffs[attempt - 1]));
+    }
   }
+  return false;
 }
 
 async function sendMail(options: { to: string; subject: string; text: string; html?: string }): Promise<{ ok: boolean; mode: "smtp" | "no-mail"; error?: string }> {
@@ -1896,6 +1949,32 @@ async function finalizeBookingServerSide(
             await rtdbUpdate(`tickets/${ticketId}`, { whatsappConfirmationSent: null }, adminToken).catch(() => {});
             notificationEntry.status = 'failed';
             notificationEntry.reason = res.error?.message || JSON.stringify(res.error) || 'Unknown error';
+            // Reliability: schedule one delayed self-retry so a transient
+            // provider outage still delivers the message without staff
+            // intervention. The retry re-takes the idempotency lock so a
+            // concurrent resend cannot double-send.
+            setTimeout(() => {
+              (async () => {
+                try {
+                  const retryToken = await getAdminAuthToken();
+                  const lockTx = await rtdbTransaction(`tickets/${ticketId}/whatsappConfirmationSent`, (curr: any) => {
+                    if (curr === true) return undefined;
+                    return true;
+                  }, retryToken);
+                  if (!lockTx.committed) return; // Another send already succeeded.
+                  const retryRes = await sendTicketWhatsApp(newTicket, targetPhone);
+                  if (retryRes.success) {
+                    console.log(`[ENOTIFY RETRY] Delayed retry succeeded for ticket ${ticketId}.`);
+                  } else {
+                    // Keep the lock cleared so manual resend still works.
+                    await rtdbUpdate(`tickets/${ticketId}`, { whatsappConfirmationSent: null }, retryToken).catch(() => {});
+                    console.error(`[ENOTIFY RETRY] Delayed retry also failed for ticket ${ticketId}. Manual resend required.`, retryRes.error);
+                  }
+                } catch (retryErr: any) {
+                  console.warn("[ENOTIFY RETRY] Delayed retry error:", retryErr?.message);
+                }
+              })();
+            }, 15000);
           }
 
           // Record to the root notifications node in RTDB (for audit log status)
