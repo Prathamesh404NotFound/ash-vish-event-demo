@@ -5878,7 +5878,12 @@ export async function createApp() {
 
       if (tierId && tierId !== order.tierId) {
         const event = (await rtdbGet(`events/${order.eventId}`, adminToken)).data as any;
-        const tier = normalizeTiers(event?.ticketTiers).find((t: any) => t.id === tierId);
+        // Tiers may be stored under numeric RTDB keys without an `id` field.
+        // normalizeTiers surfaces the storage key as the id for those entries; add
+        // a name-based fallback for robustness on tier edits.
+        const tierList = normalizeTiers(event?.ticketTiers);
+        const tier = tierList.find((t: any) => t.id === tierId) ||
+          tierList.find((t: any) => !t.id && String(t?.name || "") === String(req.body?.tierName || ""));
         if (!tier) return res.status(400).json({ success: false, error: "Invalid ticket tier." });
         updates.tierId = tierId;
         const priceError = validateNonNegativePrice(tier.price);

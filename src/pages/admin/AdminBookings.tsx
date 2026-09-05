@@ -130,9 +130,13 @@ function normalizeTiers(ticketTiers: any): { id?: string | null; name?: string; 
     return ticketTiers.map((t: any) => ({ ...t, id: t.id || t.tierId || null }));
   }
   if (typeof ticketTiers === 'object') {
-    return Object.values(ticketTiers as Record<string, any>).map((t: any) => ({
+    // Tiers stored under numeric RTDB keys may have no `id` field. Fall back to
+    // the tierId field, then the storage key, so the edit dropdown always posts
+    // a resolvable tierId instead of an empty string (which the server would
+    // silently ignore — the "tier not updating" bug).
+    return Object.entries(ticketTiers as Record<string, any>).map(([key, t]: any) => ({
       ...t,
-      id: t.id || null,
+      id: t?.id || t?.tierId || String(key),
     }));
   }
   return [];
