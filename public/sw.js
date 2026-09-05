@@ -25,7 +25,10 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Fetch: network-first for API, cache-first for static
+// Fetch: network-first for hashed build assets & navigations (so a fresh
+// deploy is always picked up and stale chunks are never served from cache —
+// prevents 'text/html is not a valid JavaScript MIME type' after deploys),
+// cache-first for other static assets.
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
@@ -35,8 +38,34 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Vite emits content-hashed filenames under /assets/. Always try network
+  // first for these and for page navigations; fall back to cache when offline.
+  const isBuildAsset = url.pathname.startsWith('/assets/');
+  const isNavigation = request.mode === 'navigate';
+
   event.respondWith(
-    caches.match(request).then((cached) => {
+    (async () => {
+      if (isBuildAsset || isNavigation) {
+        try {
+          const fresh = await fetch(request);
+          if (fresh && fresh.ok) {
+            const clone = fresh.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+          }
+          return fresh;
+        } catch (err) {
+          const cached = await caches.match(request);
+          if (cached) return cached;
+          // Offline navigation fallback
+          if (isNavigation) {
+            const shell = await caches.match('/index.html');
+            if (shell) return shell;
+          }
+          throw err;
+        }
+      }
+
+      const cached = await caches.match(request);
       const fetchPromise = fetch(request)
         .then((response) => {
           if (response.ok) {
@@ -48,7 +77,7 @@ self.addEventListener('fetch', (event) => {
         .catch(() => cached);
 
       return cached || fetchPromise;
-    })
+    })()
   );
 });
 

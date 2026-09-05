@@ -88,14 +88,29 @@ const AdminCheckinDashboard = lazyWithRetry(() => import('./pages/admin/AdminChe
 import { PWAInstallPrompt, registerServiceWorker } from './components/PWAInstallPrompt';
 
 // Retry helper for lazy imports — when a chunk hash is stale after deploy,
-// the old file no longer exists. Retry once with a cache-busting query so
-// the browser fetches the latest chunk from the server.
+// the old file no longer exists and the server may return index.html for the
+// .js request (the classic 'text/html is not a valid JavaScript MIME type'
+// error). Simple re-imports can hit the browser's in-memory cache for the
+// failed module, so we first do a full page reload with a cache-busting flag:
+// a fresh document fetch resolves the new index.html which references the NEW
+// hashed chunk names. If the reload flag is already set (retry loop guard),
+// fall through to the plain re-import once, then surface the error.
 function lazyWithRetry<T extends React.ComponentType<any>>(
   importFn: () => Promise<{ default: T }>
 ): React.LazyExoticComponent<T> {
   return React.lazy(() =>
     importFn().catch((err) => {
-      console.warn('[ChunkRetry] Chunk load failed, retrying...', err);
+      console.warn('[ChunkRetry] Chunk load failed, recovering...', err);
+      const KEY = 'av_chunk_retry_at';
+      const now = Date.now();
+      const last = Number(sessionStorage.getItem(KEY) || 0);
+      if (now - last > 10_000) {
+        // One automatic recovery per 10s window — prevents reload loops.
+        sessionStorage.setItem(KEY, String(now));
+        window.location.reload();
+        // Unreachable in practice; keeps the promise pending during reload.
+        return new Promise<{ default: T }>(() => {});
+      }
       return importFn();
     })
   );
