@@ -119,6 +119,13 @@ export const WalkInPage: React.FC = () => {
   const [quantity, setQuantity] = useState(1);
   const [selectedSeats, setSelectedSeats] = useState<string[]>([]);
 
+  // ---------- Multi-choice ticket selection (general-admission only) ----------
+  // When enabled, the operator can mix ticket types (e.g. 2 VIP + 2 Kids) in a
+  // single walk-in pass. Quantity is fully dynamic per tier, capped by live
+  // inventory and the 100-ticket server ceiling.
+  const [multiMode, setMultiMode] = useState(false);
+  const [multiQuantities, setMultiQuantities] = useState<Record<string, number>>({});
+
   // ---------- Customer ----------
   const [attendeeName, setAttendeeName] = useState('');
   const [attendeePhone, setAttendeePhone] = useState('');
@@ -248,6 +255,17 @@ export const WalkInPage: React.FC = () => {
     setQuantity((q) => clampQuantity(q));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clampQuantity]);
+
+  // ---------- Multi-mode helpers ----------
+  const setMultiQty = useCallback((tierId: string, qty: number, inventory: number) => {
+    setMultiQuantities((prev) => {
+      const next = { ...prev };
+      const clamped = Math.max(0, Math.min(Number.isFinite(qty) ? Math.floor(qty) : 0, Math.min(maxQuantity, inventory)));
+      if (clamped <= 0) delete next[tierId];
+      else next[tierId] = clamped;
+      return next;
+    });
+  }, []);
 
   // ---------- Merchant UPI config ----------
   useEffect(() => {
@@ -457,13 +475,23 @@ export const WalkInPage: React.FC = () => {
 
   const totals = useMemo(() => {
     const seatCount = selectedSeats.length;
-    const unitCount = isSeatBasedEvent(selectedEvent) ? seatCount : quantity;
-    const grossTotal = (selectedTier?.price || 0) * unitCount;
+    // Multi-mode: price each selected tier separately from live tier data.
+    const multiLines = multiMode
+      ? selectedEventTiers
+          .filter((t) => (multiQuantities[t.id] || 0) > 0)
+          .map((t) => ({ tierId: t.id, tierName: t.name, price: t.price, quantity: multiQuantities[t.id] }))
+      : [];
+    const multiTotal = multiLines.reduce((sum, l) => sum + l.price * l.quantity, 0);
+    const multiCount = multiLines.reduce((sum, l) => sum + l.quantity, 0);
+    const unitCount = multiMode ? multiCount : isSeatBasedEvent(selectedEvent) ? seatCount : quantity;
+    const grossTotal = multiMode ? multiTotal : (selectedTier?.price || 0) * unitCount;
     const netTotal = Math.max(0, grossTotal - discountAmount);
-    return { seatCount, unitCount, grossTotal, netTotal };
-  }, [selectedSeats.length, selectedEvent, quantity, selectedTier?.price, discountAmount]);
+    return { seatCount, unitCount, grossTotal, netTotal, multiLines };
+  }, [selectedSeats.length, selectedEvent, quantity, selectedTier?.price, discountAmount, multiMode, multiQuantities, selectedEventTiers]);
 
-  const { seatCount, unitCount, grossTotal, netTotal } = totals;
+  const { seatCount, unitCount, grossTotal, netTotal, multiLines } = totals;
+  // A mixed sale is valid once at least one line has a positive quantity.
+  const hasMultiSelection = multiLines.length > 0;
   const paymentsSum = payments.reduce((acc, p) => acc + p.amount, 0);
   const paymentsValid = payments.length > 0 && Math.abs(paymentsSum - netTotal) < 0.01 && payments.every((p) => p.amount > 0);
   const splitUpiRowsAllVerified = !showSplit || payments.every((p, idx) => p.method !== 'upi' || verifiedUpiRows[idx]);
@@ -660,6 +688,10 @@ export const WalkInPage: React.FC = () => {
       setFormError('Select seats on the map for this walk-in booking.');
       return;
     }
+    if (multiMode && !hasMultiSelection) {
+      setFormError('Add at least one pass of any ticket type to continue.');
+      return;
+    }
     if (!showSplit && paymentMethod === 'upi' && upiFlow !== 'received') {
       setFormError('Show the QR code, confirm payment was received, then tap Confirm.');
       return;
@@ -714,12 +746,17 @@ export const WalkInPage: React.FC = () => {
 
     const salePayload = {
       eventId: selectedEventId,
-      tierId: selectedTierId,
+      tierId: multiMode ? (multiLines[0]?.tierId || selectedTierId) : selectedTierId,
+      items: multiMode && multiLines.length > 0
+        ? multiLines.map((l) => ({ tierId: l.tierId, tierName: l.tierName, quantity: l.quantity }))
+        : undefined,
       attendeeName: trimmedName,
       attendeePhone: trimmedPhone,
       scannedByStaffId: user?.name || 'Counter Operator',
       selectedSeats: selectedSeats.length > 0 ? selectedSeats : undefined,
-      quantity: isSeatBasedEvent(selectedEvent) ? undefined : quantity,
+      quantity: multiMode || isSeatBasedEvent(selectedEvent)
+        ? undefined
+        : quantity,
       paymentMethod,
       payments,
       discountOverride: currentOverride
@@ -748,7 +785,10 @@ export const WalkInPage: React.FC = () => {
           selectedSeats.length > 0 ? selectedSeats : undefined,
           paymentMethod,
           {
-            quantity: isSeatBasedEvent(selectedEvent) ? undefined : quantity,
+            quantity: multiMode || isSeatBasedEvent(selectedEvent) ? undefined : quantity,
+            items: multiMode && multiLines.length > 0
+              ? multiLines.map((l) => ({ tierId: l.tierId, tierName: l.tierName, quantity: l.quantity }))
+              : undefined,
             payments,
             discountOverride: currentOverride
               ? {
@@ -823,6 +863,8 @@ export const WalkInPage: React.FC = () => {
     setSelectedSeats([]);
     setSeatSearch('');
     setQuantity(clampQuantity(1));
+    setMultiMode(false);
+    setMultiQuantities({});
     setPaymentMethod('cash');
     setShowSplit(false);
     setPayments([{ method: 'cash', amount: 0 }]);
@@ -851,6 +893,7 @@ export const WalkInPage: React.FC = () => {
     !activeShiftId ||
     !selectedEvent ||
     !selectedTier ||
+    (multiMode && !hasMultiSelection) ||
     (isSeatBasedEvent(selectedEvent) && selectedSeats.length === 0) ||
     (!showSplit && paymentMethod === 'upi' && upiFlow !== 'received') ||
     (showSplit && !splitUpiRowsAllVerified) ||
@@ -963,8 +1006,12 @@ export const WalkInPage: React.FC = () => {
               <span className="font-semibold text-white">{issuedTicket.eventTitle}</span>
             </div>
             <div className="flex justify-between text-gray-400">
-              <span>Tier / Category:</span>
-              <span className="font-bold text-[#D4AF37]">{issuedTicket.tierName}</span>
+              <span>{multiMode && multiLines.length > 1 ? 'Mixed Categories:' : 'Tier / Category:'}</span>
+              <span className="font-bold text-[#D4AF37]">
+                {multiMode && multiLines.length > 1
+                  ? multiLines.map((l) => `${l.quantity}× ${l.tierName}`).join(', ')
+                  : issuedTicket.tierName}
+              </span>
             </div>
             <div className="flex justify-between text-gray-400">
               <span>{isSeatBasedEvent(selectedEvent) ? 'Seats' : 'Passes'}:</span>
@@ -1078,6 +1125,8 @@ export const WalkInPage: React.FC = () => {
                   setSelectedEventId(e.target.value);
                   setSelectedSeats([]);
                   setSeatSearch('');
+                  setMultiMode(false);
+                  setMultiQuantities({});
                   const evt = events.find((item) => item.id === e.target.value);
                   if (evt?.ticketTiers?.[0]) {
                     setSelectedTierId(evt.ticketTiers?.[0]?.id || '');
@@ -1099,36 +1148,118 @@ export const WalkInPage: React.FC = () => {
               </select>
             </div>
 
-            {/* 2. Ticket category cards */}
+            {/* 2. Ticket category cards (single-select, or multi-select in multi-mode) */}
             {selectedEvent && (
               <div className="p-4 rounded-3xl bg-[#141414] border border-white/10 space-y-2.5">
-                <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest">Category</label>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                  {selectedEventTiers.map((tier) => (
+                <div className="flex items-center justify-between gap-2">
+                  <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest">Category</label>
+                  {!isSeatBasedEvent(selectedEvent) && (
                     <button
                       type="button"
-                      key={tier.id}
                       onClick={() => {
-                        setSelectedTierId(tier.id);
-                        setSelectedSeats([]);
-                        setSeatSearch('');
+                        setMultiMode((v) => !v);
+                        setMultiQuantities({});
+                        setFormError('');
                       }}
-                      className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer ${
-                        selectedTierId === tier.id
-                          ? 'bg-[#D4AF37]/10 border-[#D4AF37] text-white'
-                          : 'bg-[#1C1C1C] border-white/5 text-gray-400 hover:border-white/20'
+                      className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border flex items-center gap-1 transition-all cursor-pointer ${
+                        multiMode
+                          ? 'bg-[#D4AF37]/15 border-[#D4AF37] text-[#D4AF37]'
+                          : 'bg-[#1C1C1C] border-white/10 text-gray-400 hover:border-[#D4AF37]/40 hover:text-[#D4AF37]'
                       }`}
+                      title="Mix different ticket types in one pass (e.g. 2 VIP + 2 Kids)"
                     >
-                      <span className="block font-bold text-sm text-white">{tier.name}</span>
-                      <span className="font-heading font-extrabold text-base text-[#D4AF37] mt-0.5 block">
-                        ₹{tier.price}
-                      </span>
-                      <span className={`text-[10px] block mt-0.5 ${tier.remainingInventory > 0 ? 'text-gray-400' : 'text-red-400'}`}>
-                        {tier.remainingInventory > 0 ? `${tier.remainingInventory} passes left` : 'Sold out'}
-                      </span>
+                      <Layers className="w-3 h-3" />
+                      {multiMode ? 'Mixed selection ON' : 'Mix ticket types'}
                     </button>
-                  ))}
+                  )}
                 </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  {selectedEventTiers.map((tier) => {
+                    const multiQty = multiQuantities[tier.id] || 0;
+                    return (
+                      <button
+                        type="button"
+                        key={tier.id}
+                        onClick={() => {
+                          if (multiMode) {
+                            // In multi-mode tapping a card adds one pass of that type.
+                            setMultiQty(tier.id, multiQty + 1, tier.remainingInventory || 0);
+                          } else {
+                            setSelectedTierId(tier.id);
+                            setSelectedSeats([]);
+                            setSeatSearch('');
+                          }
+                        }}
+                        className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer ${
+                          multiMode
+                            ? multiQty > 0
+                              ? 'bg-[#D4AF37]/10 border-[#D4AF37] text-white'
+                              : 'bg-[#1C1C1C] border-white/5 text-gray-400 hover:border-[#D4AF37]/40'
+                            : selectedTierId === tier.id
+                              ? 'bg-[#D4AF37]/10 border-[#D4AF37] text-white'
+                              : 'bg-[#1C1C1C] border-white/5 text-gray-400 hover:border-white/20'
+                        }`}
+                      >
+                        <span className="block font-bold text-sm text-white">{tier.name}</span>
+                        <span className="font-heading font-extrabold text-base text-[#D4AF37] mt-0.5 block">
+                          ₹{tier.price}
+                        </span>
+                        <span className={`text-[10px] block mt-0.5 ${tier.remainingInventory > 0 ? 'text-gray-400' : 'text-red-400'}`}>
+                          {tier.remainingInventory > 0 ? `${tier.remainingInventory} passes left` : 'Sold out'}
+                        </span>
+                        {multiMode && multiQty > 0 && (
+                          <span className="mt-1.5 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-[#D4AF37] text-black text-[10px] font-extrabold">
+                            {multiQty} selected
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+                {multiMode && (
+                  <div className="space-y-2 pt-1">
+                    {selectedEventTiers.filter((t) => (multiQuantities[t.id] || 0) > 0).map((tier) => {
+                      const multiQty = multiQuantities[tier.id] || 0;
+                      const tierInventory = tier.remainingInventory || 0;
+                      return (
+                        <div key={tier.id} className="flex items-center justify-between gap-3 p-2.5 rounded-xl bg-[#1C1C1C] border border-white/5">
+                          <div className="min-w-0">
+                            <span className="block text-xs font-bold text-white truncate">{tier.name}</span>
+                            <span className="text-[10px] text-gray-400">₹{tier.price} × {multiQty} = ₹{tier.price * multiQty}</span>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => setMultiQty(tier.id, multiQty - 1, tierInventory)}
+                              className="w-7 h-7 rounded-lg bg-black/40 border border-white/10 text-white font-bold hover:border-[#D4AF37] transition-colors cursor-pointer"
+                            >
+                              −
+                            </button>
+                            <input
+                              type="number"
+                              min={0}
+                              max={Math.min(maxQuantity, tierInventory)}
+                              value={multiQty}
+                              onChange={(e) => setMultiQty(tier.id, Number(e.target.value) || 0, tierInventory)}
+                              className="w-12 h-7 rounded-lg bg-black/40 border border-white/10 text-white text-center text-xs font-extrabold focus:outline-none focus:border-[#D4AF37]"
+                            />
+                            <button
+                              type="button"
+                              disabled={multiQty >= Math.min(maxQuantity, tierInventory)}
+                              onClick={() => setMultiQty(tier.id, multiQty + 1, tierInventory)}
+                              className="w-7 h-7 rounded-lg bg-black/40 border border-white/10 text-white font-bold hover:border-[#D4AF37] disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                            >
+                              +
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    <p className="text-[10px] text-gray-500">
+                      Tap a category above or use the steppers — any number of each type, up to available inventory.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1207,6 +1338,18 @@ export const WalkInPage: React.FC = () => {
                   eventTime={selectedEvent.time}
                   onReservationError={(msg) => setErrorBanner(msg)}
                 />
+              </div>
+            ) : multiMode ? (
+              /* Multi-mode: per-tier steppers live inside the Category card,
+                 so this panel only shows the running pass count. */
+              <div className="p-4 rounded-3xl bg-[#141414] border border-white/10">
+                <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest">Passes</label>
+                <p className="mt-2 text-sm font-extrabold text-[#D4AF37]">
+                  {unitCount} pass{unitCount === 1 ? '' : 'es'} across {multiLines.length} ticket type{multiLines.length === 1 ? '' : 's'}
+                </p>
+                {unitCount === 0 && (
+                  <p className="text-xs text-gray-400 mt-1">Add at least one pass from the categories above.</p>
+                )}
               </div>
             ) : (
               /* GA quantity stepper */

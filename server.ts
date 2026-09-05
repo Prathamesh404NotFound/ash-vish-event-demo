@@ -4643,7 +4643,8 @@ export async function createApp() {
 
   app.post("/api/walk-in-bookings", verifyRole(['admin', 'ticket_counter']), async (req: any, res) => {
     try {
-      const { eventId, tierId, attendeeName, attendeePhone, attendeeEmail, selectedSeats = [], paymentMethod = 'cash', couponCode: rawCouponCode, payments: rawPayments, discountOverride: rawOverride, shiftId, idempotencyKey, counterId: rawCounterId, scannedByStaffId, subUserId, subUserName } = req.body || {};
+      const { eventId, tierId: rawTierId, attendeeName, attendeePhone, attendeeEmail, selectedSeats = [], paymentMethod = 'cash', couponCode: rawCouponCode, payments: rawPayments, discountOverride: rawOverride, shiftId, idempotencyKey, counterId: rawCounterId, scannedByStaffId, subUserId, subUserName, items: rawItems } = req.body || {};
+      let tierId: string = String(rawTierId || "");
 
       // Idempotency: same key returns the same completed result
       const idKey = idempotencyKey ? String(idempotencyKey).trim() : null;
@@ -4697,12 +4698,82 @@ export async function createApp() {
       if (!String(attendeeName).trim() || (trimmedPhone && !/^[0-9+\s()-]{7,20}$/.test(trimmedPhone))) {
         return res.status(400).json({ success: false, error: "Attendee name is required, and any supplied phone number must be a valid 7-20 digit number." });
       }
+      // Multi-type walk-in sale (multi-choice ticket selection): `items`
+      // carries one line per ticket type (e.g. 2 VIP + 2 Kids). Legacy
+      // single-tier requests (tierId + quantity) remain fully unchanged.
+      let items: { tierId: string; tierName?: string; quantity: number }[] | undefined;
+      if (rawItems !== undefined && rawItems !== null) {
+        if (!Array.isArray(rawItems) || rawItems.length === 0) {
+          return res.status(400).json({ success: false, error: "Invalid ticket selection." });
+        }
+        if (rawItems.length > 5) {
+          return res.status(400).json({ success: false, error: "A booking can mix at most 5 ticket types." });
+        }
+        items = [];
+        const seenItemTiers = new Set<string>();
+        let itemTotal = 0;
+        for (const r of rawItems) {
+          const lineTierId = String(r?.tierId || "").trim();
+          const lineQty = Number(r?.quantity);
+          if (!lineTierId) {
+            return res.status(400).json({ success: false, error: "Each ticket line needs a ticket type." });
+          }
+          if (!Number.isInteger(lineQty) || lineQty < 1) {
+            return res.status(400).json({ success: false, error: "Each ticket type needs a quantity of at least 1." });
+          }
+          if (seenItemTiers.has(lineTierId)) {
+            return res.status(400).json({ success: false, error: "Duplicate ticket types in selection." });
+          }
+          seenItemTiers.add(lineTierId);
+          itemTotal += lineQty;
+          if (itemTotal > 100) {
+            return res.status(400).json({ success: false, error: "A booking can hold at most 100 tickets." });
+          }
+          items.push({ tierId: lineTierId, quantity: lineQty });
+        }
+      }
+
+      // A single mixed-bag line collapses onto the legacy single-tier path:
+      // remap tierId/quantity and drop `items` so fulfillment is identical
+      // to a classic counter sale.
+      if (items && items.length === 1) {
+        tierId = items[0].tierId;
+        req.body.quantity = items[0].quantity;
+        items = undefined;
+      }
+
       const adminToken = await getAdminAuthToken();
       const eventSnap = await rtdbGet(`events/${eventId}`, adminToken);
       const event = eventSnap.data as any;
-      const tier = normalizeTiers(event?.ticketTiers).find((candidate: any) => candidate.id === tierId);
+      const dbTiers = normalizeTiers(event?.ticketTiers);
+      const tier = dbTiers.find((candidate: any) => candidate.id === tierId);
       if (!event || !tier) {
         return res.status(404).json({ success: false, error: "Event or ticket tier not found." });
+      }
+      // Multi-type sales are general-admission only — seat maps are priced
+      // per selected seat, so a mixed-bag does not apply there.
+      if (items && event.usesSeatMap !== false) {
+        return res.status(400).json({ success: false, error: "Mixed ticket types are only available for general-admission events without seat selection." });
+      }
+      // Re-price every line from LIVE event tiers; client prices are never
+      // trusted, and inventory is pre-checked before fulfillment.
+      let itemsSubtotal = 0;
+      if (items) {
+        for (const line of items) {
+          const lineTier = dbTiers.find((t: any, i: number) => t?.id === line.tierId || (!t?.id && String(i) === line.tierId));
+          if (!lineTier) {
+            return res.status(404).json({ success: false, error: `Ticket tier not found for this event (${line.tierId}).` });
+          }
+          const linePrice = Number(lineTier.price);
+          if (!Number.isFinite(linePrice) || linePrice < 0) {
+            return res.status(400).json({ success: false, error: `Ticket tier '${lineTier.name || line.tierId}' has an invalid price.` });
+          }
+          if ((Number(lineTier.remainingInventory) || 0) < line.quantity) {
+            return res.status(409).json({ success: false, error: `Not enough tickets remaining in ${lineTier.name || line.tierId}. Only ${lineTier.remainingInventory ?? 0} left.` });
+          }
+          line.tierName = String(lineTier.name || "").slice(0, 64);
+          itemsSubtotal += linePrice * line.quantity;
+        }
       }
       // Block walk-in sales for completed, cancelled, or sold_out events
       const walkInStatus = event.status || "published";
@@ -4793,7 +4864,7 @@ export async function createApp() {
         email: attendeeEmail?.trim() || `${String(attendeeName).toLowerCase().replace(/[^a-z0-9]+/g, '') || 'guest'}@walkin.ashvish`,
         phone: trimmedPhone || "",
       };
-      const lineAmount = Number(tier.price) * quantity;
+      const lineAmount = items ? itemsSubtotal : Number(tier.price) * quantity;
       // Manager-gated discount override (Item 6): the frontend posts a
       // manager-approved override; only manager-level RBAC roles may supply
       // one, and it must never exceed 50% of the order amount.
@@ -4836,6 +4907,7 @@ export async function createApp() {
         orderId,
         eventId,
         tierId,
+        ...(items ? { items } : {}),
         seatIds: finalSeats,
         quantity,
         customerDetails,
