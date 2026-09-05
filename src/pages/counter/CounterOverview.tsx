@@ -28,26 +28,60 @@ export const CounterOverview: React.FC = () => {
   }, []);
   const events = serverEvents.length > 0 ? serverEvents : contextEvents;
 
-  // Memoize all ticket statistics to avoid recalculating on every render
+  // Re-fetch events (tier/inventory data) from the server on demand. Ticket
+  // records arrive via the real-time RTDB listener, so refreshing here pulls
+  // the latest DB state for the inventory card without a full page reload.
+  const [refreshing, setRefreshing] = useState(false);
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      const headers = await authenticatedApiHeaders();
+      const res = await safeFetch<{ success: boolean; events: any[] }>(
+        '/api/counter/events', { headers }
+      );
+      if (res.ok && res.data?.success && res.data.events) {
+        setServerEvents(res.data.events);
+      }
+    } catch { /* keep current data on failure */ }
+    finally { setRefreshing(false); }
+  };
+
+  // Memoize all ticket statistics to avoid recalculating on every render.
+  // The headline "Total Issued Passes" counts only active (non-deleted,
+  // non-cancelled, non-refunded, non-void) tickets, matching the admin panel.
   const stats = useMemo(() => {
-    const total = allTickets.length;
-    const scanned = allTickets.filter((t) => t.status === 'redeemed' || t.status === 'used').length;
-    const walkIn = allTickets.filter((t) => t.isWalkIn).length;
-    const valid = allTickets.filter((t) => t.status === 'valid').length;
+    const activeTickets = allTickets.filter((t) => {
+      const s = String((t as any)?.status || '').toLowerCase();
+      return s !== 'deleted' && s !== 'cancelled' && s !== 'refunded' && s !== 'void';
+    });
+    const total = activeTickets.reduce((sum, t) => sum + (Number((t as any).quantity) || 1), 0);
+    const scanned = activeTickets.filter((t) => t.status === 'redeemed' || t.status === 'used').length;
+    const walkIn = activeTickets.filter((t) => t.isWalkIn).length;
+    const valid = activeTickets.filter((t) => t.status === 'valid').length;
     const progress = total > 0 ? Math.round((scanned / total) * 100) : 0;
     return { total, scanned, walkIn, valid, progress };
   }, [allTickets]);
 
-  // Memoize per-event stats — only show active (published/sold_out) events
+  // Memoize per-event stats — only show active (published/sold_out) events.
+  // Sold counts are derived from the live tickets collection (same source of
+  // truth as the admin/booking panels) instead of capacity-minus-remaining
+  // inventory math, which drifts when voids/refunds don't restore inventory.
   const eventStats = useMemo(() => {
+    const activeTickets = allTickets.filter((t) => {
+      const s = String((t as any)?.status || '').toLowerCase();
+      return s !== 'deleted' && s !== 'cancelled' && s !== 'refunded' && s !== 'void';
+    });
     return events
       .filter((evt) => evt.status !== 'draft' && evt.status !== 'cancelled' && evt.status !== 'completed')
       .map((evt) => {
         const tiers = normalizeTiers(evt.ticketTiers);
-        const eventTickets = allTickets.filter((t) => t.eventId === evt.id);
+        const eventTickets = activeTickets.filter((t) => t.eventId === evt.id);
         const eventScanned = eventTickets.filter((t) => t.status === 'redeemed' || t.status === 'used').length;
+        // True sold count: sum each ticket record's quantity (bulk counter
+        // orders store N passes on one record), matching the admin report.
+        const sold = eventTickets.reduce((sum, t) => sum + (Number((t as any).quantity) || 1), 0);
         const remaining = tiers.reduce((sum, t) => sum + (t.remainingInventory ?? (t.totalInventory || 0)), 0);
-        return { ...evt, eventTickets, eventScanned, remaining, tierCount: tiers.length };
+        return { ...evt, eventTickets, eventScanned, sold, remaining, tierCount: tiers.length };
       });
   }, [events, allTickets]);
 
@@ -98,7 +132,7 @@ export const CounterOverview: React.FC = () => {
             <Ticket className="w-4 h-4 text-[#D4AF37]" />
           </div>
           <p className="font-heading font-extrabold text-2xl text-white">{stats.total}</p>
-          <p className="text-[11px] text-gray-500">Across all online & counter sales</p>
+          <p className="text-[11px] text-gray-500">Active passes across all online & counter sales</p>
         </div>
 
         <div className="p-5 rounded-2xl bg-[#141414] border border-emerald-500/20 space-y-2">
@@ -206,11 +240,21 @@ export const CounterOverview: React.FC = () => {
 
       {/* ─── Ticket Inventory Overview ─── */}
       <div className="p-6 rounded-3xl bg-[#141414] border border-white/10 space-y-4">
-        <h2 className="font-heading font-extrabold text-lg text-white flex items-center gap-2">
-          <Ticket className="w-5 h-5 text-[#D4AF37]" />
-          <span>Ticket Inventory</span>
-        </h2>
-        <p className="text-xs text-gray-400">Sold and available ticket counts across all active events.</p>
+        <div className="flex items-center justify-between">
+          <h2 className="font-heading font-extrabold text-lg text-white flex items-center gap-2">
+            <Ticket className="w-5 h-5 text-[#D4AF37]" />
+            <span>Ticket Inventory</span>
+          </h2>
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#222] hover:bg-[#333] border border-white/10 text-[10px] font-bold text-gray-300 transition-colors active:scale-[0.98] disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+            Refresh from DB
+          </button>
+        </div>
+        <p className="text-xs text-gray-400">Live sold counts fetched from the tickets database, with per-tier breakdown.</p>
 
         {eventStats.length === 0 ? (
           <div className="text-center py-8">
@@ -223,8 +267,8 @@ export const CounterOverview: React.FC = () => {
               const totalCapacity = (normalizeTiers(evt.ticketTiers) || []).reduce(
                 (sum: number, t: any) => sum + (t.totalInventory || 0), 0
               );
-              const sold = totalCapacity - evt.remaining;
-              const soldPct = totalCapacity > 0 ? Math.round((sold / totalCapacity) * 100) : 0;
+              const sold = evt.sold;
+              const soldPct = totalCapacity > 0 ? Math.min(100, Math.round((sold / totalCapacity) * 100)) : 0;
 
               return (
                 <div key={evt.id} className="p-4 rounded-2xl bg-[#1C1C1C] border border-white/5 space-y-3">
@@ -253,15 +297,24 @@ export const CounterOverview: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Tier breakdown */}
+                  {/* Tier breakdown — sold per tier derived from live ticket records */}
                   {(normalizeTiers(evt.ticketTiers) || []).length > 1 && (
                     <div className="pt-2 border-t border-white/5 flex flex-wrap gap-2">
-                      {(normalizeTiers(evt.ticketTiers) || []).map((tier: any) => {
-                        const tierSold = (tier.totalInventory || 0) - (tier.remainingInventory ?? tier.totalInventory ?? 0);
+                      {(normalizeTiers(evt.ticketTiers) || []).map((tier: any, tierIdx: number) => {
+                        // Count active ticket records assigned to this tier (sum
+                        // quantity for bulk records) — reflects the true DB state.
+                        const tierSold = evt.eventTickets
+                          .filter((t: any) => {
+                            const tid = t.tierId || t.tier_id;
+                            const keyMatch = tid && String(tid) === String(tier.id ?? tierIdx);
+                            const nameMatch = tier.name && (t.tierName || t.ticketType) === tier.name;
+                            return keyMatch || nameMatch;
+                          })
+                          .reduce((sum: number, t: any) => sum + (Number(t.quantity) || 1), 0);
                         return (
-                          <span key={tier.id} className="px-2 py-1 rounded-lg bg-white/5 text-[10px] text-gray-400 border border-white/5">
+                          <span key={tier.id ?? tierIdx} className="px-2 py-1 rounded-lg bg-white/5 text-[10px] text-gray-400 border border-white/5">
                             <span className="font-semibold text-white">{tier.name}</span>
-                            {' '}{tierSold}/{tier.totalInventory || 0}
+                            {' '}{tierSold} sold / {tier.totalInventory || 0} total
                           </span>
                         );
                       })}
