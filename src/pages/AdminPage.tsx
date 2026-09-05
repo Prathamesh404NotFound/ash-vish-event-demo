@@ -98,9 +98,9 @@ export const AdminPage: React.FC = () => {
 
   const filteredBookings = myTickets.filter(
     (t) =>
-      t.attendeeName.toLowerCase().includes(attendeeSearch.toLowerCase()) ||
-      t.ticketNumber.toLowerCase().includes(attendeeSearch.toLowerCase()) ||
-      t.eventTitle.toLowerCase().includes(attendeeSearch.toLowerCase())
+      (t.attendeeName || '').toLowerCase().includes(attendeeSearch.toLowerCase()) ||
+      (t.ticketNumber || '').toLowerCase().includes(attendeeSearch.toLowerCase()) ||
+      (t.eventTitle || '').toLowerCase().includes(attendeeSearch.toLowerCase())
   );
 
   // Attendee roster CSV export — downloads the currently filtered attendee

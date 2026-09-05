@@ -55,7 +55,7 @@ export const generateTicketPDF = async (
   doc.line(35, 38, 175, 38);
 
   // 5. High-Visibility seat category badge
-  const categoryBadgeText = `${ticket.tierName.toUpperCase()} PASS`;
+  const categoryBadgeText = `${(ticket.tierName || 'STANDARD').toUpperCase()} PASS`;
   const badgeWidth = categoryBadgeText.length * 2.4 + 8;
   const badgeX = 105 - badgeWidth / 2;
   const badgeY = 42;
@@ -148,7 +148,7 @@ export const generateTicketPDF = async (
   doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(10);
-  doc.text(ticket.tierName.toUpperCase(), 28, 142);
+  doc.text((ticket.tierName || 'STANDARD').toUpperCase(), 28, 142);
 
   // Right Box Container - Event Details
   doc.setFillColor(containerBg[0], containerBg[1], containerBg[2]);
@@ -304,6 +304,6 @@ export const generateTicketPDF = async (
   doc.text('POWERED BY ASH & VISH TICKETING PROTOCOL • VERIFIED DIGITAL ACCESS • WWW.ASHVISHEVENTS.COM', 105, 278.5, { align: 'center' });
 
   // Save PDF Document
-  doc.save(`Ticket_${ticket.ticketNumber}_${ticket.attendeeName.replace(/\s+/g, '_')}.pdf`);
+  doc.save(`Ticket_${ticket.ticketNumber || 'pass'}_${(ticket.attendeeName || 'Guest').replace(/\s+/g, '_')}.pdf`);
 };
 

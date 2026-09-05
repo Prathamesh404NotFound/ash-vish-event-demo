@@ -6664,6 +6664,55 @@ export async function createApp() {
   });
 
   /**
+   * Undo Redemption Endpoint. Admin/Counter staff only.
+   * Reverts a mistaken manual admission back to 'active' atomically via
+   * transaction, so the pass becomes scannable again.
+   */
+  app.post("/api/tickets/undo-redeem", verifyRole(['admin', 'ticket_counter']), async (req: any, res) => {
+    try {
+      const { ticketId: rawTicketId } = req.body || {};
+      const targetTicketId = rawTicketId ? String(rawTicketId).trim() : null;
+      if (!targetTicketId) {
+        return res.status(400).json({ success: false, error: "Missing ticketId" });
+      }
+      const userToken = await getAdminAuthToken();
+
+      let notRedeemedError: string | null = null;
+      const txResult = await rtdbTransaction(`tickets/${targetTicketId}`, (ticket: any) => {
+        if (!ticket) {
+          notRedeemedError = `Ticket ${targetTicketId} not found.`;
+          return undefined;
+        }
+        if (ticket.status !== "redeemed") {
+          notRedeemedError = `Ticket ${targetTicketId} is not currently redeemed (status: ${ticket.status || "unknown"}).`;
+          return undefined;
+        }
+        ticket.status = "active";
+        ticket.revertedAt = new Date().toISOString();
+        ticket.revertedBy = req.user?.uid || "unknown";
+        delete ticket.redeemedAt;
+        delete ticket.redeemedBy;
+        return ticket;
+      }, userToken);
+
+      if (!txResult.committed) {
+        return res.status(400).json({ success: false, error: notRedeemedError || "Undo failed." });
+      }
+
+      const revertedTicket: any = txResult.snapshot;
+      if (revertedTicket && revertedTicket.ownerId) {
+        await rtdbSet(`users/${revertedTicket.ownerId}/tickets/${targetTicketId}/status`, "active", userToken);
+        await rtdbSet(`users/${revertedTicket.ownerId}/tickets/${targetTicketId}/redeemedAt`, null, userToken);
+        await rtdbSet(`users/${revertedTicket.ownerId}/tickets/${targetTicketId}/redeemedBy`, null, userToken);
+      }
+
+      return res.json({ success: true, ticket: revertedTicket });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
    * Cash on Counter Payment Collection Endpoint.
    * Operated by Ticket Counter staff / Admins.
    * Receives payment for a Reservation Pass, converts paymentStatus to 'paid',

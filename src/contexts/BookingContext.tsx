@@ -155,6 +155,7 @@ interface BookingContextType {
   updateEvent: (updatedEvent: EventItem) => void;
   deleteEvent: (eventId: string) => void;
   scanTicketQR: (qrCodeValue: string, scannedByStaffName?: string) => Promise<{ success: boolean; message: string; ticket?: Ticket; alreadyRedeemed?: boolean; isVoid?: boolean; isTampered?: boolean }>;
+  undoTicketRedemption: (ticketId: string) => Promise<{ success: boolean; message: string; ticket?: Ticket }>;
   validateCouponServer: (code: string, eventId: string, amount: number) => Promise<{ valid: boolean; discountAmount: number; finalAmount: number; coupon?: Coupon; error?: string }>;
   createCoupon: (couponData: Omit<Coupon, 'id' | 'usedCount' | 'createdAt'>) => Promise<boolean>;
   toggleCouponStatus: (code: string) => Promise<void>;
@@ -1055,6 +1056,31 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
   };
 
+  const undoTicketRedemption = async (ticketId: string) => {
+    const response = await safeFetch<any>('/api/tickets/undo-redeem', {
+      method: 'POST',
+      headers: await authenticatedApiHeaders(),
+      body: JSON.stringify({ ticketId: ticketId.trim() }),
+    });
+    const data = response.data || {};
+    if (!response.ok || !data.success) {
+      return {
+        success: false,
+        message: data.error || response.error || 'Undo failed. The ticket could not be reverted.',
+      };
+    }
+    const reverted = data.ticket as Ticket | undefined;
+    if (reverted) {
+      setAllTickets((prev) => prev.map((t) => (t.id === reverted.id ? reverted : t)));
+      setMyTickets((prev) => prev.map((t) => (t.id === reverted.id ? reverted : t)));
+    }
+    return {
+      success: true,
+      message: 'Redemption undone. The pass is scannable again.',
+      ticket: reverted,
+    };
+  };
+
   // Coupons State
   const [coupons, setCoupons] = useState<Coupon[]>([]);
 
@@ -1710,6 +1736,7 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         updateEvent,
         deleteEvent,
         scanTicketQR,
+        undoTicketRedemption,
         validateCouponServer,
         createCoupon,
         toggleCouponStatus,

@@ -23,8 +23,7 @@ import {
   ShieldAlert,
   Loader2,
   ZoomIn,
-} from 'lucide-react';
-import { useBooking } from '../contexts/BookingContext';
+} from 'lucide-react';import { useBooking } from '../contexts/BookingContext';
 import { useAuth } from '../contexts/AuthContext';
 import { Ticket } from '../types';
 
@@ -135,8 +134,22 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
   subtitle = 'Scan digital/printed ticket QR codes or perform manual attendee lookups.',
   onDecoded,
 }) => {
-  const { scanTicketQR, allTickets } = useBooking();
+  const { scanTicketQR, allTickets, undoTicketRedemption } = useBooking();
   const { user } = useAuth();
+
+  const [undoingTicketId, setUndoingTicketId] = useState<string | null>(null);
+  const [undoError, setUndoError] = useState<string | null>(null);
+
+  // Last 3 scans this device has seen (client-side ring buffer, no extra reads)
+  const [recentScans, setRecentScans] = useState<Ticket[]>([]);
+  const recentScansRef = useRef<Ticket[]>([]);
+
+  const recordRecentScan = useCallback((ticket: Ticket) => {
+    if (!ticket?.id) return;
+    const next = [ticket, ...recentScansRef.current.filter((t) => t.id !== ticket.id)].slice(0, 3);
+    recentScansRef.current = next;
+    setRecentScans(next);
+  }, []);
 
   const isDevMode = typeof window !== 'undefined' && (
     new URLSearchParams(window.location.search).has('dev') ||
@@ -367,6 +380,7 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
 
         setScanState(allowedState);
         lastScanLockRef.current = { token: cleanCode, timestamp: Date.now(), result: allowedState };
+        if (res.ticket) recordRecentScan(res.ticket);
         startAutoClearTimer(3000);
       } else if (res.alreadyRedeemed) {
         // DUPLICATE: Positive warning with staff attribution & auto-clear
@@ -916,6 +930,27 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
     };
   }, [activeTab, isCameraRequested]);
 
+  const handleUndo = async (ticketId: string) => {
+    if (undoingTicketId) return;
+    setUndoingTicketId(ticketId);
+    setUndoError(null);
+    try {
+      const res = await undoTicketRedemption(ticketId);
+      if (!res.success) {
+        setUndoError(res.message);
+        return;
+      }
+      // Reflect the revert in the recent-scans ring buffer
+      const next = recentScansRef.current.filter((t) => t.id !== ticketId);
+      recentScansRef.current = next;
+      setRecentScans(next);
+    } catch (err: any) {
+      setUndoError(err?.message || 'Undo failed. Please try again.');
+    } finally {
+      setUndoingTicketId(null);
+    }
+  };
+
   // Filtered tickets with debouncing and max 10 result cap
   const { filteredManualTickets, totalMatches } = useMemo(() => {
     const q = debouncedSearchQuery.trim().toLowerCase();
@@ -927,12 +962,12 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
     }
     const matches = allTickets.filter(
       (t) =>
-        t.attendeeName.toLowerCase().includes(q) ||
-        t.attendeePhone.toLowerCase().includes(q) ||
-        t.ticketNumber.toLowerCase().includes(q) ||
-        t.id.toLowerCase().includes(q) ||
-        t.eventTitle.toLowerCase().includes(q) ||
-        t.seatNumber.toLowerCase().includes(q)
+        (t.attendeeName || '').toLowerCase().includes(q) ||
+        (t.attendeePhone || '').toLowerCase().includes(q) ||
+        (t.ticketNumber || '').toLowerCase().includes(q) ||
+        (t.id || '').toLowerCase().includes(q) ||
+        (t.eventTitle || '').toLowerCase().includes(q) ||
+        (t.seatNumber || '').toLowerCase().includes(q)
     );
     return {
       filteredManualTickets: matches.slice(0, 10),
@@ -1621,6 +1656,58 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
             </div>
           )}
         </div>
+      </div>
+
+      {/* Recent Scans — bottom of the QR scan view */}
+      <div className="p-6 rounded-3xl bg-[#141414] border border-white/10 space-y-4 shadow-xl">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-bold text-white flex items-center gap-2">
+            <Clock className="w-4 h-4 text-[#D4AF37]" />
+            Recent Scans
+          </h3>
+          <span className="text-[10px] text-gray-500 font-medium">Last 3 on this device</span>
+        </div>
+
+        {undoError && (
+          <div className="p-2.5 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 text-xs">{undoError}</div>
+        )}
+
+        {recentScans.length === 0 ? (
+          <p className="text-xs text-gray-400 text-center py-4 border border-dashed border-white/10 rounded-2xl">
+            No scans yet in this session. Admitted guests will appear here.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {recentScans.map((t) => (
+              <div
+                key={t.id}
+                className="p-3.5 rounded-2xl bg-[#1C1C1C] border border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+              >
+                <div className="space-y-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-white text-sm truncate">{t.attendeeName || 'Unknown'}</span>
+                    <span className="font-mono text-[11px] text-[#D4AF37]">#{t.ticketNumber || t.id}</span>
+                  </div>
+                  <div className="flex flex-wrap gap-x-3 gap-y-1 text-gray-400 text-[11px]">
+                    <span>{t.eventTitle || 'Event'}</span>
+                    <span className="text-emerald-400 font-bold">{t.tierName || 'Standard'}{t.seatNumber ? ` · ${t.seatNumber}` : ''}</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-[10px] text-gray-500">{t.scannedAt || 'Just now'}</span>
+                  <button
+                    onClick={() => handleUndo(t.id)}
+                    disabled={undoingTicketId !== null}
+                    title="Undo this admission — makes the pass scannable again"
+                    className="px-3 py-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-300 font-bold text-[11px] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {undoingTicketId === t.id ? 'Undoing…' : 'Undo'}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
