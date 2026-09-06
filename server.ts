@@ -1951,9 +1951,13 @@ async function finalizeBookingServerSide(
             notificationEntry.reason = res.error?.message || JSON.stringify(res.error) || 'Unknown error';
             // Reliability: schedule one delayed self-retry so a transient
             // provider outage still delivers the message without staff
-            // intervention. The retry re-takes the idempotency lock so a
-            // concurrent resend cannot double-send.
-            setTimeout(() => {
+            // intervention — but never for an ambiguous outcome (e.g. a
+            // timeout where the provider may have delivered anyway). The
+            // retry re-takes the idempotency lock so a concurrent resend
+            // cannot double-send.
+            if ((res as any).ambiguous) {
+              console.warn(`[WHATSAPP] Ambiguous outcome for ticket ${ticketId} (possible duplicate) — skipping auto-retry; manual resend remains available.`);
+            } else setTimeout(() => {
               (async () => {
                 try {
                   const retryToken = await getAdminAuthToken();

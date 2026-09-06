@@ -191,7 +191,7 @@ function truncateToken(token: string): string {
 export async function sendTicketWhatsApp(
   ticket: any,
   recipientPhone: string
-): Promise<{ success: boolean; waMessageId?: string; error?: any }> {
+): Promise<{ success: boolean; waMessageId?: string; error?: any; ambiguous?: boolean }> {
   const rawEnabled = process.env.ENOTIFY_ENABLED;
   const isExplicitlyDisabled = rawEnabled !== undefined && ['false', '0', 'off', 'no', 'disabled'].includes(String(rawEnabled).trim().toLowerCase());
   
@@ -345,6 +345,13 @@ export async function sendTicketWhatsApp(
       const errMsg = isAbort ? 'Request timed out after 15s' : (networkErr.message || String(networkErr));
       console.warn(`[ENOTIFY] Network error on attempt ${attempts}:`, errMsg);
       lastError = { message: errMsg, type: isAbort ? 'TimeoutError' : 'NetworkError' };
+      // A timeout is ambiguous: the provider may have already delivered the
+      // message even though the response was lost. Re-sending here is the
+      // cause of duplicate WhatsApp messages, so stop and report ambiguity
+      // instead of retrying. Manual resend remains available to staff.
+      if (isAbort) {
+        return { success: false, error: lastError, ambiguous: true };
+      }
       if (attempts < maxAttempts) {
         const delayMs = backoffs[attempts - 1];
         console.log(`[ENOTIFY] Backing off for ${delayMs}ms after network error...`);
@@ -376,7 +383,7 @@ export async function sendTicketWhatsApp(
 export async function sendTicketWhatsAppWithImage(
   ticket: any,
   recipientPhone: string
-): Promise<{ success: boolean; waMessageId?: string; error?: any }> {
+): Promise<{ success: boolean; waMessageId?: string; error?: any; ambiguous?: boolean }> {
   const rawEnabled = process.env.ENOTIFY_ENABLED;
   const isExplicitlyDisabled =
     rawEnabled !== undefined &&
@@ -521,6 +528,11 @@ export async function sendTicketWhatsAppWithImage(
       const errMsg = isAbort ? 'Request timed out after 20s' : (networkErr.message || String(networkErr));
       console.warn(`[ENOTIFY-IMG] Network error on attempt ${attempts}:`, errMsg);
       lastError = { message: errMsg, type: isAbort ? 'TimeoutError' : 'NetworkError' };
+      // Timeout is ambiguous: the image may already have been delivered.
+      // Do NOT fall back to a text-only resend — that duplicates the message.
+      if (isAbort) {
+        return { success: false, error: lastError, ambiguous: true };
+      }
       if (attempts < maxAttempts) {
         await new Promise((r) => setTimeout(r, backoffs[attempts - 1]));
         continue;
