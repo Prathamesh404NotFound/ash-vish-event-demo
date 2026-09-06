@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { 
   Users, CheckCircle2, Clock, TrendingUp, RefreshCw, 
-  QrCode, BarChart3, Activity, Zap, Calendar
+  QrCode, BarChart3, Activity, Zap, UserPlus, X, Search
 } from 'lucide-react';
 import { useBooking } from '../../contexts/BookingContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { safeFetch } from '../../lib/api';
 import { authenticatedApiHeaders } from '../../lib/authHeaders';
+import { Ticket } from '../../types';
 
 interface CheckinData {
   eventId: string;
@@ -24,11 +25,20 @@ interface CheckinData {
 }
 
 export function AdminCheckinDashboard() {
-  const { events } = useBooking();
+  const { events, allTickets, scanTicketQR } = useBooking();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
+
   const [selectedEventId, setSelectedEventId] = useState<string>('');
   const [data, setData] = useState<CheckinData | null>(null);
   const [loading, setLoading] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
+
+  // Manual check-in modal state
+  const [checkInModalOpen, setCheckInModalOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [checkInLoading, setCheckInLoading] = useState<string | null>(null);
+  const [checkInResult, setCheckInResult] = useState<{ ticketId: string; success: boolean; message: string } | null>(null);
 
   const fetchCheckinData = useCallback(async () => {
     if (!selectedEventId) return;
@@ -68,6 +78,47 @@ export function AdminCheckinDashboard() {
 
   const ratePercent = data ? Math.round(data.checkInRate * 100) : 0;
 
+  // Filter tickets for the selected event and search query
+  const searchResults = useMemo(() => {
+    if (!checkInModalOpen || !selectedEventId || !searchQuery.trim()) return [];
+    const q = searchQuery.toLowerCase().trim();
+    return allTickets
+      .filter((t) => t.eventId === selectedEventId)
+      .filter((t) => {
+        const name = (t.attendeeName || '').toLowerCase();
+        const phone = (t.attendeePhone || '').toLowerCase();
+        const ticketNum = (t.ticketNumber || '').toLowerCase();
+        return name.includes(q) || phone.includes(q) || ticketNum.includes(q);
+      })
+      .slice(0, 20);
+  }, [checkInModalOpen, selectedEventId, searchQuery, allTickets]);
+
+  const handleManualCheckIn = async (ticket: Ticket) => {
+    if (!ticket.passSlug?.id || !ticket.passSlug?.sig) {
+      setCheckInResult({ ticketId: ticket.id, success: false, message: 'This ticket has no valid pass link. Cannot check in.' });
+      return;
+    }
+    setCheckInLoading(ticket.id);
+    setCheckInResult(null);
+    try {
+      const signedToken = `${ticket.passSlug.id}/${ticket.passSlug.sig}`;
+      const result = await scanTicketQR(signedToken, user?.name || 'Admin');
+      setCheckInResult({
+        ticketId: ticket.id,
+        success: result.success,
+        message: result.success ? `${ticket.attendeeName || 'Guest'} checked in successfully!` : result.message,
+      });
+      if (result.success) {
+        // Refresh dashboard data after successful check-in
+        fetchCheckinData();
+      }
+    } catch (err) {
+      setCheckInResult({ ticketId: ticket.id, success: false, message: 'Check-in failed. Please try again.' });
+    } finally {
+      setCheckInLoading(null);
+    }
+  };
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       {/* Header */}
@@ -98,6 +149,15 @@ export function AdminCheckinDashboard() {
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </button>
+          {isAdmin && selectedEventId && (
+            <button
+              onClick={() => { setCheckInModalOpen(true); setSearchQuery(''); setCheckInResult(null); }}
+              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-[#D4AF37]/10 hover:bg-[#D4AF37]/20 text-[#D4AF37] text-xs font-semibold border border-[#D4AF37]/30 transition-all cursor-pointer"
+            >
+              <UserPlus className="w-3.5 h-3.5" />
+              Manual Check-In
+            </button>
+          )}
         </div>
       </div>
 
@@ -247,6 +307,124 @@ export function AdminCheckinDashboard() {
           <p className="text-gray-400 text-sm">Select an event to view real-time check-in metrics.</p>
         </div>
       )}
+
+      {/* Manual Check-In Modal */}
+      <AnimatePresence>
+        {checkInModalOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+            onClick={(e) => { if (e.target === e.currentTarget) setCheckInModalOpen(false); }}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="w-full max-w-lg bg-[#141414] border border-white/10 rounded-2xl overflow-hidden"
+            >
+              {/* Modal Header */}
+              <div className="flex items-center justify-between p-5 border-b border-white/10">
+                <div className="flex items-center gap-2">
+                  <UserPlus className="w-5 h-5 text-[#D4AF37]" />
+                  <h2 className="font-heading font-bold text-white text-sm">Manual Check-In</h2>
+                </div>
+                <button
+                  onClick={() => setCheckInModalOpen(false)}
+                  className="text-gray-400 hover:text-white transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Search Input */}
+              <div className="p-4 border-b border-white/5">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => { setSearchQuery(e.target.value); setCheckInResult(null); }}
+                    placeholder="Search by name, phone, or ticket number..."
+                    className="w-full bg-[#1a1a1a] border border-white/10 rounded-xl pl-10 pr-4 py-3 text-white text-sm placeholder:text-gray-500 focus:outline-none focus:border-[#D4AF37]"
+                    autoFocus
+                  />
+                </div>
+              </div>
+
+              {/* Search Results */}
+              <div className="max-h-80 overflow-y-auto p-2">
+                {searchQuery.trim() && searchResults.length === 0 && (
+                  <p className="text-center text-gray-500 text-xs py-8">No tickets found for this search.</p>
+                )}
+                {!searchQuery.trim() && (
+                  <p className="text-center text-gray-500 text-xs py-8">Type a name, phone number, or ticket number to search.</p>
+                )}
+                {searchResults.map((ticket) => {
+                  const isCheckedIn = ticket.status === 'redeemed';
+                  return (
+                    <div
+                      key={ticket.id}
+                      className="flex items-center justify-between p-3 rounded-xl hover:bg-white/5 transition-colors"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs text-white font-bold truncate">{ticket.attendeeName || 'Guest'}</p>
+                        <p className="text-[10px] text-gray-500 font-mono">{ticket.ticketNumber || ticket.id}</p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-[10px] text-[#D4AF37]">{ticket.tierName || 'Standard'}</span>
+                          {ticket.attendeePhone && (
+                            <span className="text-[10px] text-gray-600">{ticket.attendeePhone}</span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="shrink-0 ml-3">
+                        {isCheckedIn ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 text-[10px] font-bold">
+                            <CheckCircle2 className="w-3 h-3" />
+                            Checked In
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => handleManualCheckIn(ticket)}
+                            disabled={checkInLoading === ticket.id}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#D4AF37] hover:bg-[#D4AF37]/80 text-black text-[10px] font-bold transition-all cursor-pointer disabled:opacity-50"
+                          >
+                            {checkInLoading === ticket.id ? (
+                              <RefreshCw className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <UserPlus className="w-3 h-3" />
+                            )}
+                            Check In
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Result Feedback */}
+              <AnimatePresence>
+                {checkInResult && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 10 }}
+                    className={`mx-4 mb-4 p-3 rounded-xl text-xs font-bold ${
+                      checkInResult.success
+                        ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400'
+                        : 'bg-red-500/10 border border-red-500/30 text-red-400'
+                    }`}
+                  >
+                    {checkInResult.success ? '✓ ' : '✕ '}{checkInResult.message}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
