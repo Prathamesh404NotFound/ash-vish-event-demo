@@ -1534,7 +1534,7 @@ async function finalizeBookingServerSide(
           quantity: lineQty,
           totalPaid: isDeferred
             ? 0
-            : Math.round(((pendingOrder.isPartial ? (Number(pendingOrder.amountPaid) || 0) : (Number(amount) || 0)) * lineShare) * 100) / 100,
+            : Math.round(((pendingOrder.isPartial ? (Number(pendingOrder.amountPaid) || 0) : (Number(amount) || 0) - (Number(discountAmount) || 0)) * lineShare) * 100) / 100,
           discount: Math.round((Number(discountAmount) || 0) * lineShare * 100) / 100,
           seatNumber: tSeatLabel,
           selectedSeats: seatIds || [],
@@ -1692,7 +1692,7 @@ async function finalizeBookingServerSide(
       tierName,
       price,
       quantity,
-      totalPaid: isDeferred ? 0 : (pendingOrder.isPartial ? pendingOrder.amountPaid : amount),
+      totalPaid: isDeferred ? 0 : (pendingOrder.isPartial ? pendingOrder.amountPaid : (Number(amount) || 0) - (Number(discountAmount) || 0)),
       discount: discountAmount,
       seatNumber: seatLabel,
       selectedSeats: seatIds || [],
@@ -4998,7 +4998,9 @@ export async function createApp() {
         paymentMethod: `walkin_${String(paymentMethod).slice(0, 32)}`,
         scannedByStaffId: staffUid,
         createdByStaffId: staffUid,
-        ...(splitPayments.length > 0 ? { payments: splitPayments, totalPaid: netTotal } : {}),
+        // Net amount after discount is the source of truth for what was paid.
+        totalPaid: netTotal,
+        ...(splitPayments.length > 0 ? { payments: splitPayments } : {}),
         ...(discountOverrideRecord ? { discountOverride: discountOverrideRecord } : {}),
         ...(shiftCode ? { shiftId: shiftCode, staffShiftId: shiftCode } : {}),
         ...(rawCid ? { counterId: rawCid, counterName } : {}),
@@ -5694,7 +5696,7 @@ export async function createApp() {
       orders.sort((a: any, b: any) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
       const total = orders.length;
       const summary = {
-        totalRevenue: orders.reduce((sum: number, o: any) => sum + Number(o.amountPaid ?? o.amount ?? 0), 0),
+        totalRevenue: orders.reduce((sum: number, o: any) => sum + Number(o.amountPaid ?? ((Number(o.amount) || 0) - (Number(o.discount) || 0)) ?? 0), 0),
         totalDiscount: orders.reduce((sum: number, o: any) => sum + Number(o.discountAmount ?? o.discount ?? 0), 0),
         totalTickets: orders.reduce((sum: number, o: any) => sum + (Number(o.quantity) || 1), 0),
         totalOrders: new Set(orders.map((o: any) => o.orderId || o.id)).size,
@@ -6306,7 +6308,7 @@ export async function createApp() {
             rows.filter(Boolean).map((o: any) =>
               [o.orderId, o.eventTitle || "", o.customerDetails?.name || "", o.customerDetails?.email || "",
                o.customerDetails?.phone || "", o.tierName || "", Number(o.quantity) || 1,
-               o.amount ?? "", o.discount || 0, o.amountPaid ?? o.amount ?? "", o.status, o.channel || "",
+               o.amount ?? "", o.discount || 0, o.amountPaid ?? ((Number(o.amount) || 0) - (Number(o.discount) || 0)) ?? "", o.status, o.channel || "",
                o.counterName || "", o.createdAt || ""].map(csvCell).join(",")
             )
           )
