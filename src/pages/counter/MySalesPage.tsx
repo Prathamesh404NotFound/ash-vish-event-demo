@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
   Search, Filter, Calendar, Edit3, Trash2, Send, CheckCircle, XCircle, 
-  Download, RefreshCw, AlertCircle, ChevronLeft, ChevronRight, X 
+  Download, RefreshCw, AlertCircle, ChevronLeft, ChevronRight, X, Printer 
 } from 'lucide-react';
 import { RowActions } from '../../components/admin/RowActions';
 import { useAuth } from '../../contexts/AuthContext';
@@ -297,15 +297,41 @@ export const MySalesPage: React.FC = () => {
     }
   };
 
-  const handleExportCSV = () => {
+  const handleExportCSV = async () => {
     if (tickets.length === 0) {
       alert("No data available to export.");
       return;
     }
 
+    // When an event filter is selected, export EVERY ticket for that event
+    // (all-time, pagination bypassed via export=1) — not just the current page.
+    let exportRows = tickets;
+    if (selectedEventId) {
+      try {
+        const idToken = await firebaseUser?.getIdToken();
+        if (!idToken) throw new Error("No authentication token found.");
+        const params = new URLSearchParams({
+          export: '1',
+          dateRange: 'all-time',
+          eventId: selectedEventId,
+        });
+        if (selectedStatus) params.append('status', selectedStatus);
+        if (searchQuery.trim()) params.append('search', searchQuery.trim());
+        const res = await fetch(`/api/counter/my-sales?${params.toString()}`, {
+          headers: { 'Authorization': `Bearer ${idToken}` },
+        });
+        const data = await res.json();
+        if (data.success && Array.isArray(data.tickets) && data.tickets.length > 0) {
+          exportRows = data.tickets;
+        }
+      } catch {
+        // Fall back to the rows currently visible on this page.
+      }
+    }
+
     // Standard CSV compiling
-    const headers = ["Ticket Number", "Event", "Tier", "Seats", "Attendee", "Phone", "Email", "Total Paid", "Issued By", "Status", "Date"];
-    const rows = tickets.map(t => [
+    const headers = ["Ticket Number", "Event", "Tier", "Seats", "Attendee", "Phone", "Email", "Total Paid", "Issued By", "Hold At Counter", "Status", "Date"];
+    const rows = exportRows.map(t => [
       t.ticketNumber,
       t.eventTitle,
       t.tierName,
@@ -315,6 +341,7 @@ export const MySalesPage: React.FC = () => {
       t.attendeeEmail || '',
       `₹${t.totalPaid}`,
       t.issuedBySubUserName || 'Main Staff',
+      (t as any).holdAtCounter ? 'YES' : '',
       t.status,
       new Date(t.purchasedAt).toLocaleString()
     ]);
@@ -536,6 +563,11 @@ export const MySalesPage: React.FC = () => {
                       <span className="text-[10px] text-gray-500 mt-1 block">
                         {new Date(t.purchasedAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
                       </span>
+                      {(t as any).holdAtCounter && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 mt-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[10px] font-bold">
+                          <Printer className="w-3 h-3" /> Held at counter
+                        </span>
+                      )}
                     </td>
                     <td className="p-4">
                       <p className="text-xs font-bold text-white truncate max-w-[180px]">{t.eventTitle}</p>

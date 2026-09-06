@@ -1560,6 +1560,7 @@ async function finalizeBookingServerSide(
           counterName: pendingOrder?.counterName || null,
           issuedBySubUserId: pendingOrder?.issuedBySubUserId || null,
           issuedBySubUserName: pendingOrder?.issuedBySubUserName || null,
+          ...(pendingOrder?.holdAtCounter ? { holdAtCounter: true } : {}),
           payments: pendingOrder?.payments || null,
           paymentMethod: pendingOrder?.paymentMethod || paymentMethod,
           ...(pendingOrder?.reservationId ? { reservationId: pendingOrder.reservationId } : {}),
@@ -1716,6 +1717,7 @@ async function finalizeBookingServerSide(
       counterName: pendingOrder?.counterName || null,
       issuedBySubUserId: pendingOrder?.issuedBySubUserId || null,
       issuedBySubUserName: pendingOrder?.issuedBySubUserName || null,
+      ...(pendingOrder?.holdAtCounter ? { holdAtCounter: true } : {}),
       payments: pendingOrder?.payments || null,
       paymentMethod: pendingOrder?.paymentMethod || paymentMethod,
       ...(pendingOrder?.reservationId ? { reservationId: pendingOrder.reservationId } : {}),
@@ -4726,7 +4728,7 @@ export async function createApp() {
 
   app.post("/api/walk-in-bookings", verifyRole(['admin', 'ticket_counter']), async (req: any, res) => {
     try {
-      const { eventId, tierId: rawTierId, attendeeName, attendeePhone, attendeeEmail, selectedSeats = [], paymentMethod = 'cash', couponCode: rawCouponCode, payments: rawPayments, discountOverride: rawOverride, shiftId, idempotencyKey, counterId: rawCounterId, scannedByStaffId, subUserId, subUserName, items: rawItems } = req.body || {};
+      const { eventId, tierId: rawTierId, attendeeName, attendeePhone, attendeeEmail, selectedSeats = [], paymentMethod = 'cash', couponCode: rawCouponCode, payments: rawPayments, discountOverride: rawOverride, shiftId, idempotencyKey, counterId: rawCounterId, scannedByStaffId, subUserId, subUserName, holdAtCounter: rawHoldAtCounter, items: rawItems } = req.body || {};
       let tierId: string = String(rawTierId || "");
 
       // Idempotency: same key returns the same completed result
@@ -5010,6 +5012,7 @@ export async function createApp() {
         ...(rawCid ? { counterId: rawCid, counterName } : {}),
         ...(subUserId ? { issuedBySubUserId: String(subUserId).slice(0, 64) } : {}),
         ...(subUserName ? { issuedBySubUserName: String(subUserName).slice(0, 64) } : {}),
+        ...(rawHoldAtCounter ? { holdAtCounter: true } : {}),
         ...(counterUpi.vpa ? { counterMerchantUpi: counterUpi } : {}),
       }, adminToken);
 
@@ -6611,7 +6614,7 @@ export async function createApp() {
 
   app.post("/api/tickets/verify-and-redeem", verifyRole(['admin', 'ticket_counter']), async (req: any, res) => {
     try {
-      const { signedToken, scannedByStaffId } = req.body;
+      const { signedToken, scannedByStaffId, eventId: scannedEventId, gateId } = req.body;
       const userToken = await getAdminAuthToken();
 
       if (!signedToken || typeof signedToken !== "string") {
@@ -6686,6 +6689,11 @@ export async function createApp() {
           return undefined;
         }
 
+        if (scannedEventId && ticket.eventId && String(ticket.eventId) !== String(scannedEventId)) {
+          alreadyRedeemedError = `WRONG EVENT: This pass is for a different event and cannot be redeemed at this gate.`;
+          return undefined;
+        }
+
         if (ticket.status === "redeemed") {
           alreadyRedeemedError = `This ticket was already scanned/redeemed at ${ticket.redeemedAt || "an earlier time"} by staff '${ticket.redeemedBy || "unknown"}'!`;
           return undefined;
@@ -6699,7 +6707,8 @@ export async function createApp() {
 
         ticket.status = "redeemed";
         ticket.redeemedAt = new Date().toISOString();
-        ticket.redeemedBy = scannedByStaffId || req.user?.uid || "counter_scanner_01";
+        ticket.redeemedBy = scannedByStaffId || req.user?.uid || "unknown_staff";
+        if (gateId) ticket.redeemedAtGate = String(gateId).slice(0, 64);
         redeemedTicket = ticket;
         return ticket;
       }, userToken);
@@ -8287,7 +8296,8 @@ app.get("/api/counter/my-sales", requireRole(["counter_staff", "event_manager", 
     const totalAmountSum = filtered.reduce((sum: number, t: any) => sum + (Number(t.price) * Number(t.quantity || 1)), 0);
 
     const total = filtered.length;
-    const paged = filtered.slice((page - 1) * pageSize, page * pageSize);
+    const exportAll = q.export === '1' || q.export === 'true';
+    const paged = exportAll ? filtered : filtered.slice((page - 1) * pageSize, page * pageSize);
 
     return res.json({
       success: true,

@@ -128,6 +128,8 @@ export const WalkInPage: React.FC = () => {
 
   // ---------- Customer ----------
   const [attendeeName, setAttendeeName] = useState('');
+  // When ticked, the printed pass is kept at the counter for the guest to collect.
+  const [holdAtCounter, setHoldAtCounter] = useState(false);
   const [attendeePhone, setAttendeePhone] = useState('');
 
   // ---------- Payment ----------
@@ -756,6 +758,7 @@ export const WalkInPage: React.FC = () => {
       attendeeName: trimmedName,
       attendeePhone: trimmedPhone,
       scannedByStaffId: user?.name || 'Counter Operator',
+      holdAtCounter,
       selectedSeats: selectedSeats.length > 0 ? selectedSeats : undefined,
       quantity: multiMode || isSeatBasedEvent(selectedEvent)
         ? undefined
@@ -806,6 +809,7 @@ export const WalkInPage: React.FC = () => {
             counterId: selectedCounterId || undefined,
             subUserId: activeSubUser?.id || undefined,
             subUserName: activeSubUser?.name || undefined,
+            holdAtCounter,
           }
         );
         setIssuedTicket(ticket);
@@ -861,6 +865,7 @@ export const WalkInPage: React.FC = () => {
 
   const handleReset = () => {
     setIssuedTicket(null);
+    setHoldAtCounter(false);
     setAttendeeName('');
     setAttendeePhone('');
     setSelectedSeats([]);
@@ -1030,6 +1035,14 @@ export const WalkInPage: React.FC = () => {
               <div className="flex justify-between text-gray-400">
                 <span>Manager Discount:</span>
                 <span className="font-bold text-emerald-400">− ₹{discountAmount}</span>
+              </div>
+            )}
+            {holdAtCounter && (
+              <div className="flex justify-between items-center pt-2 border-t border-white/10">
+                <span className="text-gray-400">Collection:</span>
+                <span className="px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[10px] font-bold uppercase tracking-wider">
+                  Printed copy held at counter
+                </span>
               </div>
             )}
             <div className="flex justify-between items-center text-gray-400 pt-2 border-t border-white/10">
@@ -1431,6 +1444,17 @@ export const WalkInPage: React.FC = () => {
                 />
                 <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-400" />
               </div>
+              <label className="flex items-center gap-2.5 px-1 py-1 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={holdAtCounter}
+                  onChange={(e) => setHoldAtCounter(e.target.checked)}
+                  className="w-4 h-4 rounded accent-[#D4AF37] cursor-pointer"
+                />
+                <span className="text-xs text-gray-300">
+                  Print &amp; hold ticket at counter <span className="text-gray-500">(guest collects here)</span>
+                </span>
+              </label>
             </div>
 
             {/* Discount override (authorized counter staff and managers) */}

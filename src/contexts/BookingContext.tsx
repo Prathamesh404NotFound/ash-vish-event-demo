@@ -149,7 +149,7 @@ interface BookingContextType {
   releaseHeldSeats: (eventId: string, seatIds: string[]) => Promise<void>;
   confirmPurchase: (attendeeDetails: { name: string; email: string; phone: string }, paymentMethod: string, ownerId?: string) => Promise<Ticket>;
   confirmServerPurchasedTicket: (ticket: any, booking: any) => Ticket;
-  createWalkInBooking: (eventId: string, tierId: string, attendeeName: string, attendeePhone: string, scannedByStaffId?: string, selectedSeats?: string[], paymentMethod?: string, options?: { payments?: { method: string; amount: number }[]; discountOverride?: { overrideId: string; discountAmount: number; actorId: string; reason: string }; shiftId?: string; idempotencyKey?: string; quantity?: number; counterId?: string }) => Promise<Ticket>;
+  createWalkInBooking: (eventId: string, tierId: string, attendeeName: string, attendeePhone: string, scannedByStaffId?: string, selectedSeats?: string[], paymentMethod?: string, options?: { payments?: { method: string; amount: number }[]; discountOverride?: { overrideId: string; discountAmount: number; actorId: string; reason: string }; shiftId?: string; idempotencyKey?: string; quantity?: number; counterId?: string; holdAtCounter?: boolean }) => Promise<Ticket>;
   getEventById: (id: string) => EventItem | undefined;
   addEvent: (newEvent: Omit<EventItem, 'id' | 'rating' | 'reviewsCount'>) => void;
   updateEvent: (updatedEvent: EventItem) => void;
@@ -907,7 +907,7 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     scannedByStaffId?: string,
     selectedSeats?: string[],
     paymentMethod: string = 'cash',
-    options?: { payments?: { method: string; amount: number }[]; discountOverride?: { overrideId: string; discountAmount: number; actorId: string; reason: string }; shiftId?: string; idempotencyKey?: string; quantity?: number; counterId?: string; subUserId?: string; subUserName?: string; items?: { tierId: string; tierName?: string; quantity: number }[] }
+    options?: { payments?: { method: string; amount: number }[]; discountOverride?: { overrideId: string; discountAmount: number; actorId: string; reason: string }; shiftId?: string; idempotencyKey?: string; quantity?: number; counterId?: string; subUserId?: string; subUserName?: string; items?: { tierId: string; tierName?: string; quantity: number }[]; holdAtCounter?: boolean }
   ): Promise<Ticket> => {
     const response = await safeFetch<any>('/api/walk-in-bookings', {
       method: 'POST',
@@ -929,6 +929,7 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         ...(options?.counterId ? { counterId: options.counterId } : {}),
         ...(options?.subUserId ? { subUserId: options.subUserId } : {}),
         ...(options?.subUserName ? { subUserName: options.subUserName } : {}),
+        ...(options?.holdAtCounter ? { holdAtCounter: true } : {}),
       }),
     });
     const data = response.data || {};
@@ -1027,13 +1028,19 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     showToast('Event deleted successfully.', 'success');
   };
 
-  const scanTicketQR = async (qrCodeValue: string, scannedByStaffName?: string) => {
+  const scanTicketQR = async (qrCodeValue: string, scannedByStaffName?: string, opts?: { eventId?: string; gateId?: string }) => {
+    // Attribute scans to a real staff identity: prefer the auth UID (stable),
+    // fall back to the profile name. The old 'Gate Staff #402' placeholder
+    // polluted duplicate-scan attribution whenever the profile lacked a name.
+    const staffIdentity = (user as any)?.uid || (user as any)?.id || scannedByStaffName || 'unknown_staff';
     const response = await safeFetch<any>('/api/tickets/verify-and-redeem', {
       method: 'POST',
       headers: await authenticatedApiHeaders(),
       body: JSON.stringify({
         signedToken: qrCodeValue.trim(),
-        scannedByStaffId: scannedByStaffName || 'Gate Staff #402',
+        scannedByStaffId: staffIdentity,
+        ...(opts?.eventId ? { eventId: opts.eventId } : {}),
+        ...(opts?.gateId ? { gateId: opts.gateId } : {}),
       }),
     });
     const data = response.data || {};
