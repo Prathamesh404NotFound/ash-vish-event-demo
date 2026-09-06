@@ -396,7 +396,7 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
         const allowedState: ScanResultState = {
           phase: 'allowed',
           heading: 'ADMITTED ✓',
-          subheading: 'Let them in.',
+          subheading: res.warning ? `Let them in. ⚠ ${res.warning}` : 'Let them in.',
           ticket: res.ticket,
           scannedToken: previewToken,
           scannedAt: res.ticket?.scannedAt || 'Just now',

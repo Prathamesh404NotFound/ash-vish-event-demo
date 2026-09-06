@@ -154,7 +154,7 @@ interface BookingContextType {
   addEvent: (newEvent: Omit<EventItem, 'id' | 'rating' | 'reviewsCount'>) => void;
   updateEvent: (updatedEvent: EventItem) => void;
   deleteEvent: (eventId: string) => void;
-  scanTicketQR: (qrCodeValue: string, scannedByStaffName?: string, opts?: { eventId?: string; gateId?: string }) => Promise<{ success: boolean; message: string; ticket?: Ticket; alreadyRedeemed?: boolean; isVoid?: boolean; isTampered?: boolean }>;
+  scanTicketQR: (qrCodeValue: string, scannedByStaffName?: string, opts?: { eventId?: string; gateId?: string }) => Promise<{ success: boolean; message: string; ticket?: Ticket; alreadyRedeemed?: boolean; isVoid?: boolean; isTampered?: boolean; warning?: string }>;
   undoTicketRedemption: (ticketId: string) => Promise<{ success: boolean; message: string; ticket?: Ticket }>;
   validateCouponServer: (code: string, eventId: string, amount: number) => Promise<{ valid: boolean; discountAmount: number; finalAmount: number; coupon?: Coupon; error?: string }>;
   createCoupon: (couponData: Omit<Coupon, 'id' | 'usedCount' | 'createdAt'>) => Promise<boolean>;
@@ -1068,6 +1068,7 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       success: true,
       message: `TICKET REDEEMED! Gate Access Granted for ${data.ticket?.attendeeName || 'attendee'}.`,
       ticket: data.ticket,
+      ...(data.warning ? { warning: data.warning } : {}),
     };
   };
 
