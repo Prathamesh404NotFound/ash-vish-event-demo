@@ -68,7 +68,10 @@ function requireHmacSecret(): string {
 const SERVER_HMAC_SECRET_PREVIOUS = process.env.SERVER_HMAC_SECRET_PREVIOUS?.trim();
 
 function getHmacVerificationSecrets(): string[] {
-  return [...new Set([SERVER_HMAC_SECRET, SERVER_HMAC_SECRET_PREVIOUS].filter((secret): secret is string => Boolean(secret)))];
+  // Include the derived fallback secret so tokens signed when SERVER_HMAC_SECRET
+  // is absent can still be verified. signHmac() uses EFFECTIVE_HMAC_SECRET
+  // (which equals this fallback), so verification must check it too.
+  return [...new Set([SERVER_HMAC_SECRET, SERVER_HMAC_SECRET_PREVIOUS, EFFECTIVE_HMAC_SECRET].filter((secret): secret is string => Boolean(secret)))];
 }
 
 function hmacDigest(payload: string, secret: string = requireHmacSecret()): string {
