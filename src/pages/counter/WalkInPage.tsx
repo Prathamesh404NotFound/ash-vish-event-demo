@@ -199,6 +199,9 @@ export const WalkInPage: React.FC = () => {
   const userRole: string = (user as any)?.role || '';
   const userRbac: string = (user as any)?.rbacRole || '';
   const isApprover = userRole === 'admin' || ['super_admin', 'event_manager'].includes(userRbac);
+  // Who may apply the discount override on a walk-in sale: managers/admins and
+  // counter staff (ticket_counter) alike, per counter discount policy.
+  const canApproveDiscount = isApprover || userRole === 'ticket_counter' || userRbac === 'counter_staff';
 
   // Active staff shift attribution. Initialize from device storage immediately
   // so the operator identity is visible on the first render after PIN sign-in.
@@ -609,7 +612,7 @@ export const WalkInPage: React.FC = () => {
         }),
       });
       if (!res.ok || !res.data?.success) {
-        setOverrideError(res.data?.error || 'Manager approval failed. Ask an event manager to log in and approve.');
+        setOverrideError(res.data?.error || 'Discount approval failed. Please retry or ask a manager for help.');
         setOverrideApproved(null);
         return;
       }
@@ -708,7 +711,7 @@ export const WalkInPage: React.FC = () => {
     let currentOverride = overrideApproved;
     if (discountAmount > 0) {
       if (!currentOverride || currentOverride.amount !== Math.round(discountAmount)) {
-        if (isApprover) {
+        if (canApproveDiscount) {
           try {
             const res = await safeFetch<any>('/api/counter/discount-override', {
               method: 'POST',
@@ -728,7 +731,7 @@ export const WalkInPage: React.FC = () => {
               };
               setOverrideApproved(currentOverride);
             } else {
-              setFormError(res.data?.error || 'Manager approval failed for this discount. Please click "Approve Discount" and retry.');
+              setFormError(res.data?.error || 'Discount approval failed for this discount. Please click "Approve Discount" and retry.');
               return;
             }
           } catch {
@@ -1430,8 +1433,8 @@ export const WalkInPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Manager discount override (approvers only) */}
-            {isApprover && (
+            {/* Discount override (authorized counter staff and managers) */}
+            {canApproveDiscount && (
               <div className="p-4 rounded-3xl bg-[#D4AF37]/5 border border-[#D4AF37]/25 space-y-2.5">
                 <label className="block text-[10px] font-bold text-[#D4AF37] uppercase tracking-widest flex items-center gap-1.5">
                   <ShieldCheck className="w-3.5 h-3.5" />

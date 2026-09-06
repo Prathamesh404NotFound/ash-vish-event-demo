@@ -4944,16 +4944,16 @@ export async function createApp() {
         phone: trimmedPhone || "",
       };
       const lineAmount = items ? itemsSubtotal : Number(tier.price) * quantity;
-      // Manager-gated discount override (Item 6): the frontend posts a
-      // manager-approved override; only manager-level RBAC roles may supply
-      // one, and it must never exceed 50% of the order amount.
+      // Discount override (Item 6): the frontend posts an approved override;
+      // manager-level roles and counter staff (ticket_counter) may supply one,
+      // and it must never exceed the order amount.
       let overrideDiscount = 0;
       let discountOverrideRecord: any = null;
       if (rawOverride && typeof rawOverride === "object") {
         const actorRbac = (req.user.rbacRole as string) || "";
         const userRole = (req.user.role as string) || "";
-        if (actorRbac !== "super_admin" && actorRbac !== "event_manager" && userRole !== "admin") {
-          return res.status(403).json({ success: false, error: "Access Denied: Discount overrides require manager approval." });
+        if (actorRbac !== "super_admin" && actorRbac !== "event_manager" && actorRbac !== "counter_staff" && userRole !== "admin" && userRole !== "ticket_counter") {
+          return res.status(403).json({ success: false, error: "Access Denied: Discount overrides require an authorized staff role." });
         }
         const rawD = Number(rawOverride.discountAmount);
         if (!Number.isFinite(rawD) || rawD < 0 || rawD > lineAmount) {
@@ -8050,8 +8050,8 @@ app.post("/api/counter/orders/:orderId/exchange", requireRole(["counter_staff", 
   }
 });
 
-// Manager-gated discount override: only super_admin/event_manager may approve.
-app.post("/api/counter/discount-override", requireRole(["event_manager", "super_admin"]), async (req: any, res) => {
+// Discount override approval: managers/admins and counter staff may approve.
+app.post("/api/counter/discount-override", requireRole(["event_manager", "super_admin", "counter_staff"]), async (req: any, res) => {
   try {
     const actorUid = req.user.uid;
     const rbacRole = (req.user.rbacRole as string) || "event_manager";
