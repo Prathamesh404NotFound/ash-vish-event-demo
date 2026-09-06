@@ -154,7 +154,7 @@ interface BookingContextType {
   addEvent: (newEvent: Omit<EventItem, 'id' | 'rating' | 'reviewsCount'>) => void;
   updateEvent: (updatedEvent: EventItem) => void;
   deleteEvent: (eventId: string) => void;
-  scanTicketQR: (qrCodeValue: string, scannedByStaffName?: string) => Promise<{ success: boolean; message: string; ticket?: Ticket; alreadyRedeemed?: boolean; isVoid?: boolean; isTampered?: boolean }>;
+  scanTicketQR: (qrCodeValue: string, scannedByStaffName?: string, opts?: { eventId?: string; gateId?: string }) => Promise<{ success: boolean; message: string; ticket?: Ticket; alreadyRedeemed?: boolean; isVoid?: boolean; isTampered?: boolean }>;
   undoTicketRedemption: (ticketId: string) => Promise<{ success: boolean; message: string; ticket?: Ticket }>;
   validateCouponServer: (code: string, eventId: string, amount: number) => Promise<{ valid: boolean; discountAmount: number; finalAmount: number; coupon?: Coupon; error?: string }>;
   createCoupon: (couponData: Omit<Coupon, 'id' | 'usedCount' | 'createdAt'>) => Promise<boolean>;
@@ -1045,11 +1045,19 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     });
     const data = response.data || {};
     if (!response.ok || !data.success || !data.valid) {
+      const errMsg = String(data.error || response.error || 'Server verification failed. Entry denied.');
+      // Voided/cancelled/refunded and wrong-event passes are denials, NOT
+      // duplicates — surfacing them as "already admitted" would confuse gate
+      // staff into waving the guest through.
+      const isVoidDenial = /voided|cancelled|canceled|refunded/i.test(errMsg);
+      const isWrongEvent = /wrong event/i.test(errMsg);
+      const isAlreadyRedeemed = !isVoidDenial && !isWrongEvent && /already scanned|already admitted|redeemed at/i.test(errMsg);
       return {
         success: false,
-        message: data.error || response.error || 'Server verification failed. Entry denied.',
-        isTampered: response.status === 400,
-        alreadyRedeemed: /already scanned|redeemed/i.test(data.error || ''),
+        message: errMsg,
+        isTampered: response.status === 400 && !isVoidDenial && !isWrongEvent && !isAlreadyRedeemed,
+        isVoid: isVoidDenial,
+        alreadyRedeemed: isAlreadyRedeemed,
       };
     }
     if (data.ticket) {

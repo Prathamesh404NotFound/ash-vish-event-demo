@@ -6690,11 +6690,19 @@ export async function createApp() {
         }
 
         if (scannedEventId && ticket.eventId && String(ticket.eventId) !== String(scannedEventId)) {
-          alreadyRedeemedError = `WRONG EVENT: This pass is for a different event and cannot be redeemed at this gate.`;
+          alreadyRedeemedError = "WRONG EVENT: This pass belongs to a different event and cannot be admitted here.";
           return undefined;
         }
 
-        if (ticket.status === "redeemed") {
+        // Voided / cancelled / refunded / deleted passes must NEVER admit —
+        // previously any such pass was silently marked redeemed at the gate.
+        const ticketStatus = String(ticket.status || "valid").toLowerCase();
+        if (ticketStatus !== "redeemed" && ticketStatus !== "valid" && ticketStatus !== "active") {
+          alreadyRedeemedError = "VOIDED TICKET: This pass was cancelled or refunded and is not valid for entry.";
+          return undefined;
+        }
+
+        if (ticketStatus === "redeemed") {
           alreadyRedeemedError = `This ticket was already scanned/redeemed at ${ticket.redeemedAt || "an earlier time"} by staff '${ticket.redeemedBy || "unknown"}'!`;
           return undefined;
         }
@@ -8425,7 +8433,12 @@ app.post("/api/counter/tickets/:ticketId/toggle-checkin", requireRole(["counter_
     if (!ticket) return res.status(404).json({ success: false, error: "Ticket not found." });
 
     const beforeState = JSON.parse(JSON.stringify(ticket));
-    const nowStatus = ticket.status || "valid";
+    const nowStatus = String(ticket.status || "valid").toLowerCase();
+    // Voided/cancelled/refunded/deleted tickets can never be checked in —
+    // manual toggle only flips between valid/active and redeemed.
+    if (nowStatus !== "redeemed" && nowStatus !== "valid" && nowStatus !== "active") {
+      return res.status(400).json({ success: false, error: "This ticket is voided/cancelled and cannot be checked in." });
+    }
     const nextStatus = nowStatus === "redeemed" ? "valid" : "redeemed";
 
     const updatedTicket = {

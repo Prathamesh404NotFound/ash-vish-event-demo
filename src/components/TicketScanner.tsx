@@ -413,6 +413,9 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
         if (res.isVoid) {
           sub = 'Ticket is void or cancelled. Do not admit.';
           hint = 'This pass has been cancelled or refunded.';
+        } else if (rawMsg.toLowerCase().includes('wrong event')) {
+          sub = 'WRONG EVENT — this pass is for a different show.';
+          hint = 'Do not admit. Direct the guest to the correct venue/gate.';
         } else if (
           res.isTampered ||
           rawMsg.toLowerCase().includes('hmac') ||
