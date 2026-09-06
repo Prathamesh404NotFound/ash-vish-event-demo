@@ -8197,6 +8197,56 @@ app.put("/api/merchant-upi", requireRole(["super_admin"]), async (req: any, res)
 // "My Sales" counter-facing operations
 // ──────────────────────────────────────────────────────────────────────
 
+// Printable gate checklist: one row per ticket for a specific event, with the
+// important gate data. Opens directly in Excel; designed to be printed and
+// ticked off at the gate.
+app.get("/api/admin/events/:eventId/gate-checklist", requireRole(["super_admin", "event_manager", "counter_staff"]), async (req: any, res) => {
+  try {
+    const eventId = String(req.params.eventId || "");
+    if (!eventId) return res.status(400).json({ success: false, error: "eventId is required." });
+    const adminToken = await getAdminAuthToken();
+
+    const ticketsSnap = await rtdbGet("tickets", adminToken);
+    const allTickets = Object.entries((ticketsSnap.data || {}) as Record<string, any>);
+    const rows: any[] = [];
+    for (const [id, t] of allTickets) {
+      const ticket = t as any;
+      if (!ticket || ticket.eventId !== eventId) continue;
+      const status = String(ticket.status || "active").toLowerCase();
+      if (status === "deleted" || status === "cancelled" || status === "refunded" || status === "void") continue;
+      rows.push({ id, ...ticket });
+    }
+    rows.sort((a, b) => String(a.ticketNumber || "").localeCompare(String(b.ticketNumber || "")));
+
+    const eventSnap = await rtdbGet(`events/${eventId}`, adminToken);
+    const eventTitle = (eventSnap.data as any)?.title || eventId;
+
+    const csvCell = (v: any) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const headers = ["S.No", "Ticket No", "Attendee", "Phone", "Category", "Qty", "Seats", "Checked In", "Hold At Counter", "Payment", "Status"];
+    const csv = [headers.join(",")]
+      .concat(rows.map((t, i) => [
+        i + 1,
+        t.ticketNumber || t.id,
+        t.attendeeName || "",
+        t.attendeePhone || "",
+        t.tierName || "",
+        Number(t.quantity) || 1,
+        t.seatNumber || (Array.isArray(t.selectedSeats) && t.selectedSeats.length ? t.selectedSeats.join(" ") : "General"),
+        t.status === "redeemed" ? "YES" : "",
+        t.holdAtCounter ? "YES" : "",
+        t.paymentStatus === "paid" || t.status === "redeemed" ? "PAID" : (t.amountDue ? `DUE ₹${t.amountDue}` : "PAID"),
+        String(t.status || ""),
+      ].map(csvCell).join(",")))
+      .join("\n");
+
+    return res.setHeader("content-type", "text/csv")
+      .setHeader("content-disposition", `attachment; filename="gate-checklist-${eventTitle.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.csv"`)
+      .send(csv);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 app.get("/api/counter/my-sales", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
   try {
     const adminToken = await getAdminAuthToken();

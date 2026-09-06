@@ -14,6 +14,7 @@ import {
   MoreVertical,
   Trash2,
   Eye,
+  ClipboardList,
 } from 'lucide-react';
 import { RowActions } from '../../components/admin/RowActions';
 import { useBooking } from '../../contexts/BookingContext';
@@ -353,6 +354,31 @@ export const AdminBookings: React.FC = () => {
       a.download = `ash_vish_orders_export_${Date.now()}.csv`;
       a.click();
       URL.revokeObjectURL(url);
+    }
+  };
+
+  const handleExportGateChecklist = async () => {
+    if (!filterEventId) {
+      showBanner('error', 'Select an event filter first — the checklist is per event.');
+      return;
+    }
+    try {
+      const headers = await authenticatedApiHeaders();
+      const res = await fetch(`/api/admin/events/${encodeURIComponent(filterEventId)}/gate-checklist`, { headers });
+      if (!res.ok) throw new Error('Checklist export failed.');
+      const csv = await res.text();
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `gate-checklist-${filterEventId}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showBanner('success', 'Gate checklist downloaded — print it for the gate.');
+    } catch {
+      showBanner('error', 'Gate checklist export failed. Please retry.');
     }
   };
 
@@ -735,6 +761,15 @@ export const AdminBookings: React.FC = () => {
           >
             <Download className="w-4 h-4 text-[#D4AF37]" />
             <span>Export CSV</span>
+          </button>
+
+          <button
+            onClick={handleExportGateChecklist}
+            className="py-2.5 px-4 rounded-2xl bg-[#222] hover:bg-[#333] text-white font-bold text-xs flex items-center gap-2 border border-white/10 transition-all flex-shrink-0"
+            title="Printable per-event checklist for the gate"
+          >
+            <ClipboardList className="w-4 h-4 text-[#D4AF37]" />
+            <span>Gate Checklist</span>
           </button>
         </div>
       </div>
