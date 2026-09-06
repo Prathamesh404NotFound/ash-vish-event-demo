@@ -78,6 +78,7 @@ const WalkInPage = lazyWithRetry(() => import('./pages/counter/WalkInPage').then
 const ShiftPage = lazyWithRetry(() => import('./pages/counter/ShiftPage').then(m => ({ default: m.ShiftPage })));
 const CounterOrders = lazyWithRetry(() => import('./pages/counter/CounterOrders').then(m => ({ default: m.CounterOrders })));
 const MySalesPage = lazyWithRetry(() => import('./pages/counter/MySalesPage').then(m => ({ default: m.MySalesPage })));
+const RemoteScannerPage = lazyWithRetry(() => import('./pages/counter/RemoteScannerPage').then(m => ({ default: m.RemoteScannerPage })));
 import { readPreferredStoredActiveShift } from './lib/counterSession';
 
 // New Feature Pages (lazy-loaded)
@@ -392,6 +393,7 @@ export default function App() {
               <Route path="shift" element={<ShiftPage />} />
               <Route path="my-sales" element={<MySalesPage />} />
               <Route path="scan" element={<QRScanner />} />
+              <Route path="remote-scan" element={<RemoteScannerPage />} />
               <Route path="walk-in" element={<WalkInPage />} />
               <Route path="orders" element={<CounterOrders />} />
               <Route path="*" element={<Navigate to="/counter" replace />} />

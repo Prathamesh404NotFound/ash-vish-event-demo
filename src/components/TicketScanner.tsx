@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import jsQR from 'jsqr';
+import { RemoteLinkPanel } from './RemoteLinkPanel';
 import {
   QrCode,
   Search,
@@ -151,6 +152,28 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
     setRecentScans(next);
   }, []);
 
+  // Phone↔laptop link: verify a token submitted by the paired phone through
+  // the exact same pipeline as a camera scan, then classify the outcome for
+  // the phone's overlay. Successful scans land in the normal result UI and
+  // recent-scans log, so the phone acts as a full second counter.
+  const verifyRemoteToken = useCallback(async (token: string): Promise<{ ok: boolean; verdict: string; attendee?: string; ticketNumber?: string }> => {
+    try {
+      const staffName = user?.name || 'Remote Phone';
+      await handleScanCode(token);
+      // Re-derive the verdict from the last scan state set by handleScanCode.
+      const state = scanStateRef.current;
+      if (state?.phase === 'allowed') {
+        if (state.ticket) recordRecentScan(state.ticket);
+        return { ok: true, verdict: 'ADMITTED', attendee: state.ticket?.attendeeName, ticketNumber: state.ticket?.ticketNumber };
+      }
+      if (state?.phase === 'duplicate') return { ok: false, verdict: 'ALREADY ADMITTED', attendee: state.ticket?.attendeeName, ticketNumber: state.ticket?.ticketNumber };
+      if (state?.phase === 'denied') return { ok: false, verdict: state.subheading || 'NOT VALID' };
+      return { ok: false, verdict: 'Verification failed — retry the scan.' };
+    } catch {
+      return { ok: false, verdict: 'Verification failed — retry the scan.' };
+    }
+  }, [user, recordRecentScan]);
+
   const isDevMode = typeof window !== 'undefined' && (
     new URLSearchParams(window.location.search).has('dev') ||
     Boolean(import.meta.env.DEV)
@@ -182,6 +205,8 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
   };
 
   // State Machine
+  const scanStateRef = useRef<ScanResultState | null>(null);
+  const setScanStateTracked = (s: ScanResultState) => { scanStateRef.current = s; setScanState(s); };
   const [scanState, setScanState] = useState<ScanResultState>({
     phase: 'idle',
     heading: '',
@@ -283,7 +308,7 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
       clearTimeout(autoClearTimerRef.current);
     }
     autoClearTimerRef.current = setTimeout(() => {
-      setScanState({
+      setScanStateTracked({
         phase: 'idle',
         heading: '',
         subheading: '',
@@ -297,7 +322,7 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
       clearTimeout(autoClearTimerRef.current);
       autoClearTimerRef.current = null;
     }
-    setScanState({
+    setScanStateTracked({
       phase: 'idle',
       heading: '',
       subheading: '',
@@ -323,7 +348,7 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
       now - lastScanLockRef.current.timestamp < 3000
     ) {
       const cached = lastScanLockRef.current.result;
-      setScanState({
+      setScanStateTracked({
         ...cached,
         isRecentlyScanned: true,
       });
@@ -343,7 +368,7 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
       ? `${cleanCode.substring(0, 10)}…${cleanCode.substring(cleanCode.length - 8)}`
       : cleanCode;
 
-    setScanState({
+    setScanStateTracked({
       phase: 'verifying',
       heading: 'VERIFYING…',
       subheading: 'Validating gate pass cryptographic signature',
@@ -378,7 +403,7 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
           scannedBy: res.ticket?.scannedBy || staffName,
         };
 
-        setScanState(allowedState);
+        setScanStateTracked(allowedState);
         lastScanLockRef.current = { token: cleanCode, timestamp: Date.now(), result: allowedState };
         if (res.ticket) recordRecentScan(res.ticket);
         startAutoClearTimer(3000);
@@ -398,7 +423,7 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
           scannedBy: res.ticket?.scannedBy,
         };
 
-        setScanState(duplicateState);
+        setScanStateTracked(duplicateState);
         lastScanLockRef.current = { token: cleanCode, timestamp: Date.now(), result: duplicateState };
         startAutoClearTimer(3000);
       } else {
@@ -447,7 +472,7 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
           scannedToken: previewToken,
         };
 
-        setScanState(deniedState);
+        setScanStateTracked(deniedState);
         lastScanLockRef.current = { token: cleanCode, timestamp: Date.now(), result: deniedState };
         // Negative outcomes NEVER auto-clear
       }
@@ -465,7 +490,7 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
         scannedToken: previewToken,
       };
 
-      setScanState(netErrState);
+      setScanStateTracked(netErrState);
       // Network failures NEVER auto-clear
     }
   };
@@ -1433,7 +1458,8 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
         </div>
 
         {/* Scan Result Panel / Full-Feedback Sidebar */}
-        <div className="lg:col-span-5">
+        <div className="lg:col-span-5 space-y-6">
+          <RemoteLinkPanel onVerifyToken={verifyRemoteToken} />
           {scanState.phase === 'allowed' ? (
             /* ALLOWED OUTCOME */
             <div className="p-6 sm:p-8 rounded-3xl border border-emerald-500/50 bg-emerald-950/40 space-y-6 shadow-2xl animate-in zoom-in-95 duration-200">

@@ -168,6 +168,17 @@
     // ============================================================
     // Tickets / bookings operational collections
     // ============================================================
+    // ============================================================
+    // Scanner link — phone↔laptop remote gate scanning sessions.
+    // Only authenticated staff may create/join sessions or post scans.
+    // ============================================================
+    "scanner_links": {
+      ".read": "auth != null && root.child('staff').child(auth.uid).exists()",
+      ".write": "auth != null && root.child('staff').child(auth.uid).exists()",
+      "$code": {
+        ".validate": "newData.hasChildren() === false || newData.child('laptopUid').exists()"
+      }
+    },
     "tickets": {
       // Staff read the full operational collection (My Sales, check-in,
       // reports). Writes: bot, super_admin/admin, counter staff (void/

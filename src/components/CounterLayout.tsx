@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Ticket, QrCode, UserPlus, LogOut, ArrowLeft, ShieldCheck, Sparkles, Clock, ShoppingBag, TrendingUp, RefreshCw } from 'lucide-react';
+import { Ticket, QrCode, UserPlus, LogOut, ArrowLeft, ShieldCheck, Sparkles, Clock, ShoppingBag, TrendingUp, RefreshCw, Smartphone } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { ErrorBoundary } from './ErrorBoundary';
 
@@ -32,6 +32,12 @@ export const CounterLayout: React.FC = () => {
       path: "/counter/scan",
       icon: QrCode,
       description: "Verify physical/mobile passes"
+    },
+    {
+      title: "Phone Scanner Link",
+      path: "/counter/remote-scan",
+      icon: Smartphone,
+      description: "Use a phone as a second gate scanner"
     },
     {
       title: "Walk-In Ticket Issuance",
