@@ -156,8 +156,8 @@ interface BookingContextType {
   deleteEvent: (eventId: string) => void;
   scanTicketQR: (qrCodeValue: string, scannedByStaffName?: string, opts?: { eventId?: string; gateId?: string }) => Promise<{ success: boolean; message: string; ticket?: Ticket; alreadyRedeemed?: boolean; isVoid?: boolean; isTampered?: boolean; warning?: string }>;
   undoTicketRedemption: (ticketId: string) => Promise<{ success: boolean; message: string; ticket?: Ticket }>;
-  validateTicketEntry: (code: string) => Promise<any>;
-  confirmTicketEntry: (args: { code?: string; ticketId?: string; quantityEntered: number; note?: string; counterId?: string }) => Promise<any>;
+  validateTicketEntry: (code: string, opts?: { eventId?: string }) => Promise<any>;
+  confirmTicketEntry: (args: { code?: string; ticketId?: string; quantityEntered: number; note?: string; counterId?: string; eventId?: string }) => Promise<any>;
   fetchEntryHistory: (ticketId: string) => Promise<{ success: boolean; records?: any[]; error?: string }>;
   validateCouponServer: (code: string, eventId: string, amount: number) => Promise<{ valid: boolean; discountAmount: number; finalAmount: number; coupon?: Coupon; error?: string }>;
   createCoupon: (couponData: Omit<Coupon, 'id' | 'usedCount' | 'createdAt'>) => Promise<boolean>;
@@ -1102,21 +1102,25 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // ── Multi-entry / partial check-in ──────────────────────────────────
   // Step 1: validate-only scan. Never mutates state.
-  const validateTicketEntry = async (code: string) => {
+  const validateTicketEntry = async (code: string, opts?: { eventId?: string }) => {
     const response = await safeFetch<any>('/api/tickets/entry-status', {
       method: 'POST',
       headers: await authenticatedApiHeaders(),
-      body: JSON.stringify({ code: code.trim() }),
+      body: JSON.stringify({ code: code.trim(), ...(opts?.eventId ? { eventId: opts.eventId } : {}) }),
     });
     return { ok: response.ok, status: response.status, ...(response.data || {}) };
   };
 
   // Step 2: confirm admission of N guests (server-side atomic).
   const confirmTicketEntry = async (args: { code?: string; ticketId?: string; quantityEntered: number; note?: string; counterId?: string }) => {
+    // Idempotency key: unique per confirmation attempt. If the same request
+    // is retried (double click, network retry, scanner re-fire), the server
+    // detects the key and replays the original result instead of re-admitting.
+    const idempotencyKey = `etx_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
     const response = await safeFetch<any>('/api/tickets/confirm-entry', {
       method: 'POST',
       headers: await authenticatedApiHeaders(),
-      body: JSON.stringify(args),
+      body: JSON.stringify({ ...args, idempotencyKey }),
     });
     const data = response.data || {};
     if (data.success && data.ticket) {

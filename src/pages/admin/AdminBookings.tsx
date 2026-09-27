@@ -15,6 +15,7 @@ import {
   Trash2,
   Eye,
   ClipboardList,
+  Users,
 } from 'lucide-react';
 import { RowActions } from '../../components/admin/RowActions';
 import { useBooking } from '../../contexts/BookingContext';
@@ -354,6 +355,27 @@ export const AdminBookings: React.FC = () => {
       a.download = `ash_vish_orders_export_${Date.now()}.csv`;
       a.click();
       URL.revokeObjectURL(url);
+    }
+  };
+
+  const handleExportEntryReport = async () => {
+    try {
+      const headers = await authenticatedApiHeaders();
+      const params = new URLSearchParams({ format: 'csv' });
+      if (filterEventId) params.set('eventId', filterEventId);
+      if (search) params.set('q', search);
+      const res = await fetch(`/api/admin/entry-report?${params.toString()}`, { headers });
+      if (!res.ok) throw new Error('export failed');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `entry-report-${Date.now()}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showBanner('success', 'Entry report exported.');
+    } catch {
+      showBanner('error', 'Entry report export failed.');
     }
   };
 
@@ -761,6 +783,15 @@ export const AdminBookings: React.FC = () => {
           >
             <Download className="w-4 h-4 text-[#D4AF37]" />
             <span>Export CSV</span>
+          </button>
+
+          <button
+            onClick={handleExportEntryReport}
+            className="py-2.5 px-4 rounded-2xl bg-[#222] hover:bg-[#333] text-white font-bold text-xs flex items-center gap-2 border border-white/10 transition-all flex-shrink-0"
+            title="Entry usage report: admitted / remaining / status per ticket"
+          >
+            <Users className="w-4 h-4 text-[#D4AF37]" />
+            <span>Entry Report</span>
           </button>
 
           <button

@@ -24,6 +24,7 @@ import {
   ShieldAlert,
   Loader2,
   ZoomIn,
+  Vibrate,
 } from 'lucide-react';import { useBooking } from '../contexts/BookingContext';
 import { useAuth } from '../contexts/AuthContext';
 import { Ticket } from '../types';
@@ -42,6 +43,7 @@ export interface EntryStateInfo {
   lastScanAt?: string;
   lastScannedBy?: string;
   code?: string;
+  eventId?: string;
   history?: { id: string; quantityEntered: number; scannedAt: string; scannedBy: string; counterId?: string; note?: string; totalAfter?: number }[];
 }
 
@@ -73,6 +75,7 @@ interface CameraDevice {
 
 const LAST_CAMERA_STORAGE_KEY = 'ash_scanner_last_camera_id';
 const SOUND_ENABLED_STORAGE_KEY = 'ash_scanner_sound_enabled';
+const VIBRATION_ENABLED_STORAGE_KEY = 'ash_scanner_vibration_enabled';
 
 // Web Audio API Sound Effects Engine (Inline, zero external assets)
 class SoundEffects {
@@ -161,6 +164,7 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
   const [confirmingEntry, setConfirmingEntry] = useState(false);
   const [guestsEntering, setGuestsEntering] = useState(1);
   const [staffNote, setStaffNote] = useState('');
+  const confirmInFlightRef = useRef(false);
 
   // Last 3 scans this device has seen (client-side ring buffer, no extra reads)
   const [recentScans, setRecentScans] = useState<Ticket[]>([]);
@@ -216,6 +220,26 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
     }
     return true;
   });
+
+  const [vibrationEnabled, setVibrationEnabled] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem(VIBRATION_ENABLED_STORAGE_KEY);
+      return saved !== null ? saved === 'true' : true;
+    }
+    return true;
+  });
+
+  const toggleVibration = () => {
+    const next = !vibrationEnabled;
+    setVibrationEnabled(next);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(VIBRATION_ENABLED_STORAGE_KEY, String(next));
+    }
+  };
+
+  const triggerVibrateChecked = (pattern: number[] = [40]) => {
+    if (vibrationEnabled) triggerVibrate(pattern);
+  };
 
   const toggleSound = () => {
     const next = !soundEnabled;
@@ -359,6 +383,10 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
   const handleConfirmEntry = async (qty: number, note?: string) => {
     const es = scanState.entryState;
     if (!es) return;
+    // Client-side duplicate protection: synchronous in-flight guard stops
+    // double taps before React state even re-renders.
+    if (confirmInFlightRef.current) return;
+    confirmInFlightRef.current = true;
     setConfirmingEntry(true);
     try {
       const res = await confirmTicketEntry({
@@ -366,6 +394,7 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
         ticketId: es.ticketId,
         quantityEntered: qty,
         note: note?.trim() || undefined,
+        ...(es.eventId ? { eventId: es.eventId } : {}),
       });
       if (!res.ok || !res.success) {
         // Server rejected (fully redeemed / over-entry / race lost)
@@ -391,7 +420,8 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
         if (h.success) history = h.records as any;
       }
       if (soundEnabled) SoundEffects.playAllowed();
-      triggerVibrate([40]);
+      // Distinct feedback for partial vs full success.
+      triggerVibrateChecked(res.fullyCheckedIn ? [40] : [40, 80, 40]);
       triggerFlash('allowed');
       const confirmedState: ScanResultState = {
         phase: res.fullyCheckedIn ? 'confirmed' : 'partial',
@@ -409,6 +439,8 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
       setGuestsEntering(1);
       setStaffNote('');
       if (res.ticket) recordRecentScan(res.ticket as Ticket);
+      // Auto-return to scanning after 5s (staff can also tap "Scan next").
+      startAutoClearTimer(5000);
     } catch {
       setScanStateTracked({
         phase: 'network_err',
@@ -418,6 +450,7 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
       });
     } finally {
       setConfirmingEntry(false);
+      confirmInFlightRef.current = false;
     }
   };
 
@@ -441,6 +474,34 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
         validateTicketEntry(cleanCode),
         new Promise<never>((_, reject) => setTimeout(() => reject(new Error('NETWORK_TIMEOUT')), 8000)),
       ]);
+
+      // Wrong-event / payment-pending denials
+      if (res.eventMismatch) {
+        if (soundEnabled) SoundEffects.playDeniedOrDuplicate();
+        triggerFlash('denied');
+        setScanStateTracked({
+          phase: 'denied',
+          heading: 'WRONG EVENT ✗',
+          subheading: res.reason || 'This pass belongs to a different event.',
+          actionHint: 'Do not admit. Direct the guest to the correct venue/gate.',
+          ticket: res.ticket as Ticket,
+          scannedToken: cleanCode,
+        });
+        return;
+      }
+      if (res.paymentPending) {
+        if (soundEnabled) SoundEffects.playDeniedOrDuplicate();
+        triggerFlash('denied');
+        setScanStateTracked({
+          phase: 'denied',
+          heading: 'PAYMENT DUE ✗',
+          subheading: res.reason || 'Unpaid reservation pass — payment pending.',
+          actionHint: `Send the guest to the pay-at-counter station to collect \u20b9${res.amountDue ?? ''} before entry.`,
+          ticket: res.ticket as Ticket,
+          scannedToken: cleanCode,
+        });
+        return;
+      }
 
       if (!res.ok || !res.found) {
         if (soundEnabled) SoundEffects.playDeniedOrDuplicate();
@@ -467,6 +528,7 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
         lastScanAt: res.lastScanAt,
         lastScannedBy: res.lastScannedBy,
         code: cleanCode,
+        eventId: (res.ticket as any)?.eventId,
       };
 
       if (res.entryStatus === 'CANCELLED' || res.entryStatus === 'EXPIRED') {
@@ -506,6 +568,11 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
       }
 
       // STATE A/B — unused or partially used: review & confirm.
+      // Preload entry history for previously-used tickets.
+      if (es.ticketId && es.checkedInQuantity > 0) {
+        const h = await fetchEntryHistory(es.ticketId).catch(() => ({ success: false, records: [] }));
+        if (h.success) es.history = h.records as any;
+      }
       const reviewState: ScanResultState = {
         phase: 'review',
         heading: res.entryStatus === 'UNUSED' ? 'ENTRY AVAILABLE ✓' : 'REMAINING ENTRY AVAILABLE ◐',
@@ -608,7 +675,7 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
       if (res.success) {
         // ALLOWED: Positive auto-clear outcome
         if (soundEnabled) SoundEffects.playAllowed();
-        triggerVibrate([40]);
+        triggerVibrateChecked([40]);
         triggerFlash('allowed');
 
         const allowedState: ScanResultState = {
@@ -1307,6 +1374,18 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
           </button>
 
           <button
+            onClick={toggleVibration}
+            title={vibrationEnabled ? 'Vibration feedback enabled' : 'Vibration feedback muted'}
+            className={`p-2.5 rounded-xl border text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+              vibrationEnabled
+                ? 'bg-[#1C1C1C] text-[#D4AF37] border-[#D4AF37]/30 hover:border-[#D4AF37]'
+                : 'bg-[#1C1C1C] text-gray-400 border-white/5 hover:text-white'
+            }`}
+          >
+            <Vibrate className="w-4 h-4" />
+          </button>
+
+          <button
             onClick={() => setActiveTab('camera')}
             className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
               activeTab === 'camera'
@@ -1612,29 +1691,44 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
                       </div>
 
                       <div className="flex items-center gap-2 shrink-0">
-                        {t.status === 'redeemed' || t.status === 'used' ? (
-                          <div className="text-right">
-                            <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20 block">
-                              ALREADY ADMITTED
-                            </span>
-                            <span className="text-[10px] text-gray-300 block mt-0.5">
-                              {t.scannedAt || 'Admitted'}
-                            </span>
-                          </div>
-                        ) : t.status === 'void' || t.status === 'cancelled' ? (
-                          <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-red-500/10 text-red-400 border border-red-500/20">
-                            VOID / REVOKED
-                          </span>
-                        ) : (
-                          <button
-                            onClick={() => handleScanCode(t.id)}
-                            disabled={scanState.phase === 'verifying'}
-                            className="px-4 py-2 rounded-xl bg-[#D4AF37] disabled:opacity-50 text-black font-extrabold text-xs transition-all cursor-pointer flex items-center gap-1.5"
-                          >
-                            <span>Admit Guest</span>
-                            <ArrowRight className="w-3 h-3" />
-                          </button>
-                        )}
+                        {(() => {
+                          const qty = Math.max(1, Math.floor(Number((t as any).quantity) || 1));
+                          const checkedIn = Math.min(qty, Math.max(0, Math.floor(Number((t as any).checkedInQuantity) || 0)));
+                          const isRedeemed = t.status === 'redeemed' || t.status === 'used';
+                          const isVoid = t.status === 'void' || t.status === 'cancelled';
+                          const remaining = Math.max(0, qty - checkedIn);
+                          const st = (t as any).entryStatus || (isRedeemed ? (checkedIn > 0 && checkedIn < qty ? 'PARTIALLY_CHECKED_IN' : 'FULLY_CHECKED_IN') : isVoid ? 'CANCELLED' : 'UNUSED');
+                          return (
+                            <>
+                              <div className="text-right">
+                                <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold block border ${
+                                  st === 'FULLY_CHECKED_IN' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                                  : st === 'PARTIALLY_CHECKED_IN' ? 'bg-sky-500/10 text-sky-400 border-sky-500/20'
+                                  : st === 'CANCELLED' ? 'bg-red-500/10 text-red-400 border-red-500/20'
+                                  : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                                }`}>
+                                  {st === 'FULLY_CHECKED_IN' ? 'FULLY REDEEMED'
+                                    : st === 'PARTIALLY_CHECKED_IN' ? `${checkedIn}/${qty} ADMITTED`
+                                    : st === 'CANCELLED' ? 'VOID / REVOKED'
+                                    : 'ENTRY AVAILABLE'}
+                                </span>
+                                <span className="text-[10px] text-gray-300 block mt-0.5">
+                                  {checkedIn} admitted · {remaining} remaining
+                                </span>
+                              </div>
+                              {st !== 'FULLY_CHECKED_IN' && st !== 'CANCELLED' && (
+                                <button
+                                  onClick={() => handleScanCode(t.id)}
+                                  disabled={scanState.phase === 'verifying'}
+                                  className="px-4 py-2 rounded-xl bg-[#D4AF37] disabled:opacity-50 text-black font-extrabold text-xs transition-all cursor-pointer flex items-center gap-1.5"
+                                >
+                                  <span>{st === 'PARTIALLY_CHECKED_IN' ? `Admit ${remaining}` : 'Admit Guest'}</span>
+                                  <ArrowRight className="w-3 h-3" />
+                                </button>
+                              )}
+                            </>
+                          );
+                        })()}
                       </div>
                     </div>
                   ))

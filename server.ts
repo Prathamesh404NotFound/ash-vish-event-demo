@@ -6982,9 +6982,210 @@ export async function createApp() {
    * Never mutates any state. Returns the ticket's entry state so staff can
    * review and select how many guests are entering before confirming.
    */
+
+  // ═════════════════════════════════════════════════════════════════════
+  // ENTRY SECURITY LAYER — durable idempotency, immutable transaction
+  // ledger, audited admin reversals, and strict RBAC for the multi-entry
+  // check-in system.
+  // ═════════════════════════════════════════════════════════════════════
+
+  const ENTRY_IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000; // 24h idempotency window
+
+  /**
+   * Durable, RTDB-backed idempotency store for entry confirmations and
+   * reversals. Survives server restarts — required because admissions are
+   * irreversible state changes. Layout:
+   *   entry_idempotency/{staffUid}/{keyHash} = { entryId, result, createdAt }
+   * Keying by staffUid prevents one staff member's client from replaying
+   * another's key.
+   */
+  function entryIdempotencyKeyHash(key: string, staffUid: string): string {
+    return crypto.createHash("sha256").update(`${staffUid}::${String(key)}`).digest("hex");
+  }
+
+  async function entryIdempotencyLookup(staffUid: string, keyHash: string, adminToken: string): Promise<any | null> {
+    try {
+      const snap = await rtdbGet(`entry_idempotency/${staffUid}/${keyHash}`, adminToken);
+      return snap.data || null;
+    } catch {
+      return null;
+    }
+  }
+
+  async function entryIdempotencyStore(staffUid: string, keyHash: string, payload: any, adminToken: string): Promise<void> {
+    try {
+      await rtdbSet(`entry_idempotency/${staffUid}/${keyHash}`, { ...payload, createdAt: new Date().toISOString() }, adminToken);
+    } catch (e) {
+      console.warn("[ENTRY-IDEMPOTENCY] Failed to persist result:", e);
+    }
+    // Best-effort TTL sweep of this staff member's expired keys.
+    try {
+      const snap = await rtdbGet(`entry_idempotency/${staffUid}`, adminToken);
+      if (snap.data && typeof snap.data === "object") {
+        const now = Date.now();
+        for (const [k, v] of Object.entries<any>(snap.data)) {
+          if (v?.createdAt && now - new Date(v.createdAt).getTime() > ENTRY_IDEMPOTENCY_TTL_MS) {
+            await rtdbDelete(`entry_idempotency/${staffUid}/${k}`, adminToken).catch(() => {});
+          }
+        }
+      }
+    } catch { /* non-fatal */ }
+  }
+
+  /** Sum of admissions minus reversals from a transaction ledger map. */
+  function effectiveCheckedInFromLedger(ledger: Record<string, any> | null | undefined, ticketQuantity: number): number {
+    if (!ledger || typeof ledger !== "object") return 0;
+    let total = 0;
+    for (const t of Object.values<any>(ledger)) {
+      if (!t || typeof t !== "object") continue;
+      if (t.type === "reversal") total -= Math.abs(Number(t.quantityReversed) || 0);
+      else if (t.type === "admission") total += Math.max(0, Number(t.quantityEntered) || 0);
+    }
+    return Math.max(0, Math.min(ticketQuantity, total));
+  }
+
+  /**
+   * REVERSE / CORRECT ENTRY — super_admin only.
+   * Appends an immutable reversal transaction to the ledger (the original
+   * admission record is NEVER modified or deleted), recalculates ticket
+   * totals atomically, and writes to the audit log. Requires a mandatory
+   * correction reason.
+   */
+  app.post("/api/tickets/reverse-entry", requireRole("super_admin"), async (req: any, res) => {
+    try {
+      const { ticketId: rawTicketId, entryId, reason, quantityReversed } = req.body || {};
+      const targetTicketId = rawTicketId ? String(rawTicketId).trim() : null;
+      const targetEntryId = entryId ? String(entryId).trim() : null;
+      if (!targetTicketId || !targetEntryId) {
+        return res.status(400).json({ success: false, error: "ticketId and entryId are required." });
+      }
+      const correctionReason = String(reason || "").trim();
+      if (correctionReason.length < 4) {
+        return res.status(400).json({ success: false, error: "A correction reason (min 4 characters) is mandatory for reversals." });
+      }
+      const idempotencyKey = String(req.body?.idempotencyKey || `rev_${targetEntryId}`).trim();
+      const keyHash = entryIdempotencyKeyHash(idempotencyKey, req.user.uid);
+      const staffRole = String(req.user?.rbacRole || "super_admin");
+      const adminToken = await getAdminAuthToken();
+
+      // Idempotent replay: return the original reversal result.
+      const prior = await entryIdempotencyLookup(req.user.uid, keyHash, adminToken);
+      if (prior?.result) {
+        return res.json({ success: true, replayed: true, ...prior.result });
+      }
+
+      // Verify the original admission transaction exists and is unreversed.
+      const origSnap = await rtdbGet(`entry_transactions/${targetTicketId}/${targetEntryId}`, adminToken);
+      const origTx: any = origSnap.data;
+      if (!origTx || origTx.type !== "admission") {
+        return res.status(404).json({ success: false, error: "Original entry transaction not found (or is not an admission)." });
+      }
+      if (origTx.reversedBy) {
+        return res.status(400).json({ success: false, error: "This entry transaction has already been reversed." });
+      }
+
+      const origQty = Math.abs(Number(origTx.quantityEntered) || 0);
+      const qtyToReverse = Math.floor(Number(quantityReversed) || origQty);
+      if (qtyToReverse < 1 || qtyToReverse > origQty) {
+        return res.status(400).json({ success: false, error: `quantityReversed must be between 1 and ${origQty}.` });
+      }
+
+      // Pre-fetch the ledger so the transaction closure stays synchronous.
+      const ledgerSnap = await rtdbGet(`entry_transactions/${targetTicketId}`, adminToken);
+      const ledger: Record<string, any> = (ledgerSnap.data && typeof ledgerSnap.data === "object") ? ledgerSnap.data : {};
+
+      const reversalId = `rev_${Date.now()}_${secureRandomHex(6)}`;
+      const reversedAt = new Date().toISOString();
+      const adminId = req.user.uid;
+
+      let reversalError: string | null = null;
+      const txResult = await rtdbTransaction(`tickets/${targetTicketId}`, (ticket: any) => {
+        if (!ticket) { reversalError = "Ticket not found."; return undefined; }
+        const ticketQuantity = Math.max(1, Math.floor(Number(ticket.quantity) || 1));
+        // Authoritative effective total from the immutable ledger.
+        const checkedIn = effectiveCheckedInFromLedger(ledger, ticketQuantity);
+        const newCheckedIn = Math.max(0, checkedIn - qtyToReverse);
+        ticket.checkedInQuantity = newCheckedIn;
+        ticket.entryStatus = newCheckedIn >= ticketQuantity ? "FULLY_CHECKED_IN" : (newCheckedIn > 0 ? "PARTIALLY_CHECKED_IN" : "UNUSED");
+        if (newCheckedIn === 0) {
+          ticket.status = "active";
+          delete ticket.redeemedAt;
+          delete ticket.redeemedBy;
+        }
+        ticket.lastScanAt = reversedAt;
+        ticket.lastScannedBy = adminId;
+        return ticket;
+      }, adminToken);
+
+      if (!txResult.committed) {
+        return res.status(400).json({ success: false, error: reversalError || "Reversal could not be committed (concurrent update). Retry." });
+      }
+      const updatedTicket: any = txResult.snapshot;
+
+      // Append immutable reversal transaction to the ledger.
+      const reversalRecord: any = {
+        type: "reversal",
+        reversalId,
+        ticketId: targetTicketId,
+        originalEntryId: targetEntryId,
+        quantityReversed: qtyToReverse,
+        reversedAt,
+        adminId,
+        adminRole: staffRole,
+        reason: correctionReason.slice(0, 300),
+        totalAfter: Number(updatedTicket.checkedInQuantity) || 0,
+      };
+      if (updatedTicket.eventId) reversalRecord.eventId = updatedTicket.eventId;
+      const pushRes = await rtdbPush(`entry_transactions/${targetTicketId}`, reversalRecord, adminToken);
+      const newTxId = pushRes.name;
+      // Mark the original admission as reversed via metadata pointers only —
+      // the original record itself remains untouched.
+      await rtdbUpdate(`entry_transactions/${targetTicketId}/${targetEntryId}`, { reversedBy: adminId, reversedAt, reversalTxId: newTxId }, adminToken).catch(() => {});
+
+      // Mirror to owner copy for customer-facing views.
+      if (updatedTicket.ownerId) {
+        await rtdbUpdate(`users/${updatedTicket.ownerId}/tickets/${targetTicketId}`, {
+          status: updatedTicket.status,
+          checkedInQuantity: updatedTicket.checkedInQuantity,
+          entryStatus: updatedTicket.entryStatus,
+        }, adminToken).catch(() => {});
+      }
+
+      const ticketQuantity = Math.max(1, Math.floor(Number(updatedTicket.quantity) || 1));
+      const checkedInQuantity = Number(updatedTicket.checkedInQuantity) || 0;
+      const result = {
+        reversalId,
+        transactionId: newTxId,
+        ticket: updatedTicket,
+        ticketQuantity,
+        checkedInQuantity,
+        remainingQuantity: Math.max(0, ticketQuantity - checkedInQuantity),
+        entryStatus: updatedTicket.entryStatus,
+      };
+      await entryIdempotencyStore(req.user.uid, keyHash, { entryId: newTxId, result }, adminToken);
+
+      // Audit log (Item 5 style, never fails the primary action).
+      try {
+        await writeAuditEntry({
+          actorId: adminId,
+          actorRole: staffRole,
+          action: "ticket.entry.reversal",
+          entityType: "ticket",
+          entityId: targetTicketId,
+          beforeState: { entryId: targetEntryId, admitted: origQty },
+          afterState: { reversed: qtyToReverse, totalAfter: checkedInQuantity, reason: correctionReason.slice(0, 120) },
+        });
+      } catch { /* audit must never break the action */ }
+
+      return res.json({ success: true, ...result });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   app.post("/api/tickets/entry-status", verifyRole(['admin', 'ticket_counter']), async (req: any, res) => {
     try {
-      const { code } = req.body || {};
+      const { code, eventId: scannedEventId } = req.body || {};
       const adminToken = await getAdminAuthToken();
       const resolved = await resolveTicketForEntry(String(code || ""), adminToken);
       if (!resolved) {
@@ -6992,21 +7193,45 @@ export async function createApp() {
       }
       const { id, ticket } = resolved;
       const state = computeEntryState(ticket);
+
+      // EVENT MATCHING — reject passes belonging to a different event.
+      let eventMismatch = false;
+      if (scannedEventId && ticket.eventId && String(ticket.eventId) !== String(scannedEventId)) {
+        eventMismatch = true;
+      }
+
+      // PAYMENT GATING — unpaid reservation passes are not valid at the gate.
+      const paymentPending = ticket.passType === "reservation" && ticket.paymentStatus !== "paid";
+      const amountDue = Number(ticket.amountDue ?? (Number(ticket.price) * (Number(ticket.quantity) || 1))) || 0;
+
       const allowPartialEntry = await getAllowPartialEntrySetting(adminToken);
-      const canEnter = state.remainingQuantity > 0 && !['CANCELLED', 'EXPIRED'].includes(state.entryStatus);
+      const canEnter = !eventMismatch && !paymentPending
+        && state.remainingQuantity > 0
+        && !['CANCELLED', 'EXPIRED'].includes(state.entryStatus);
+
+      let reason: string | undefined;
+      if (eventMismatch) {
+        reason = "WRONG EVENT — this pass belongs to a different event and cannot be admitted here.";
+      } else if (paymentPending) {
+        reason = `UNPAID RESERVATION PASS — payment of \u20b9${amountDue} is pending. Direct this guest to the Pay-at-Counter station before gate admission.`;
+      } else if (state.remainingQuantity === 0) {
+        reason = `This ticket has already been completely redeemed — ${state.checkedInQuantity} of ${state.ticketQuantity} guests admitted.`;
+      } else if (['CANCELLED', 'EXPIRED'].includes(state.entryStatus)) {
+        reason = `Ticket is ${state.entryStatus.toLowerCase()} and cannot be admitted.`;
+      }
+
       return res.json({
         success: true,
         found: true,
         ticketId: id,
         ticket,
         ...state,
+        eventMismatch,
+        paymentPending,
+        amountDue: paymentPending ? amountDue : undefined,
         allowPartialEntry,
         canEnter,
-        reason: state.remainingQuantity === 0
-          ? `This ticket has already been completely redeemed — ${state.checkedInQuantity} of ${state.ticketQuantity} guests admitted.`
-          : ['CANCELLED', 'EXPIRED'].includes(state.entryStatus)
-            ? `Ticket is ${state.entryStatus.toLowerCase()} and cannot be admitted.`
-            : undefined,
+        reason,
         lastScanAt: ticket.lastScanAt || ticket.redeemedAt,
         lastScannedBy: ticket.lastScannedBy || ticket.redeemedBy,
       });
@@ -7023,12 +7248,24 @@ export async function createApp() {
    */
   app.post("/api/tickets/confirm-entry", verifyRole(['admin', 'ticket_counter']), async (req: any, res) => {
     try {
-      const { code, ticketId: rawTicketId, quantityEntered, note, counterId } = req.body || {};
+      const { code, ticketId: rawTicketId, quantityEntered, note, counterId, eventId: scannedEventId, deviceId } = req.body || {};
       const requestedQty = Math.floor(Number(quantityEntered));
       if (!Number.isFinite(requestedQty) || requestedQty < 1) {
         return res.status(400).json({ success: false, error: "Number of people entering must be at least 1." });
       }
+
+      // ── Server-side idempotency: same key must return the original result.
+      const idempotencyKey = String(req.body?.idempotencyKey || "").trim();
+      const staffUid = req.user?.uid || "unknown_staff";
       const adminToken = await getAdminAuthToken();
+      let keyHash: string | null = null;
+      if (idempotencyKey) {
+        keyHash = entryIdempotencyKeyHash(idempotencyKey, staffUid);
+        const prior = await entryIdempotencyLookup(staffUid, keyHash, adminToken);
+        if (prior?.result) {
+          return res.json({ success: true, replayed: true, ...prior.result });
+        }
+      }
 
       let targetTicketId = rawTicketId ? String(rawTicketId).trim() : null;
       if (!targetTicketId && code) {
@@ -7039,9 +7276,28 @@ export async function createApp() {
         return res.status(404).json({ success: false, error: "Ticket not found." });
       }
 
+      // Pre-transaction event & payment guards (authoritative re-check inside tx below).
+      const preSnap = await rtdbGet(`tickets/${targetTicketId}`, adminToken);
+      const preTicket: any = preSnap.data;
+      if (!preTicket) {
+        return res.status(404).json({ success: false, error: "Ticket not found." });
+      }
+      if (scannedEventId && preTicket.eventId && String(preTicket.eventId) !== String(scannedEventId)) {
+        return res.status(400).json({ success: false, error: "WRONG EVENT: This pass belongs to a different event and cannot be admitted here.", ticket: preTicket });
+      }
+      if (preTicket.passType === "reservation" && preTicket.paymentStatus !== "paid") {
+        const due = Number(preTicket.amountDue ?? (Number(preTicket.price) * (Number(preTicket.quantity) || 1))) || 0;
+        return res.status(402).json({ success: false, paymentPending: true, amountDue: due, error: `UNPAID RESERVATION PASS — payment of \u20b9${due} is pending. Collect payment before gate admission.` });
+      }
+
       const allowPartialEntry = await getAllowPartialEntrySetting(adminToken);
-      const staffUid = req.user?.uid || "unknown_staff";
       const scannedAt = new Date().toISOString();
+      const staffRole = String(req.user?.rbacRole || toRbacRole(req.user?.role) || "counter_staff");
+
+      // Pre-fetch the ledger so the transaction closure stays synchronous and
+      // the reversal-adjusted effective total can be validated inside the tx.
+      const ledgerSnap = await rtdbGet(`entry_transactions/${targetTicketId}`, adminToken);
+      const ledger: Record<string, any> = (ledgerSnap.data && typeof ledgerSnap.data === "object") ? ledgerSnap.data : {};
 
       let admissionError: string | null = null;
       const txResult = await rtdbTransaction(`tickets/${targetTicketId}`, (ticket: any) => {
@@ -7053,10 +7309,25 @@ export async function createApp() {
         if (st === 'expired') { admissionError = "Ticket has expired."; return undefined; }
         if (VOIDED_ENTRY_STATUSES.includes(st)) { admissionError = "Ticket is cancelled/void and cannot be admitted."; return undefined; }
 
+        // Authoritative re-check inside the transaction (race-safe).
+        if (scannedEventId && ticket.eventId && String(ticket.eventId) !== String(scannedEventId)) {
+          admissionError = "WRONG EVENT: This pass belongs to a different event and cannot be admitted here.";
+          return undefined;
+        }
+        if (ticket.passType === "reservation" && ticket.paymentStatus !== "paid") {
+          admissionError = "UNPAID RESERVATION PASS — payment is pending. Collect payment before gate admission.";
+          return undefined;
+        }
+
         const ticketQuantity = Math.max(1, Math.floor(Number(ticket.quantity) || 1));
-        const checkedInQuantity = ticket.status === 'redeemed' && ticket.checkedInQuantity == null
+        // Effective checked-in = max(legacy status-derived count, ledger total
+        // adjusted for reversals). Reversals reduce capacity consumption, so
+        // the ledger figure can be lower than the raw admission sum.
+        const legacyCount = ticket.status === 'redeemed' && ticket.checkedInQuantity == null
           ? ticketQuantity
           : Math.min(ticketQuantity, Math.max(0, Math.floor(Number(ticket.checkedInQuantity) || 0)));
+        const ledgerCount = effectiveCheckedInFromLedger(ledger, ticketQuantity);
+        const checkedInQuantity = Math.max(legacyCount, ledgerCount);
         const remaining = ticketQuantity - checkedInQuantity;
 
         if (remaining <= 0) {
@@ -7066,7 +7337,7 @@ export async function createApp() {
         // If partial entries are disabled, a scan must consume the whole entitlement.
         const effectiveQty = allowPartialEntry ? requestedQty : ticketQuantity;
         if (effectiveQty > remaining) {
-          admissionError = `OVER-ENTRY BLOCKED: only ${remaining} of ${ticketQuantity} guest(s) remain, but ${effectiveQty} were requested.`;
+          admissionError = `Only ${remaining} of ${ticketQuantity} entries remain for this ticket — ${effectiveQty} were requested.`;
           return undefined;
         }
 
@@ -7083,28 +7354,69 @@ export async function createApp() {
       }, adminToken);
 
       if (!txResult.committed) {
-        return res.status(400).json({ success: false, error: admissionError || "Entry could not be committed (concurrent update). Rescan and try again." });
+        // FAILURE BEHAVIOR: no partial state, no fake success record; return
+        // the latest authoritative ticket state when available.
+        let latestTicket: any = null;
+        try {
+          latestTicket = (await rtdbGet(`tickets/${targetTicketId}`, adminToken)).data;
+        } catch { /* best effort */ }
+        return res.status(409).json({
+          success: false,
+          conflict: true,
+          error: admissionError || "Entry could not be confirmed. Ticket state has changed. Please scan again.",
+          ...(latestTicket ? { ticket: latestTicket } : {}),
+        });
       }
 
       const updatedTicket: any = txResult.snapshot;
       const qtyAdmitted = allowPartialEntry ? requestedQty : Math.max(1, Math.floor(Number(updatedTicket.quantity) || 1));
 
-      // Immutable audit trail entry (never overwritten).
+      // ── Immutable ledger append (never overwritten; admissions AND
+      //    reversals live here, so effective consumption is derivable).
+      const entryTransactionId = `etx_${Date.now()}_${secureRandomHex(6)}`;
+      const ticketQuantityFinal = Math.max(1, Math.floor(Number(updatedTicket.quantity) || 1));
+      const checkedInBefore = Math.max(0, ticketQuantityFinal - qtyAdmitted);
       const entryRecord: any = {
+        type: "admission",
+        entryTransactionId,
         ticketId: targetTicketId,
+        eventId: updatedTicket.eventId || undefined,
         quantityEntered: qtyAdmitted,
         scannedAt,
         scannedBy: staffUid,
+        staffRole,
+        totalBefore: checkedInBefore,
         totalAfter: Number(updatedTicket.checkedInQuantity) || 0,
+        status: "committed",
       };
       if (counterId) entryRecord.counterId = String(counterId).slice(0, 64);
+      if (deviceId) entryRecord.deviceId = String(deviceId).slice(0, 64);
       if (note) entryRecord.note = String(note).slice(0, 300);
-      let entryId = "";
+      if (idempotencyKey) entryRecord.idempotencyKey = idempotencyKey.slice(0, 128);
+
+      let entryTxId = "";
       try {
-        const pushed = await rtdbPush(`entry_history/${targetTicketId}`, entryRecord, adminToken);
-        entryId = pushed.name;
+        const pushed = await rtdbPush(`entry_transactions/${targetTicketId}`, entryRecord, adminToken);
+        entryTxId = pushed.name;
       } catch (e) {
-        console.warn("[ENTRY] Failed to append entry history:", e);
+        console.warn("[ENTRY] Failed to append entry transaction:", e);
+      }
+
+      // Persist the idempotent result AFTER a successful commit so retries
+      // replay the exact same admission outcome.
+      if (keyHash) {
+        await entryIdempotencyStore(staffUid, keyHash, {
+          entryId: entryTxId || entryTransactionId,
+          result: {
+            entryTransactionId: entryTxId || entryTransactionId,
+            admitted: qtyAdmitted,
+            ticketQuantity: ticketQuantityFinal,
+            checkedInQuantity: Number(updatedTicket.checkedInQuantity) || 0,
+            remainingQuantity: Math.max(0, ticketQuantityFinal - (Number(updatedTicket.checkedInQuantity) || 0)),
+            entryStatus: updatedTicket.entryStatus,
+            fullyCheckedIn: (Number(updatedTicket.checkedInQuantity) || 0) >= ticketQuantityFinal,
+          },
+        }, adminToken);
       }
 
       // Mirror onto the owner's ticket copy for customer-facing views.
@@ -7118,18 +7430,20 @@ export async function createApp() {
         }, adminToken).catch(() => {});
       }
 
-      const ticketQuantity = Math.max(1, Math.floor(Number(updatedTicket.quantity) || 1));
       const checkedInQuantity = Number(updatedTicket.checkedInQuantity) || 0;
+      // Best-effort customer notification for the admission (#14).
+      queueEntryNotification(updatedTicket, qtyAdmitted, ticketQuantityFinal, Math.max(0, ticketQuantityFinal - checkedInQuantity)).catch(() => {});
       return res.json({
         success: true,
-        entryId,
+        entryId: entryTxId || entryTransactionId,
+        entryTransactionId: entryTxId || entryTransactionId,
         admitted: qtyAdmitted,
         ticket: updatedTicket,
-        ticketQuantity,
+        ticketQuantity: ticketQuantityFinal,
         checkedInQuantity,
-        remainingQuantity: Math.max(0, ticketQuantity - checkedInQuantity),
+        remainingQuantity: Math.max(0, ticketQuantityFinal - checkedInQuantity),
         entryStatus: updatedTicket.entryStatus,
-        fullyCheckedIn: checkedInQuantity >= ticketQuantity,
+        fullyCheckedIn: checkedInQuantity >= ticketQuantityFinal,
       });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err.message });
@@ -7137,6 +7451,273 @@ export async function createApp() {
   });
 
   /** Entry history / audit trail for a ticket (newest first). */
+
+  /**
+   * ENTRY REPORT + CSV EXPORT (#11/#17) — admin/organizer only.
+   * Filters: eventId, status, counter, staff, from, to, q (ticket/customer/booking).
+   * format=csv streams a CSV; default JSON. All figures derive from the
+   * authoritative ticket + entry-transaction data.
+   */
+  app.get("/api/admin/entry-report", requireRole(["super_admin", "event_manager"]), async (req: any, res) => {
+    try {
+      const { eventId, status, counter, staff, from, to, q, format } = req.query as Record<string, string>;
+      const adminToken = await getAdminAuthToken();
+      const ticketsSnap = await rtdbGet("tickets", adminToken);
+      const allTickets = Object.entries<any>((ticketsSnap.data || {}) as Record<string, any>);
+
+      let rows = allTickets.map(([id, t]) => ({ id, ...t }));
+      if (eventId) rows = rows.filter((t) => t.eventId === eventId);
+      if (q) {
+        const needle = q.toLowerCase();
+        rows = rows.filter((t) =>
+          String(t.ticketNumber || '').toLowerCase().includes(needle) ||
+          String(t.attendeeName || '').toLowerCase().includes(needle) ||
+          String(t.bookingId || '').toLowerCase().includes(needle));
+      }
+
+      // Attach per-ticket entry ledger summary (admitted − reversed).
+      const ledgerSnap = await rtdbGet("entry_transactions", adminToken);
+      const ledger = (ledgerSnap.data && typeof ledgerSnap.data === 'object') ? ledgerSnap.data : {};
+
+      const report = rows.map((t) => {
+        const qty = Math.max(1, Math.floor(Number(t.quantity) || 1));
+        const txs = Object.values<any>(ledger[t.id] || {});
+        let admitted = 0;
+        const admissions: any[] = [];
+        for (const tx of txs) {
+          if (!tx || typeof tx !== 'object') continue;
+          if (tx.type === 'reversal') admitted -= Math.abs(Number(tx.quantityReversed) || 0);
+          else if (tx.type === 'admission') {
+            admitted += Math.max(0, Number(tx.quantityEntered) || 0);
+            admissions.push(tx);
+          }
+        }
+        admitted = Math.max(0, Math.min(qty, admitted));
+        const st = String(t.status || 'valid').toLowerCase();
+        const legacyFull = st === 'redeemed' && t.checkedInQuantity == null && admissions.length === 0;
+        const checkedIn = legacyFull ? qty : admitted;
+        const remaining = Math.max(0, qty - checkedIn);
+        let entryStatus = 'UNUSED';
+        if (st === 'expired') entryStatus = 'EXPIRED';
+        else if (VOIDED_ENTRY_STATUSES.includes(st)) entryStatus = 'CANCELLED';
+        else if (remaining === 0 && checkedIn > 0) entryStatus = 'FULLY_CHECKED_IN';
+        else if (checkedIn > 0) entryStatus = 'PARTIALLY_CHECKED_IN';
+        const lastAdmission = admissions.sort((a: any, b: any) => String(b.scannedAt).localeCompare(String(a.scannedAt)))[0];
+        return {
+          ticketId: t.id,
+          ticketNumber: t.ticketNumber || '',
+          customer: t.attendeeName || '',
+          phone: t.attendeePhone || '',
+          event: t.eventTitle || t.eventId || '',
+          eventId: t.eventId || '',
+          ticketType: t.tierName || '',
+          ticketQuantity: qty,
+          guestsAdmitted: checkedIn,
+          guestsRemaining: remaining,
+          entryStatus,
+          lastScanAt: lastAdmission?.scannedAt || t.lastScanAt || t.redeemedAt || '',
+          lastStaff: lastAdmission?.scannedBy || '',
+          lastCounter: lastAdmission?.counterId || '',
+          note: lastAdmission?.note || '',
+        };
+      });
+
+      let filtered = report;
+      if (status) filtered = filtered.filter((r) => r.entryStatus === status);
+      if (counter) filtered = filtered.filter((r) => (r.lastCounter || '').toLowerCase() === counter.toLowerCase());
+      if (staff) filtered = filtered.filter((r) => (r.lastStaff || '').toLowerCase() === staff.toLowerCase());
+      if (from) filtered = filtered.filter((r) => r.lastScanAt >= from);
+      if (to) filtered = filtered.filter((r) => r.lastScanAt <= to);
+
+      if (format === 'csv') {
+        const headers = ['Event','Ticket ID','Ticket #','Customer','Phone','Ticket Type','Ticket Quantity','Guests Admitted','Guests Remaining','Entry Status','Last Scan Time','Staff','Counter','Notes'];
+        const esc = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+        const lines = [headers.join(',')];
+        for (const r of filtered) {
+          lines.push([r.event, r.ticketId, r.ticketNumber, r.customer, r.phone, r.ticketType, r.ticketQuantity, r.guestsAdmitted, r.guestsRemaining, r.entryStatus, r.lastScanAt, r.lastStaff, r.lastCounter, r.note].map(esc).join(','));
+        }
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="entry-report-${Date.now()}.csv"`);
+        return res.send('\ufeff' + lines.join('\n'));
+      }
+
+      return res.json({ success: true, count: filtered.length, report: filtered });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * COUNTER / GATE CONFIGURATION (#4/#10) — CRUD for scanning counters.
+   * Layout: counters/{counterId} = { name, gate, assignedStaff, active, eventId }
+   */
+  app.get("/api/counters", requireRole(["super_admin", "event_manager", "counter_staff"]), async (req: any, res) => {
+    try {
+      const adminToken = await getAdminAuthToken();
+      const snap = await rtdbGet("counters", adminToken);
+      const counters = Object.entries<any>(snap.data || {}).map(([id, v]) => ({ id, ...v }));
+      return res.json({ success: true, counters });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+  app.post("/api/counters", requireRole(["super_admin", "event_manager"]), async (req: any, res) => {
+    try {
+      const { name, gate, assignedStaff, active, eventId } = req.body || {};
+      if (!String(name || '').trim()) return res.status(400).json({ success: false, error: "Counter name is required." });
+      const adminToken = await getAdminAuthToken();
+      const counterId = `ctr_${Date.now()}_${secureRandomHex(4)}`;
+      const record: any = { name: String(name).slice(0, 64), gate: String(gate || '').slice(0, 64), active: active !== false, createdAt: new Date().toISOString() };
+      if (assignedStaff) record.assignedStaff = String(assignedStaff).slice(0, 128);
+      if (eventId) record.eventId = String(eventId);
+      await rtdbSet(`counters/${counterId}`, record, adminToken);
+      return res.json({ success: true, counter: { id: counterId, ...record } });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+  app.put("/api/counters/:counterId", requireRole(["super_admin", "event_manager"]), async (req: any, res) => {
+    try {
+      const { counterId } = req.params;
+      const { name, gate, assignedStaff, active, eventId } = req.body || {};
+      const adminToken = await getAdminAuthToken();
+      const updates: any = { updatedAt: new Date().toISOString() };
+      if (name !== undefined) updates.name = String(name).slice(0, 64);
+      if (gate !== undefined) updates.gate = String(gate).slice(0, 64);
+      if (assignedStaff !== undefined) updates.assignedStaff = String(assignedStaff).slice(0, 128);
+      if (active !== undefined) updates.active = Boolean(active);
+      if (eventId !== undefined) updates.eventId = eventId || null;
+      await rtdbUpdate(`counters/${counterId}`, updates, adminToken);
+      return res.json({ success: true });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+  app.delete("/api/counters/:counterId", requireRole(["super_admin"]), async (req: any, res) => {
+    try {
+      const { counterId } = req.params;
+      const adminToken = await getAdminAuthToken();
+      await rtdbDelete(`counters/${counterId}`, adminToken);
+      return res.json({ success: true });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * OVERRIDE POLICY (#9) — invalid-ticket override configuration.
+   * Policy is OFF by default; no hidden bypass exists. When enabled, an
+   * override requires an authorized role, explicit reason, and it always
+   * appends an audit event.
+   */
+  async function getOverridePolicy(adminToken: string): Promise<{ allowInvalidOverride: boolean }> {
+    try {
+      const snap = await rtdbGet("settings/entryOverride", adminToken);
+      return { allowInvalidOverride: snap.data?.allowInvalidOverride === true };
+    } catch {
+      return { allowInvalidOverride: false };
+    }
+  }
+  app.get("/api/settings/override-policy", requireRole(["super_admin"]), async (req: any, res) => {
+    try {
+      const adminToken = await getAdminAuthToken();
+      const policy = await getOverridePolicy(adminToken);
+      return res.json({ success: true, ...policy });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+  app.post("/api/settings/override-policy", requireRole(["super_admin"]), async (req: any, res) => {
+    try {
+      const { allowInvalidOverride } = req.body || {};
+      const adminToken = await getAdminAuthToken();
+      await rtdbSet("settings/entryOverride", { allowInvalidOverride: Boolean(allowInvalidOverride), updatedAt: new Date().toISOString(), updatedBy: req.user?.uid || 'admin' }, adminToken);
+      try {
+        await writeAuditEntry({
+          actorId: req.user?.uid || 'admin', actorRole: String(req.user?.rbacRole || 'super_admin'),
+          action: 'settings.override_policy', entityType: 'settings', entityId: 'entryOverride',
+          beforeState: null, afterState: { allowInvalidOverride: Boolean(allowInvalidOverride) },
+        });
+      } catch { /* non-fatal */ }
+      return res.json({ success: true, allowInvalidOverride: Boolean(allowInvalidOverride) });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * EVENT-LEVEL PARTIAL CHECK-IN OVERRIDE (#7).
+   * settings/events/{eventId}/allowPartialEntry overrides the platform default.
+   */
+  async function getEffectivePartialEntry(eventId: string | null | undefined, adminToken: string): Promise<{ allowPartialEntry: boolean; source: 'event' | 'platform' }> {
+    if (eventId) {
+      try {
+        const snap = await rtdbGet(`settings/events/${String(eventId)}/allowPartialEntry`, adminToken);
+        if (snap.data?.allowPartialEntry !== undefined) {
+          return { allowPartialEntry: Boolean(snap.data.allowPartialEntry), source: 'event' };
+        }
+      } catch { /* fall through to platform default */ }
+    }
+    return { allowPartialEntry: await getAllowPartialEntrySetting(adminToken), source: 'platform' };
+  }
+  app.get("/api/settings/entry/event/:eventId", requireRole(["super_admin", "event_manager"]), async (req: any, res) => {
+    try {
+      const adminToken = await getAdminAuthToken();
+      const eff = await getEffectivePartialEntry(req.params.eventId, adminToken);
+      return res.json({ success: true, eventId: req.params.eventId, ...eff });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+  app.post("/api/settings/entry/event/:eventId", requireRole(["super_admin", "event_manager"]), async (req: any, res) => {
+    try {
+      const { allowPartialEntry } = req.body || {};
+      const adminToken = await getAdminAuthToken();
+      if (allowPartialEntry === null || allowPartialEntry === undefined) {
+        // Clear event override → fall back to platform setting.
+        await rtdbDelete(`settings/events/${req.params.eventId}/allowPartialEntry`, adminToken);
+        return res.json({ success: true, cleared: true });
+      }
+      await rtdbSet(`settings/events/${req.params.eventId}/allowPartialEntry`, Boolean(allowPartialEntry), adminToken);
+      try {
+        await writeAuditEntry({
+          actorId: req.user?.uid || 'admin', actorRole: String(req.user?.rbacRole || 'super_admin'),
+          action: 'settings.event_partial_entry', entityType: 'event', entityId: String(req.params.eventId),
+          beforeState: null, afterState: { allowPartialEntry: Boolean(allowPartialEntry) },
+        });
+      } catch { /* non-fatal */ }
+      return res.json({ success: true, allowPartialEntry: Boolean(allowPartialEntry), source: 'event' });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GUEST-FACING ENTRY NOTIFICATION (#14) — best-effort after admission.
+   * Uses the existing notifications node (drives email/WhatsApp/push workers).
+   * Delivery is never claimed — providers report their own status.
+   */
+  async function queueEntryNotification(ticket: any, admitted: number, quantity: number, remaining: number): Promise<void> {
+    try {
+      if (!ticket?.ownerId && !ticket?.attendeePhone) return;
+      const message = remaining > 0
+        ? `${admitted} of ${quantity} guest entries have now been used. ${remaining} guest ${remaining === 1 ? 'entry remains' : 'entries remain'}.`
+        : `All ${quantity} guest ${quantity === 1 ? 'entry has' : 'entries have'} been used. Enjoy the event!`;
+      await rtdbPush("notifications", {
+        type: 'entry_confirmation',
+        ticketId: ticket.id,
+        recipientPhone: ticket.attendeePhone || null,
+        attendeeName: ticket.attendeeName || '',
+        eventTitle: ticket.eventTitle || '',
+        message,
+        createdBy: 'entry_system',
+        createdAt: new Date().toISOString(),
+      }, await getAdminAuthToken());
+    } catch (e) {
+      console.warn("[ENTRY] Notification queue failed (non-fatal):", e);
+    }
+  }
+
   app.post("/api/tickets/entry-history", verifyRole(['admin', 'ticket_counter']), async (req: any, res) => {
     try {
       const { ticketId } = req.body || {};
@@ -7177,14 +7758,22 @@ export async function createApp() {
     }
   });
 
-  app.post("/api/tickets/undo-redeem", verifyRole(['admin', 'ticket_counter']), async (req: any, res) => {
+  app.post("/api/tickets/undo-redeem", requireRole("super_admin"), async (req: any, res) => {
     try {
-      const { ticketId: rawTicketId } = req.body || {};
+      const { ticketId: rawTicketId, reason } = req.body || {};
       const targetTicketId = rawTicketId ? String(rawTicketId).trim() : null;
       if (!targetTicketId) {
         return res.status(400).json({ success: false, error: "Missing ticketId" });
       }
+      // Mandatory correction reason — admin corrections must be auditable.
+      const correctionReason = String(reason || "").trim();
+      if (correctionReason.length < 4) {
+        return res.status(400).json({ success: false, error: "A correction reason (min 4 characters) is mandatory." });
+      }
       const userToken = await getAdminAuthToken();
+      const adminId = req.user?.uid || "unknown";
+      const adminRole = String(req.user?.rbacRole || "super_admin");
+      const revertedAt = new Date().toISOString();
 
       let notRedeemedError: string | null = null;
       const txResult = await rtdbTransaction(`tickets/${targetTicketId}`, (ticket: any) => {
@@ -7196,9 +7785,13 @@ export async function createApp() {
           notRedeemedError = `Ticket ${targetTicketId} is not currently redeemed (status: ${ticket.status || "unknown"}).`;
           return undefined;
         }
+        // Full revert: entitlement returns to unused; ledger reconciliation
+        // happens via the reversal record below.
         ticket.status = "active";
-        ticket.revertedAt = new Date().toISOString();
-        ticket.revertedBy = req.user?.uid || "unknown";
+        ticket.checkedInQuantity = 0;
+        ticket.entryStatus = "UNUSED";
+        ticket.revertedAt = revertedAt;
+        ticket.revertedBy = adminId;
         delete ticket.redeemedAt;
         delete ticket.redeemedBy;
         return ticket;
@@ -7209,11 +7802,46 @@ export async function createApp() {
       }
 
       const revertedTicket: any = txResult.snapshot;
+
+      // Immutable reversal record in the ledger — the audit history is never
+      // deleted, only appended to.
+      const reversalRecord: any = {
+        type: "reversal",
+        reversalId: `rev_${Date.now()}_${secureRandomHex(6)}`,
+        ticketId: targetTicketId,
+        originalEntryId: "legacy_full_redemption",
+        quantityReversed: Number(revertedTicket.quantity) || 1,
+        reversedAt: revertedAt,
+        adminId,
+        adminRole,
+        reason: correctionReason.slice(0, 300),
+        totalAfter: 0,
+      };
+      if (revertedTicket.eventId) reversalRecord.eventId = revertedTicket.eventId;
+      await rtdbPush(`entry_transactions/${targetTicketId}`, reversalRecord, userToken).catch((e) => {
+        console.warn("[UNDO] Failed to append reversal record:", e);
+      });
+
       if (revertedTicket && revertedTicket.ownerId) {
         await rtdbSet(`users/${revertedTicket.ownerId}/tickets/${targetTicketId}/status`, "active", userToken);
+        await rtdbSet(`users/${revertedTicket.ownerId}/tickets/${targetTicketId}/checkedInQuantity`, 0, userToken);
+        await rtdbSet(`users/${revertedTicket.ownerId}/tickets/${targetTicketId}/entryStatus`, "UNUSED", userToken);
         await rtdbSet(`users/${revertedTicket.ownerId}/tickets/${targetTicketId}/redeemedAt`, null, userToken);
         await rtdbSet(`users/${revertedTicket.ownerId}/tickets/${targetTicketId}/redeemedBy`, null, userToken);
       }
+
+      // Audit log.
+      try {
+        await writeAuditEntry({
+          actorId: adminId,
+          actorRole: adminRole,
+          action: "ticket.undo_redeem",
+          entityType: "ticket",
+          entityId: targetTicketId,
+          beforeState: { status: "redeemed" },
+          afterState: { status: "active", reason: correctionReason.slice(0, 120) },
+        });
+      } catch { /* non-fatal */ }
 
       return res.json({ success: true, ticket: revertedTicket });
     } catch (err: any) {
@@ -7671,6 +8299,21 @@ export async function createApp() {
 
       const passed = isEventPassed(ticketData.date, ticketData.time);
 
+      // Live guest-facing entry usage — same authoritative server data the
+      // scanner and dashboards read (#12/#13).
+      const passQty = Math.max(1, Math.floor(Number(ticketData.quantity) || 1));
+      const passCheckedIn = ticketData.status === 'redeemed' && ticketData.checkedInQuantity == null
+        ? passQty
+        : Math.min(passQty, Math.max(0, Math.floor(Number(ticketData.checkedInQuantity) || 0)));
+      const passEntryStatus = ((): string => {
+        const st = String(ticketData.status || 'valid').toLowerCase();
+        if (st === 'expired') return 'EXPIRED';
+        if (VOIDED_ENTRY_STATUSES.includes(st)) return 'CANCELLED';
+        if (passCheckedIn >= passQty) return 'FULLY_CHECKED_IN';
+        if (passCheckedIn > 0) return 'PARTIALLY_CHECKED_IN';
+        return 'UNUSED';
+      })();
+
       const passPayload = {
         ticketNumber: ticketData.ticketNumber,
         eventTitle: ticketData.eventTitle,
@@ -7691,6 +8334,9 @@ export async function createApp() {
         redeemed: ticketData.status === 'redeemed',
         redeemedAt: ticketData.redeemedAt || null,
         redeemedBy: ticketData.redeemedBy || null,
+        checkedInQuantity: passCheckedIn,
+        remainingQuantity: Math.max(0, passQty - passCheckedIn),
+        entryStatus: passEntryStatus,
         passSlug: ticketData.passSlug || { id: passId, sig: sig || '' },
         eventGoogleMapsQuery: ticketData.eventGoogleMapsQuery || (ticketData as any).mapsUrl || `${ticketData.venue}, ${ticketData.city}`,
         passed,
@@ -9888,31 +10534,80 @@ app.delete("/api/admin/counters/:counterId", requireRole(["super_admin"]), async
         (t: any) => t.eventId === eventId && t.status !== "deleted"
       );
 
+      // Authoritative analytics derived from tickets + the immutable entry
+      // transaction ledger — the same data the scanner writes (#5/#6/#15).
       let totalQuantity = 0;
       let checkedInQuantity = 0;
       let checkedIn = 0;
+      let partialTickets = 0;
+      let fullyRedeemedTickets = 0;
+      let unusedTickets = 0;
       const recentScans: any[] = [];
       const tierMap = new Map<string, { total: number; checkedIn: number }>();
+      const counterMap = new Map<string, { guests: number; scans: number }>();
+      const staffMap = new Map<string, { guests: number; scans: number }>();
+      const overTimeMap = new Map<string, number>();
 
       for (const ticket of eventTickets) {
-        const qty = Number(ticket.quantity || 1) || 1;
+        const qty = Math.max(1, Math.floor(Number(ticket.quantity) || 1));
         totalQuantity += qty;
-        const isScanned = ticket.status === "redeemed" || ticket.redeemedAt;
-        if (isScanned) {
+        const st = String(ticket.status || 'valid').toLowerCase();
+        const checkedInForTicket = st === 'redeemed' && ticket.checkedInQuantity == null
+          ? qty
+          : Math.min(qty, Math.max(0, Math.floor(Number(ticket.checkedInQuantity) || 0)));
+        const remainingForTicket = Math.max(0, qty - checkedInForTicket);
+
+        checkedInQuantity += checkedInForTicket;
+        if (remainingForTicket === 0 && checkedInForTicket > 0) {
+          fullyRedeemedTickets++;
           checkedIn++;
-          checkedInQuantity += qty;
+        } else if (checkedInForTicket > 0) {
+          partialTickets++;
+          checkedIn++;
+        } else {
+          unusedTickets++;
+        }
+
+        const isScanned = checkedInForTicket > 0;
+        if (isScanned) {
           recentScans.push({
             ticketNumber: ticket.ticketNumber,
             attendeeName: ticket.attendeeName || "",
-            scannedAt: ticket.redeemedAt || ticket.updatedAt || "",
+            scannedAt: ticket.lastScanAt || ticket.redeemedAt || ticket.updatedAt || "",
             tierName: ticket.tierName || "General",
           });
         }
         const tierName = ticket.tierName || "General";
         const existing = tierMap.get(tierName) || { total: 0, checkedIn: 0 };
         existing.total += qty;
-        if (isScanned) existing.checkedIn += qty;
+        if (isScanned) existing.checkedIn += checkedInForTicket;
         tierMap.set(tierName, existing);
+      }
+
+      // Counter / staff / timeline breakdowns from the entry ledger.
+      const ledgerSnap = await rtdbGet("entry_transactions", adminToken);
+      const allLedger = (ledgerSnap.data && typeof ledgerSnap.data === 'object') ? ledgerSnap.data : {};
+      let invalidScanAttempts = 0;
+      for (const [ticketId, txs] of Object.entries<any>(allLedger)) {
+        if (!txs || typeof txs !== 'object') continue;
+        for (const tx of Object.values<any>(txs)) {
+          if (!tx || typeof tx !== 'object') continue;
+          if (tx.type === 'reversal') continue;
+          const ticket = allTickets.find((t: any) => t.id === ticketId);
+          if (!ticket || ticket.eventId !== eventId) continue;
+          const counterName = String(tx.counterId || 'Unassigned');
+          const counterEntry = counterMap.get(counterName) || { guests: 0, scans: 0 };
+          counterEntry.guests += Math.max(0, Number(tx.quantityEntered) || 0);
+          counterEntry.scans += 1;
+          counterMap.set(counterName, counterEntry);
+          const staffName = String(tx.scannedBy || 'unknown');
+          const staffEntry = staffMap.get(staffName) || { guests: 0, scans: 0 };
+          staffEntry.guests += Math.max(0, Number(tx.quantityEntered) || 0);
+          staffEntry.scans += 1;
+          staffMap.set(staffName, staffEntry);
+          const day = String(tx.scannedAt || '').slice(0, 10);
+          if (day) overTimeMap.set(day, (overTimeMap.get(day) || 0) + Math.max(0, Number(tx.quantityEntered) || 0));
+        }
       }
 
       recentScans.sort((a: any, b: any) => String(b.scannedAt).localeCompare(String(a.scannedAt)));
@@ -9928,8 +10623,15 @@ app.delete("/api/admin/counters/:counterId", requireRole(["super_admin"]), async
           checkedInQuantity,
           remaining: totalQuantity - checkedInQuantity,
           checkInRate: totalQuantity > 0 ? checkedInQuantity / totalQuantity : 0,
+          partialTickets,
+          fullyRedeemedTickets,
+          unusedTickets,
+          invalidScanAttempts,
           lastScanAt: recentScans[0]?.scannedAt || null,
           recentScans: recentScans.slice(0, 50),
+          entriesByCounter: Array.from(counterMap.entries()).map(([counter, v]) => ({ counter, ...v })).sort((a: any, b: any) => b.guests - a.guests),
+          entriesByStaff: Array.from(staffMap.entries()).map(([staff, v]) => ({ staff, ...v })).sort((a: any, b: any) => b.guests - a.guests),
+          entriesOverTime: Array.from(overTimeMap.entries()).map(([date, guests]) => ({ date, guests })).sort((a: any, b: any) => a.date.localeCompare(b.date)),
           byTier: Array.from(tierMap.entries()).map(([tierName, counts]) => ({
             tierName,
             ...counts,

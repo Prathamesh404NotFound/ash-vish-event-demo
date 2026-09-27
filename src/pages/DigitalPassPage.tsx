@@ -3,7 +3,7 @@ import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import { motion } from 'motion/react';
 import { 
-  Calendar, MapPin, User, CheckCircle2, AlertTriangle, XCircle, 
+  Calendar, MapPin, User, CheckCircle2, AlertTriangle, XCircle, Clock, 
   Download, Printer, Share2, Copy, Sparkles, ShieldCheck, ArrowRight, MessageSquareCode 
 } from 'lucide-react';
 import { passUrl } from '../utils/passLink';
@@ -234,6 +234,55 @@ export function DigitalPassPage() {
               <span className="text-xs text-gray-400">Assigned Seat / Access</span>
               <span className="text-xs font-bold text-[#D4AF37] font-mono">{passData?.seatNumber}</span>
             </div>
+
+            {/* GROUP ENTRY STATUS — live usage from the same authoritative
+                server data the gate scanner writes (#12/#13). */}
+            {(() => {
+              const qty = Math.max(1, Math.floor(Number(passData?.quantity) || 1));
+              const entered = Math.min(qty, Math.max(0, Math.floor(Number(passData?.checkedInQuantity) || 0)));
+              const remaining = Math.max(0, qty - entered);
+              const es = String(passData?.entryStatus || (entered >= qty && entered > 0 ? 'FULLY_CHECKED_IN' : entered > 0 ? 'PARTIALLY_CHECKED_IN' : 'UNUSED'));
+              const isFull = remaining === 0 && entered > 0;
+              const isPartial = entered > 0 && remaining > 0;
+              const pct = Math.round((entered / qty) * 100);
+              return qty > 1 || entered > 0 ? (
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] uppercase tracking-widest text-gray-400 font-bold">Group Entry Status</span>
+                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                      isFull ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                      : isPartial ? 'bg-sky-500/10 text-sky-400 border-sky-500/30'
+                      : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                    }`}>
+                      {isFull ? <AlertTriangle className="w-3 h-3" /> : isPartial ? <Clock className="w-3 h-3" /> : <CheckCircle2 className="w-3 h-3" />}
+                      {isFull ? 'FULLY USED' : isPartial ? 'PARTIALLY USED' : 'ENTRY AVAILABLE'}
+                    </span>
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-white">
+                      {qty} guest{qty !== 1 ? 's' : ''} included · {entered} entered · {remaining} remaining
+                    </p>
+                    <p className="text-[11px] text-gray-300 mt-0.5">
+                      {isFull
+                        ? 'All guest entries have been used'
+                        : isPartial
+                          ? `${remaining} guest ${remaining === 1 ? 'entry' : 'entries'} can still use this pass`
+                          : `${qty} entries available`}
+                    </p>
+                  </div>
+                  {/* Progress bar */}
+                  <div className="h-2.5 rounded-full bg-black/50 overflow-hidden border border-white/10">
+                    <div
+                      className={`h-full rounded-full transition-all ${isFull ? 'bg-amber-400' : isPartial ? 'bg-sky-400' : 'bg-emerald-400'}`}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                  <div className="flex justify-between text-[10px] text-gray-400 font-semibold">
+                    <span>{entered} of {qty} used</span><span>{pct}%</span>
+                  </div>
+                </div>
+              ) : null;
+            })()}
 
             {/* QR Code Section */}
             <div className="flex flex-col items-center justify-center pt-2 pb-1 relative">

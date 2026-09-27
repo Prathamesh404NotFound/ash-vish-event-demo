@@ -22,6 +22,12 @@ interface CheckinData {
   lastScanAt: string | null;
   recentScans: { ticketNumber: string; attendeeName: string; scannedAt: string; tierName: string }[];
   byTier: { tierName: string; total: number; checkedIn: number }[];
+  partialTickets?: number;
+  fullyRedeemedTickets?: number;
+  unusedTickets?: number;
+  entriesByCounter?: { counter: string; guests: number; scans: number }[];
+  entriesByStaff?: { staff: string; guests: number; scans: number }[];
+  entriesOverTime?: { date: string; guests: number }[];
 }
 
 export function AdminCheckinDashboard() {
@@ -238,6 +244,73 @@ export function AdminCheckinDashboard() {
               />
             </div>
           </motion.div>
+        </div>
+      )}
+
+      {/* Live Entry KPIs — partial/unused/fully-redeemed ticket counts */}
+      {data && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {[
+            { label: 'Partial Tickets', value: data.partialTickets ?? 0, cls: 'text-sky-400' },
+            { label: 'Fully Redeemed', value: data.fullyRedeemedTickets ?? 0, cls: 'text-amber-400' },
+            { label: 'Unused Tickets', value: data.unusedTickets ?? 0, cls: 'text-emerald-400' },
+            { label: 'Remaining Capacity', value: data.remaining, cls: 'text-white' },
+          ].map((k) => (
+            <div key={k.label} className="p-5 rounded-3xl bg-[#141414] border border-white/10">
+              <p className="text-[11px] uppercase tracking-wider text-gray-400 font-bold">{k.label}</p>
+              <p className={`font-heading font-extrabold text-3xl mt-1 ${k.cls}`}>{k.value}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Entries by Counter & Staff — gate attribution (#4) */}
+      {Boolean(data && (data.entriesByCounter?.length || data.entriesByStaff?.length)) && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {data.entriesByCounter && data.entriesByCounter.length > 0 && (
+            <div className="p-5 rounded-3xl bg-[#141414] border border-white/10 space-y-3">
+              <h4 className="text-sm font-bold text-white flex items-center gap-2">Entries by Counter</h4>
+              {data.entriesByCounter.map((e) => (
+                <div key={e.counter} className="flex items-center justify-between text-xs">
+                  <span className="text-gray-300 font-semibold">{e.counter}</span>
+                  <span className="text-[#D4AF37] font-bold">{e.guests} guests · {e.scans} scans</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {data.entriesByStaff && data.entriesByStaff.length > 0 && (
+            <div className="p-5 rounded-3xl bg-[#141414] border border-white/10 space-y-3">
+              <h4 className="text-sm font-bold text-white flex items-center gap-2">Entries by Staff</h4>
+              {data.entriesByStaff.map((e) => (
+                <div key={e.staff} className="flex items-center justify-between text-xs">
+                  <span className="text-gray-300 font-semibold font-mono text-[11px]">{e.staff.slice(0, 18)}</span>
+                  <span className="text-[#D4AF37] font-bold">{e.guests} guests · {e.scans} scans</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Entries over time — simple bar sparkline (#6) */}
+      {data?.entriesOverTime && data.entriesOverTime.length > 1 && (
+        <div className="p-5 rounded-3xl bg-[#141414] border border-white/10 space-y-3">
+          <h4 className="text-sm font-bold text-white">Entries Over Time</h4>
+          <div className="flex items-end gap-1.5 h-24">
+            {(() => {
+              const maxG = Math.max(...data.entriesOverTime.map((d) => d.guests), 1);
+              return data.entriesOverTime.slice(-30).map((d) => (
+                <div key={d.date} className="flex-1 flex flex-col items-center gap-1 group relative">
+                  <div
+                    className="w-full rounded-t bg-[#D4AF37]/70 hover:bg-[#D4AF37] transition-all"
+                    style={{ height: `${Math.max(4, (d.guests / maxG) * 80)}px` }}
+                    title={`${d.date}: ${d.guests} guests`}
+                  />
+                  <span className="text-[8px] text-gray-500">{d.date.slice(5)}</span>
+                </div>
+              ));
+            })()}
+          </div>
         </div>
       )}
 
