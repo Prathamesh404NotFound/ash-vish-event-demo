@@ -231,6 +231,43 @@ export interface Ticket {
     id: string;
     sig: string;
   };
+  /** ── Partial / multi-entry check-in fields ───────────────────── */
+  /** Guests already admitted (server-maintained transactionally). */
+  checkedInQuantity?: number;
+  /** UNUSED | PARTIALLY_CHECKED_IN | FULLY_CHECKED_IN | INVALID | CANCELLED | EXPIRED */
+  entryStatus?: string;
+  lastScanAt?: string;
+  lastScannedBy?: string;
+  lastScanCounter?: string;
+}
+
+export type EntryOutcome = 'UNUSED' | 'PARTIALLY_CHECKED_IN' | 'FULLY_CHECKED_IN' | 'INVALID' | 'CANCELLED' | 'EXPIRED';
+
+export interface EntryRecord {
+  id: string;
+  ticketId: string;
+  quantityEntered: number;
+  scannedAt: string;
+  scannedBy: string;
+  counterId?: string;
+  note?: string;
+  totalAfter?: number;
+}
+
+export interface EntryStatusResponse {
+  found: boolean;
+  ticketId?: string;
+  ticket?: Ticket;
+  outcome?: EntryOutcome;
+  entryStatus?: string;
+  ticketQuantity?: number;
+  checkedInQuantity?: number;
+  remainingQuantity?: number;
+  allowPartialEntry?: boolean;
+  canEnter?: boolean;
+  reason?: string;
+  lastScanAt?: string;
+  lastScannedBy?: string;
 }
 
 export interface UserProfile {

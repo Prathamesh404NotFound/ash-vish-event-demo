@@ -28,7 +28,22 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { Ticket } from '../types';
 
-export type ScanPhase = 'idle' | 'verifying' | 'allowed' | 'duplicate' | 'denied' | 'network_err';
+export type ScanPhase = 'idle' | 'verifying' | 'allowed' | 'duplicate' | 'denied' | 'network_err' | 'review' | 'confirmed' | 'partial';
+
+export interface EntryStateInfo {
+  ticketId?: string;
+  ticketQuantity: number;
+  checkedInQuantity: number;
+  remainingQuantity: number;
+  entryStatus?: string;
+  allowPartialEntry?: boolean;
+  canEnter?: boolean;
+  reason?: string;
+  lastScanAt?: string;
+  lastScannedBy?: string;
+  code?: string;
+  history?: { id: string; quantityEntered: number; scannedAt: string; scannedBy: string; counterId?: string; note?: string; totalAfter?: number }[];
+}
 
 export interface ScanResultState {
   phase: ScanPhase;
@@ -40,6 +55,9 @@ export interface ScanResultState {
   scannedAt?: string;
   scannedBy?: string;
   isRecentlyScanned?: boolean;
+  /** REVIEW / CONFIRMED states: server-side entry entitlement snapshot */
+  entryState?: EntryStateInfo;
+  confirmedQty?: number;
 }
 
 interface TicketScannerProps {
@@ -135,11 +153,14 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
   subtitle = 'Scan digital/printed ticket QR codes or perform manual attendee lookups.',
   onDecoded,
 }) => {
-  const { scanTicketQR, allTickets, undoTicketRedemption } = useBooking();
+  const { scanTicketQR, allTickets, undoTicketRedemption, validateTicketEntry, confirmTicketEntry, fetchEntryHistory } = useBooking();
   const { user } = useAuth();
 
   const [undoingTicketId, setUndoingTicketId] = useState<string | null>(null);
   const [undoError, setUndoError] = useState<string | null>(null);
+  const [confirmingEntry, setConfirmingEntry] = useState(false);
+  const [guestsEntering, setGuestsEntering] = useState(1);
+  const [staffNote, setStaffNote] = useState('');
 
   // Last 3 scans this device has seen (client-side ring buffer, no extra reads)
   const [recentScans, setRecentScans] = useState<Ticket[]>([]);
@@ -331,12 +352,209 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
     setIsDecodingActive(true);
   };
 
+  // ── Multi-Entry / Partial Check-In Flow ────────────────────────────────
+  // Scan → Validate (server) → Review status → Select guests → Confirm.
+  // A scan NEVER auto-redeems; entry is only counted after explicit confirm.
+
+  const handleConfirmEntry = async (qty: number, note?: string) => {
+    const es = scanState.entryState;
+    if (!es) return;
+    setConfirmingEntry(true);
+    try {
+      const res = await confirmTicketEntry({
+        code: es.code,
+        ticketId: es.ticketId,
+        quantityEntered: qty,
+        note: note?.trim() || undefined,
+      });
+      if (!res.ok || !res.success) {
+        // Server rejected (fully redeemed / over-entry / race lost)
+        setScanStateTracked({
+          phase: 'duplicate',
+          heading: 'ENTRY BLOCKED',
+          subheading: res.error || 'The server rejected this entry — the ticket state may have changed.',
+          actionHint: 'Rescan the ticket to see the current status.',
+          ticket: es.ticketId ? { id: es.ticketId } as Ticket : undefined,
+        });
+        return;
+      }
+      const newState: EntryStateInfo = {
+        ...es,
+        checkedInQuantity: res.checkedInQuantity ?? es.checkedInQuantity + qty,
+        remainingQuantity: res.remainingQuantity ?? Math.max(0, es.remainingQuantity - qty),
+        entryStatus: res.entryStatus,
+      };
+      // Load the audit trail for this ticket
+      let history: EntryStateInfo['history'] = [];
+      if (es.ticketId) {
+        const h = await fetchEntryHistory(es.ticketId).catch(() => ({ success: false, records: [] }));
+        if (h.success) history = h.records as any;
+      }
+      if (soundEnabled) SoundEffects.playAllowed();
+      triggerVibrate([40]);
+      triggerFlash('allowed');
+      const confirmedState: ScanResultState = {
+        phase: res.fullyCheckedIn ? 'confirmed' : 'partial',
+        heading: res.fullyCheckedIn ? 'FULLY CHECKED IN ✓' : 'PARTIAL ENTRY SAVED ✓',
+        subheading: res.fullyCheckedIn
+          ? `All ${newState.ticketQuantity} guests admitted. Ticket is now fully redeemed.`
+          : `${res.admitted ?? qty} guests admitted. ${newState.remainingQuantity} remaining on this ticket.`,
+        ticket: res.ticket as Ticket,
+        scannedAt: new Date().toLocaleString(),
+        scannedBy: user?.name || 'Gate Staff',
+        entryState: { ...newState, history },
+        confirmedQty: res.admitted ?? qty,
+      };
+      setScanStateTracked(confirmedState);
+      setGuestsEntering(1);
+      setStaffNote('');
+      if (res.ticket) recordRecentScan(res.ticket as Ticket);
+    } catch {
+      setScanStateTracked({
+        phase: 'network_err',
+        heading: 'CONNECTION LOST',
+        subheading: 'Could not confirm entry — the count has NOT been saved.',
+        actionHint: 'Rescan the ticket and confirm again.',
+      });
+    } finally {
+      setConfirmingEntry(false);
+    }
+  };
+
+  const handleEntryScan = async (code: string) => {
+    const cleanCode = code.trim();
+    if (!cleanCode) return;
+    if (autoClearTimerRef.current) {
+      clearTimeout(autoClearTimerRef.current);
+      autoClearTimerRef.current = null;
+    }
+
+    setScanStateTracked({
+      phase: 'verifying',
+      heading: 'VERIFYING…',
+      subheading: 'Validating ticket & remaining entry entitlement',
+      scannedToken: cleanCode.length > 24 ? `${cleanCode.substring(0, 10)}…${cleanCode.substring(cleanCode.length - 8)}` : cleanCode,
+    });
+
+    try {
+      const res = await Promise.race([
+        validateTicketEntry(cleanCode),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('NETWORK_TIMEOUT')), 8000)),
+      ]);
+
+      if (!res.ok || !res.found) {
+        if (soundEnabled) SoundEffects.playDeniedOrDuplicate();
+        triggerFlash('denied');
+        setScanStateTracked({
+          phase: 'denied',
+          heading: 'INVALID TICKET ✗',
+          subheading: res.reason || res.error || "This pass doesn't match our records.",
+          actionHint: 'Ask the guest to open the live Ash-vish pass, or use manual lookup.',
+          scannedToken: cleanCode,
+        });
+        return;
+      }
+
+      const es: EntryStateInfo = {
+        ticketId: res.ticketId,
+        ticketQuantity: res.ticketQuantity ?? 1,
+        checkedInQuantity: res.checkedInQuantity ?? 0,
+        remainingQuantity: res.remainingQuantity ?? 0,
+        entryStatus: res.entryStatus,
+        allowPartialEntry: res.allowPartialEntry,
+        canEnter: res.canEnter,
+        reason: res.reason,
+        lastScanAt: res.lastScanAt,
+        lastScannedBy: res.lastScannedBy,
+        code: cleanCode,
+      };
+
+      if (res.entryStatus === 'CANCELLED' || res.entryStatus === 'EXPIRED') {
+        if (soundEnabled) SoundEffects.playDeniedOrDuplicate();
+        triggerFlash('denied');
+        setScanStateTracked({
+          phase: 'denied',
+          heading: res.entryStatus === 'EXPIRED' ? 'TICKET EXPIRED ✗' : 'TICKET CANCELLED ✗',
+          subheading: res.reason || 'This ticket cannot be admitted.',
+          actionHint: 'Do not admit. Direct the guest to the box office or supervisor.',
+          ticket: res.ticket as Ticket,
+          scannedToken: cleanCode,
+        });
+        return;
+      }
+
+      if (res.remainingQuantity <= 0) {
+        // STATE C — fully redeemed
+        if (soundEnabled) SoundEffects.playDeniedOrDuplicate();
+        triggerFlash('duplicate');
+        let history: EntryStateInfo['history'] = [];
+        if (es.ticketId) {
+          const h = await fetchEntryHistory(es.ticketId).catch(() => ({ success: false, records: [] }));
+          if (h.success) history = h.records as any;
+        }
+        setScanStateTracked({
+          phase: 'duplicate',
+          heading: 'TICKET FULLY REDEEMED ✕',
+          subheading: `${es.checkedInQuantity} of ${es.ticketQuantity} guests already admitted. No entries remain.`,
+          actionHint: 'Entry NOT permitted. Do not admit again without supervisor clearance.',
+          ticket: res.ticket as Ticket,
+          scannedAt: es.lastScanAt,
+          scannedBy: es.lastScannedBy,
+          entryState: { ...es, history },
+        });
+        return;
+      }
+
+      // STATE A/B — unused or partially used: review & confirm.
+      const reviewState: ScanResultState = {
+        phase: 'review',
+        heading: res.entryStatus === 'UNUSED' ? 'ENTRY AVAILABLE ✓' : 'REMAINING ENTRY AVAILABLE ◐',
+        subheading: res.entryStatus === 'UNUSED'
+          ? `${es.ticketQuantity} guests included · ${es.remainingQuantity} remaining`
+          : `${es.checkedInQuantity} of ${es.ticketQuantity} already admitted · ${es.remainingQuantity} remaining`,
+        ticket: res.ticket as Ticket,
+        scannedAt: es.lastScanAt,
+        scannedBy: es.lastScannedBy,
+        entryState: es,
+      };
+      setScanStateTracked(reviewState);
+      // Reviews don't auto-clear — staff explicitly confirms or dismisses.
+    } catch (err: any) {
+      console.warn('[SCANNER] Entry validation error:', err);
+      if (soundEnabled) SoundEffects.playDeniedOrDuplicate();
+      triggerFlash('denied');
+      setScanStateTracked({
+        phase: 'network_err',
+        heading: 'CONNECTION LOST',
+        subheading: 'Connection lost — retry or use manual lookup.',
+        actionHint: 'Check Wi-Fi / cellular data or search the guest list by name.',
+        scannedToken: cleanCode,
+      });
+    }
+  };
+
   // Primary Scan Code Execution with State Machine & 3-Second Lockout
   const handleScanCode = async (code: string) => {
     const cleanCode = code.trim();
     if (!cleanCode) return;
 
-    // Soft lock: If currently verifying, allowed or duplicate in flight, ignore incoming duplicate frames
+    // Validate-first flow: a scan NEVER auto-redeems. Entry is only counted
+    // after staff explicitly confirms the number of guests entering.
+    if (scanState.phase === 'verifying' || confirmingEntry) return;
+
+    // Client-side lockout: ignore duplicate decode frames / accidental
+    // re-scans of the same code within 3 seconds.
+    const nowTs = Date.now();
+    if (lastScanLockRef.current && lastScanLockRef.current.token === cleanCode && nowTs - lastScanLockRef.current.timestamp < 3000) {
+      setScanStateTracked({ ...lastScanLockRef.current.result, isRecentlyScanned: true });
+      return;
+    }
+
+    await handleEntryScan(cleanCode);
+    lastScanLockRef.current = { token: cleanCode, timestamp: Date.now(), result: scanStateRef.current };
+    return;
+
+    // Soft lock (legacy path — retained but unreachable): If currently verifying, allowed or duplicate in flight, ignore incoming duplicate frames
     if (scanState.phase === 'verifying') return;
 
     const now = Date.now();
@@ -1554,7 +1772,38 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
                 </p>
               </div>
 
-              {scanState.ticket && (
+              {scanState.entryState && (
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="p-3 rounded-xl bg-black/50 border border-white/10 text-center">
+                    <p className="text-[10px] uppercase text-gray-400 font-bold">Total</p>
+                    <p className="text-2xl font-black text-white">{scanState.entryState.ticketQuantity}</p>
+                  </div>
+                  <div className="p-3 rounded-xl bg-black/50 border border-white/10 text-center">
+                    <p className="text-[10px] uppercase text-gray-400 font-bold">Admitted</p>
+                    <p className="text-2xl font-black text-amber-400">{scanState.entryState.checkedInQuantity}</p>
+                  </div>
+                  <div className="p-3 rounded-xl bg-black/50 border border-white/10 text-center">
+                    <p className="text-[10px] uppercase text-gray-400 font-bold">Remaining</p>
+                    <p className="text-2xl font-black text-red-400">{scanState.entryState.remainingQuantity}</p>
+                  </div>
+                </div>
+              )}
+
+              {scanState.entryState?.history && scanState.entryState.history.length > 0 && (
+                <div className="space-y-1.5">
+                  <p className="text-[11px] font-bold text-amber-300 uppercase tracking-wider">Usage History</p>
+                  <div className="max-h-28 overflow-y-auto space-y-1.5 pr-1">
+                    {scanState.entryState.history.map((h) => (
+                      <div key={h.id} className="p-2.5 rounded-xl bg-black/50 border border-white/5 text-[11px]">
+                        <span className="font-bold text-white">{h.quantityEntered} guest{h.quantityEntered !== 1 ? 's' : ''}</span>
+                        <span className="text-gray-400 block">{new Date(h.scannedAt).toLocaleString()}{h.scannedBy ? ` · ${h.scannedBy}` : ''}{h.counterId ? ` · ${h.counterId}` : ''}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {scanState.ticket && !scanState.entryState && (
                 <div className="p-5 rounded-2xl bg-black/60 border border-amber-500/30 space-y-3 text-xs">
                   <div>
                     <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider block">
@@ -1592,6 +1841,208 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
                   Scan next now
                 </button>
               </div>
+            </div>
+          ) : scanState.phase === 'review' ? (
+            /* REVIEW / CONFIRM ENTRY OUTCOME — staff picks how many guests enter */
+            <div className={`p-6 sm:p-8 rounded-3xl border space-y-5 shadow-2xl animate-in zoom-in-95 duration-200 ${
+              scanState.entryState?.entryStatus === 'UNUSED'
+                ? 'border-emerald-500/50 bg-emerald-950/40'
+                : 'border-sky-500/50 bg-sky-950/40'
+            }`}>
+              <div className="flex items-start gap-3">
+                <div className={`p-3.5 rounded-2xl border ${
+                  scanState.entryState?.entryStatus === 'UNUSED'
+                    ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                    : 'bg-sky-500/20 text-sky-400 border-sky-500/30'
+                }`}>
+                  {scanState.entryState?.entryStatus === 'UNUSED'
+                    ? <CheckCircle2 className="w-10 h-10" />
+                    : <Clock className="w-10 h-10" />}
+                </div>
+                <div>
+                  <h1 className={`text-3xl sm:text-4xl font-heading font-black tracking-tight leading-none ${
+                    scanState.entryState?.entryStatus === 'UNUSED' ? 'text-emerald-400' : 'text-sky-400'
+                  }`}>
+                    {scanState.heading}
+                  </h1>
+                  <p className="text-sm font-bold mt-1.5 text-gray-200">{scanState.subheading}</p>
+                </div>
+              </div>
+
+              {scanState.ticket && (
+                <div className="p-4 rounded-2xl bg-black/60 border border-white/10 space-y-2.5 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-gray-400">Guest</span>
+                    <span className="font-extrabold text-white text-base">{scanState.ticket.attendeeName}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-gray-400">Ticket #</span>
+                    <span className="font-mono font-bold text-[#D4AF37]">{scanState.ticket.ticketNumber}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-gray-400">Event</span>
+                    <span className="font-semibold text-gray-200 truncate max-w-[180px]">{scanState.ticket.eventTitle}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-gray-400">Type</span>
+                    <span className="font-bold text-gray-200">{scanState.ticket.tierName}</span>
+                  </div>
+                  {scanState.scannedAt && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-400">Last scan</span>
+                      <span className="text-gray-300">{scanState.scannedAt}{scanState.scannedBy ? ` · ${scanState.scannedBy}` : ''}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Entry status grid */}
+              <div className="grid grid-cols-3 gap-2">
+                <div className="p-3 rounded-xl bg-black/50 border border-white/10 text-center">
+                  <p className="text-[10px] uppercase text-gray-400 font-bold">Total Guests</p>
+                  <p className="text-2xl font-black text-white">{scanState.entryState?.ticketQuantity}</p>
+                </div>
+                <div className="p-3 rounded-xl bg-black/50 border border-white/10 text-center">
+                  <p className="text-[10px] uppercase text-gray-400 font-bold">Checked In</p>
+                  <p className="text-2xl font-black text-sky-400">{scanState.entryState?.checkedInQuantity}</p>
+                </div>
+                <div className="p-3 rounded-xl bg-black/50 border border-white/10 text-center">
+                  <p className="text-[10px] uppercase text-gray-400 font-bold">Remaining</p>
+                  <p className="text-2xl font-black text-emerald-400">{scanState.entryState?.remainingQuantity}</p>
+                </div>
+              </div>
+
+              {/* People entering now selector */}
+              <div className="space-y-2">
+                <label className="text-[11px] font-bold text-gray-300 uppercase tracking-wider block">
+                  People entering now <span className="text-gray-500 normal-case">(max {scanState.entryState?.remainingQuantity})</span>
+                </label>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    onClick={() => setGuestsEntering((g) => Math.max(1, g - 1))}
+                    disabled={confirmingEntry || guestsEntering <= 1}
+                    className="w-11 h-11 rounded-xl bg-[#1C1C1C] border border-white/10 text-white text-xl font-black disabled:opacity-30 cursor-pointer"
+                  >−</button>
+                  <div className="px-6 py-2.5 rounded-xl bg-[#D4AF37]/10 border border-[#D4AF37]/40 text-[#D4AF37] text-2xl font-black min-w-[72px] text-center">
+                    {guestsEntering}
+                  </div>
+                  <button
+                    onClick={() => setGuestsEntering((g) => Math.min(scanState.entryState?.remainingQuantity ?? 1, g + 1))}
+                    disabled={confirmingEntry || guestsEntering >= (scanState.entryState?.remainingQuantity ?? 1)}
+                    className="w-11 h-11 rounded-xl bg-[#1C1C1C] border border-white/10 text-white text-xl font-black disabled:opacity-30 cursor-pointer"
+                  >+</button>
+                  <div className="flex gap-1.5 ml-1 flex-wrap">
+                    {Array.from({ length: Math.min(5, scanState.entryState?.remainingQuantity ?? 1) }, (_, i) => i + 1).map((n) => (
+                      <button
+                        key={n}
+                        onClick={() => setGuestsEntering(n)}
+                        disabled={confirmingEntry}
+                        className={`w-9 h-9 rounded-lg text-xs font-black transition-all cursor-pointer disabled:opacity-40 ${
+                          guestsEntering === n ? 'bg-[#D4AF37] text-black' : 'bg-[#1C1C1C] text-gray-300 border border-white/10 hover:border-white/30'
+                        }`}
+                      >{n}</button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Staff note for partial arrival */}
+              <input
+                type="text"
+                value={staffNote}
+                onChange={(e) => setStaffNote(e.target.value)}
+                maxLength={300}
+                placeholder="Staff note (optional) — e.g. “2 guests arrived, 2 expected later.”"
+                className="w-full px-4 py-2.5 rounded-xl bg-[#141414] border border-white/10 text-white placeholder-gray-500 text-xs focus:outline-none focus:border-[#D4AF37]"
+              />
+
+              <button
+                onClick={() => handleConfirmEntry(guestsEntering, staffNote)}
+                disabled={confirmingEntry || guestsEntering < 1 || guestsEntering > (scanState.entryState?.remainingQuantity ?? 1)}
+                className="w-full py-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-black font-heading font-black text-lg shadow-lg shadow-emerald-950/50 transition-all cursor-pointer flex items-center justify-center gap-2"
+              >
+                {confirmingEntry ? <Loader2 className="w-5 h-5 animate-spin" /> : <UserCheck className="w-5 h-5" />}
+                <span>{confirmingEntry ? 'SAVING…' : `CONFIRM ${guestsEntering} ENTR${guestsEntering === 1 ? 'Y' : 'IES'}`}</span>
+              </button>
+
+              <button
+                onClick={handleDismiss}
+                disabled={confirmingEntry}
+                className="w-full py-2.5 rounded-xl bg-[#1C1C1C] text-gray-300 font-bold text-xs border border-white/10 cursor-pointer"
+              >
+                Cancel — scan next ticket
+              </button>
+            </div>
+          ) : scanState.phase === 'confirmed' || scanState.phase === 'partial' ? (
+            /* CONFIRMED / PARTIAL SAVED OUTCOME */
+            <div className={`p-6 sm:p-8 rounded-3xl border space-y-5 shadow-2xl animate-in zoom-in-95 duration-200 ${
+              scanState.phase === 'confirmed'
+                ? 'border-emerald-500/50 bg-emerald-950/40'
+                : 'border-sky-500/50 bg-sky-950/40'
+            }`}>
+              <div className="flex items-start gap-3">
+                <div className={`p-3.5 rounded-2xl border ${
+                  scanState.phase === 'confirmed'
+                    ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                    : 'bg-sky-500/20 text-sky-400 border-sky-500/30'
+                }`}>
+                  {scanState.phase === 'confirmed'
+                    ? <CheckCircle2 className="w-10 h-10" />
+                    : <Clock className="w-10 h-10" />}
+                </div>
+                <div>
+                  <h1 className={`text-3xl sm:text-4xl font-heading font-black tracking-tight leading-none ${
+                    scanState.phase === 'confirmed' ? 'text-emerald-400' : 'text-sky-400'
+                  }`}>{scanState.heading}</h1>
+                  <p className="text-sm font-bold mt-1.5 text-gray-200">{scanState.subheading}</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                <div className="p-3 rounded-xl bg-black/50 border border-white/10 text-center">
+                  <p className="text-[10px] uppercase text-gray-400 font-bold">Total</p>
+                  <p className="text-2xl font-black text-white">{scanState.entryState?.ticketQuantity}</p>
+                </div>
+                <div className="p-3 rounded-xl bg-black/50 border border-white/10 text-center">
+                  <p className="text-[10px] uppercase text-gray-400 font-bold">Admitted</p>
+                  <p className="text-2xl font-black text-sky-400">{scanState.entryState?.checkedInQuantity}</p>
+                </div>
+                <div className="p-3 rounded-xl bg-black/50 border border-white/10 text-center">
+                  <p className="text-[10px] uppercase text-gray-400 font-bold">Remaining</p>
+                  <p className="text-2xl font-black text-emerald-400">{scanState.entryState?.remainingQuantity}</p>
+                </div>
+              </div>
+
+              {scanState.entryState?.remainingQuantity === 0 && (
+                <div className="p-3 rounded-xl bg-black/60 border border-white/10 text-gray-200 text-xs">
+                  ✕ This ticket is now <strong>fully redeemed</strong>. The same QR code will be rejected on future scans.
+                </div>
+              )}
+
+              {scanState.entryState?.history && scanState.entryState.history.length > 0 && (
+                <div className="space-y-1.5">
+                  <p className="text-[11px] font-bold text-gray-300 uppercase tracking-wider">Entry History</p>
+                  <div className="max-h-36 overflow-y-auto space-y-1.5 pr-1">
+                    {scanState.entryState.history.map((h) => (
+                      <div key={h.id} className="p-2.5 rounded-xl bg-black/50 border border-white/5 text-[11px] flex items-center justify-between">
+                        <div>
+                          <span className="font-bold text-white">{h.quantityEntered} guest{h.quantityEntered !== 1 ? 's' : ''} admitted</span>
+                          <span className="text-gray-400 block">{new Date(h.scannedAt).toLocaleString()}{h.scannedBy ? ` · ${h.scannedBy}` : ''}{h.counterId ? ` · ${h.counterId}` : ''}</span>
+                          {h.note && <span className="text-[#D4AF37] block mt-0.5">“{h.note}”</span>}
+                        </div>
+                        <span className="text-gray-500 shrink-0 ml-2">{h.totalAfter}/{scanState.entryState?.ticketQuantity}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <button
+                onClick={handleDismiss}
+                className="w-full py-3 rounded-xl bg-[#D4AF37] text-black font-extrabold text-sm cursor-pointer"
+              >
+                Scan next ticket
+              </button>
             </div>
           ) : scanState.phase === 'denied' ? (
             /* DENIED OUTCOME */

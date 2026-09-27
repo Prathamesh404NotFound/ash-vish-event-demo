@@ -6896,6 +6896,287 @@ export async function createApp() {
    * Reverts a mistaken manual admission back to 'active' atomically via
    * transaction, so the pass becomes scannable again.
    */
+  const VOIDED_ENTRY_STATUSES = ["voided", "void", "cancelled", "canceled", "refunded", "deleted"];
+
+  function computeEntryState(ticket: any): {
+    ticketQuantity: number; checkedInQuantity: number; remainingQuantity: number;
+    entryStatus: 'UNUSED' | 'PARTIALLY_CHECKED_IN' | 'FULLY_CHECKED_IN' | 'INVALID' | 'CANCELLED' | 'EXPIRED';
+  } {
+    const ticketQuantity = Math.max(1, Math.floor(Number(ticket.quantity) || 1));
+    // checkedInQuantity is authoritative; legacy 'redeemed' tickets count as fully redeemed.
+    const checkedInQuantity = ticket.status === 'redeemed' && ticket.checkedInQuantity == null
+      ? ticketQuantity
+      : Math.min(ticketQuantity, Math.max(0, Math.floor(Number(ticket.checkedInQuantity) || 0)));
+    const remainingQuantity = Math.max(0, ticketQuantity - checkedInQuantity);
+
+    const st = String(ticket.status || 'valid').toLowerCase();
+    let entryStatus: any = 'INVALID';
+    if (st === 'expired') entryStatus = 'EXPIRED';
+    else if (VOIDED_ENTRY_STATUSES.includes(st)) entryStatus = 'CANCELLED';
+    else if (remainingQuantity === 0) entryStatus = 'FULLY_CHECKED_IN';
+    else if (checkedInQuantity > 0) entryStatus = 'PARTIALLY_CHECKED_IN';
+    else entryStatus = 'UNUSED';
+    return { ticketQuantity, checkedInQuantity, remainingQuantity, entryStatus };
+  }
+
+  /** Resolve a raw scanned code to a ticket record (id + data), or null. */
+  async function resolveTicketForEntry(rawCode: string, adminToken: string) {
+    const code = String(rawCode || "").trim();
+    if (!code) return null;
+    // 1. Direct ticket key
+    try {
+      const direct = await rtdbGet(`tickets/${code}`, adminToken);
+      if (direct.data && typeof direct.data === "object") return { id: code, ticket: direct.data };
+    } catch { /* fall through */ }
+    // 2. ASH token payload
+    try {
+      const parts = code.split(".");
+      if (parts.length >= 2 && (parts[0] === "ASH_PASS" || parts[0] === "ASH_PASS_v1" || parts[0] === "ASH_RES")) {
+        const payloadStr = Buffer.from(parts[1], "base64url").toString("utf8");
+        const pipeParts = payloadStr.split("|");
+        if (pipeParts.length >= 4 && pipeParts[3]) {
+          try {
+            const snap = await rtdbGet(`tickets/${pipeParts[3]}`, adminToken);
+            if (snap.data && typeof snap.data === "object") return { id: pipeParts[3], ticket: snap.data };
+          } catch { /* fall through */ }
+        }
+        const colonParts = payloadStr.split(":");
+        if (colonParts.length >= 1 && colonParts[0]) {
+          try {
+            const orderSnap = await rtdbGet(`processed_orders/${colonParts[0]}`, adminToken);
+            if (orderSnap.data?.ticketId) {
+              const tSnap = await rtdbGet(`tickets/${orderSnap.data.ticketId}`, adminToken);
+              if (tSnap.data && typeof tSnap.data === "object") return { id: orderSnap.data.ticketId, ticket: tSnap.data };
+            }
+          } catch { /* fall through */ }
+        }
+      }
+    } catch { /* fall through */ }
+    // 3. Full scan match (last resort)
+    try {
+      const allSnap = await rtdbGet("tickets", adminToken);
+      if (allSnap.data && typeof allSnap.data === "object") {
+        for (const [id, t] of Object.entries<any>(allSnap.data)) {
+          if (!t || typeof t !== "object") continue;
+          if (String(t.qrCodeValue || "").trim() === code || String(t.ticketNumber || "").trim() === code || id === code) {
+            return { id, ticket: t };
+          }
+        }
+      }
+    } catch { /* fall through */ }
+    return null;
+  }
+
+  async function getAllowPartialEntrySetting(adminToken: string): Promise<boolean> {
+    try {
+      const snap = await rtdbGet("settings/partialEntry", adminToken);
+      // Default: enabled (group tickets legitimately arrive separately).
+      return snap.data?.allowPartialEntry !== false;
+    } catch {
+      return true;
+    }
+  }
+
+  /**
+   * STEP 1 — VALIDATE-ONLY SCAN.
+   * Never mutates any state. Returns the ticket's entry state so staff can
+   * review and select how many guests are entering before confirming.
+   */
+  app.post("/api/tickets/entry-status", verifyRole(['admin', 'ticket_counter']), async (req: any, res) => {
+    try {
+      const { code } = req.body || {};
+      const adminToken = await getAdminAuthToken();
+      const resolved = await resolveTicketForEntry(String(code || ""), adminToken);
+      if (!resolved) {
+        return res.status(404).json({ success: false, found: false, reason: "Ticket not found. Ask the guest to open the live pass — screenshots and printouts can fail." });
+      }
+      const { id, ticket } = resolved;
+      const state = computeEntryState(ticket);
+      const allowPartialEntry = await getAllowPartialEntrySetting(adminToken);
+      const canEnter = state.remainingQuantity > 0 && !['CANCELLED', 'EXPIRED'].includes(state.entryStatus);
+      return res.json({
+        success: true,
+        found: true,
+        ticketId: id,
+        ticket,
+        ...state,
+        allowPartialEntry,
+        canEnter,
+        reason: state.remainingQuantity === 0
+          ? `This ticket has already been completely redeemed — ${state.checkedInQuantity} of ${state.ticketQuantity} guests admitted.`
+          : ['CANCELLED', 'EXPIRED'].includes(state.entryStatus)
+            ? `Ticket is ${state.entryStatus.toLowerCase()} and cannot be admitted.`
+            : undefined,
+        lastScanAt: ticket.lastScanAt || ticket.redeemedAt,
+        lastScannedBy: ticket.lastScannedBy || ticket.redeemedBy,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * STEP 2 — CONFIRM ENTRY (atomic).
+   * Admits `quantityEntered` guests under server-side transactional validation:
+   * remaining = quantity - checkedIn, race-safe via RTDB ETag transactions.
+   * Also appends an immutable entry-history record.
+   */
+  app.post("/api/tickets/confirm-entry", verifyRole(['admin', 'ticket_counter']), async (req: any, res) => {
+    try {
+      const { code, ticketId: rawTicketId, quantityEntered, note, counterId } = req.body || {};
+      const requestedQty = Math.floor(Number(quantityEntered));
+      if (!Number.isFinite(requestedQty) || requestedQty < 1) {
+        return res.status(400).json({ success: false, error: "Number of people entering must be at least 1." });
+      }
+      const adminToken = await getAdminAuthToken();
+
+      let targetTicketId = rawTicketId ? String(rawTicketId).trim() : null;
+      if (!targetTicketId && code) {
+        const resolved = await resolveTicketForEntry(String(code), adminToken);
+        if (resolved) targetTicketId = resolved.id;
+      }
+      if (!targetTicketId) {
+        return res.status(404).json({ success: false, error: "Ticket not found." });
+      }
+
+      const allowPartialEntry = await getAllowPartialEntrySetting(adminToken);
+      const staffUid = req.user?.uid || "unknown_staff";
+      const scannedAt = new Date().toISOString();
+
+      let admissionError: string | null = null;
+      const txResult = await rtdbTransaction(`tickets/${targetTicketId}`, (ticket: any) => {
+        if (!ticket) {
+          admissionError = "Ticket not found.";
+          return undefined;
+        }
+        const st = String(ticket.status || 'valid').toLowerCase();
+        if (st === 'expired') { admissionError = "Ticket has expired."; return undefined; }
+        if (VOIDED_ENTRY_STATUSES.includes(st)) { admissionError = "Ticket is cancelled/void and cannot be admitted."; return undefined; }
+
+        const ticketQuantity = Math.max(1, Math.floor(Number(ticket.quantity) || 1));
+        const checkedInQuantity = ticket.status === 'redeemed' && ticket.checkedInQuantity == null
+          ? ticketQuantity
+          : Math.min(ticketQuantity, Math.max(0, Math.floor(Number(ticket.checkedInQuantity) || 0)));
+        const remaining = ticketQuantity - checkedInQuantity;
+
+        if (remaining <= 0) {
+          admissionError = `TICKET FULLY REDEEMED — ${checkedInQuantity} of ${ticketQuantity} guests already admitted. No entries remain.`;
+          return undefined;
+        }
+        // If partial entries are disabled, a scan must consume the whole entitlement.
+        const effectiveQty = allowPartialEntry ? requestedQty : ticketQuantity;
+        if (effectiveQty > remaining) {
+          admissionError = `OVER-ENTRY BLOCKED: only ${remaining} of ${ticketQuantity} guest(s) remain, but ${effectiveQty} were requested.`;
+          return undefined;
+        }
+
+        const newCheckedIn = checkedInQuantity + effectiveQty;
+        ticket.checkedInQuantity = newCheckedIn;
+        ticket.entryStatus = newCheckedIn >= ticketQuantity ? "FULLY_CHECKED_IN" : "PARTIALLY_CHECKED_IN";
+        ticket.status = "redeemed";
+        ticket.redeemedAt = ticket.redeemedAt || scannedAt; // keep first-redeem timestamp for legacy views
+        ticket.redeemedBy = staffUid;
+        ticket.lastScanAt = scannedAt;
+        ticket.lastScannedBy = staffUid;
+        if (counterId) ticket.lastScanCounter = String(counterId).slice(0, 64);
+        return ticket;
+      }, adminToken);
+
+      if (!txResult.committed) {
+        return res.status(400).json({ success: false, error: admissionError || "Entry could not be committed (concurrent update). Rescan and try again." });
+      }
+
+      const updatedTicket: any = txResult.snapshot;
+      const qtyAdmitted = allowPartialEntry ? requestedQty : Math.max(1, Math.floor(Number(updatedTicket.quantity) || 1));
+
+      // Immutable audit trail entry (never overwritten).
+      const entryRecord: any = {
+        ticketId: targetTicketId,
+        quantityEntered: qtyAdmitted,
+        scannedAt,
+        scannedBy: staffUid,
+        totalAfter: Number(updatedTicket.checkedInQuantity) || 0,
+      };
+      if (counterId) entryRecord.counterId = String(counterId).slice(0, 64);
+      if (note) entryRecord.note = String(note).slice(0, 300);
+      let entryId = "";
+      try {
+        const pushed = await rtdbPush(`entry_history/${targetTicketId}`, entryRecord, adminToken);
+        entryId = pushed.name;
+      } catch (e) {
+        console.warn("[ENTRY] Failed to append entry history:", e);
+      }
+
+      // Mirror onto the owner's ticket copy for customer-facing views.
+      if (updatedTicket.ownerId) {
+        await rtdbUpdate(`users/${updatedTicket.ownerId}/tickets/${targetTicketId}`, {
+          status: "redeemed",
+          checkedInQuantity: updatedTicket.checkedInQuantity,
+          entryStatus: updatedTicket.entryStatus,
+          lastScanAt: updatedTicket.lastScanAt,
+          lastScannedBy: updatedTicket.lastScannedBy,
+        }, adminToken).catch(() => {});
+      }
+
+      const ticketQuantity = Math.max(1, Math.floor(Number(updatedTicket.quantity) || 1));
+      const checkedInQuantity = Number(updatedTicket.checkedInQuantity) || 0;
+      return res.json({
+        success: true,
+        entryId,
+        admitted: qtyAdmitted,
+        ticket: updatedTicket,
+        ticketQuantity,
+        checkedInQuantity,
+        remainingQuantity: Math.max(0, ticketQuantity - checkedInQuantity),
+        entryStatus: updatedTicket.entryStatus,
+        fullyCheckedIn: checkedInQuantity >= ticketQuantity,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /** Entry history / audit trail for a ticket (newest first). */
+  app.post("/api/tickets/entry-history", verifyRole(['admin', 'ticket_counter']), async (req: any, res) => {
+    try {
+      const { ticketId } = req.body || {};
+      if (!ticketId) return res.status(400).json({ success: false, error: "Missing ticketId" });
+      const adminToken = await getAdminAuthToken();
+      let records: any[] = [];
+      try {
+        const snap = await rtdbGet(`entry_history/${String(ticketId).trim()}`, adminToken);
+        if (snap.data && typeof snap.data === "object") {
+          records = Object.entries<any>(snap.data).map(([id, r]) => ({ id, ...r }));
+        }
+      } catch { /* no history yet */ }
+      records.sort((a: any, b: any) => String(b.scannedAt || "").localeCompare(String(a.scannedAt || "")));
+      return res.json({ success: true, records });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /** Admin control: enable/disable partial check-in for group tickets. */
+  app.get("/api/settings/entry", verifyRole(['admin']), async (req: any, res) => {
+    try {
+      const adminToken = await getAdminAuthToken();
+      const allowPartialEntry = await getAllowPartialEntrySetting(adminToken);
+      return res.json({ success: true, allowPartialEntry });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+  app.post("/api/settings/entry", verifyRole(['admin']), async (req: any, res) => {
+    try {
+      const { allowPartialEntry } = req.body || {};
+      const adminToken = await getAdminAuthToken();
+      await rtdbSet("settings/partialEntry", { allowPartialEntry: Boolean(allowPartialEntry), updatedAt: new Date().toISOString(), updatedBy: req.user?.uid || "admin" }, adminToken);
+      return res.json({ success: true, allowPartialEntry: Boolean(allowPartialEntry) });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   app.post("/api/tickets/undo-redeem", verifyRole(['admin', 'ticket_counter']), async (req: any, res) => {
     try {
       const { ticketId: rawTicketId } = req.body || {};

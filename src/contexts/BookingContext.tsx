@@ -156,6 +156,9 @@ interface BookingContextType {
   deleteEvent: (eventId: string) => void;
   scanTicketQR: (qrCodeValue: string, scannedByStaffName?: string, opts?: { eventId?: string; gateId?: string }) => Promise<{ success: boolean; message: string; ticket?: Ticket; alreadyRedeemed?: boolean; isVoid?: boolean; isTampered?: boolean; warning?: string }>;
   undoTicketRedemption: (ticketId: string) => Promise<{ success: boolean; message: string; ticket?: Ticket }>;
+  validateTicketEntry: (code: string) => Promise<any>;
+  confirmTicketEntry: (args: { code?: string; ticketId?: string; quantityEntered: number; note?: string; counterId?: string }) => Promise<any>;
+  fetchEntryHistory: (ticketId: string) => Promise<{ success: boolean; records?: any[]; error?: string }>;
   validateCouponServer: (code: string, eventId: string, amount: number) => Promise<{ valid: boolean; discountAmount: number; finalAmount: number; coupon?: Coupon; error?: string }>;
   createCoupon: (couponData: Omit<Coupon, 'id' | 'usedCount' | 'createdAt'>) => Promise<boolean>;
   toggleCouponStatus: (code: string) => Promise<void>;
@@ -1097,6 +1100,45 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
   };
 
+  // ── Multi-entry / partial check-in ──────────────────────────────────
+  // Step 1: validate-only scan. Never mutates state.
+  const validateTicketEntry = async (code: string) => {
+    const response = await safeFetch<any>('/api/tickets/entry-status', {
+      method: 'POST',
+      headers: await authenticatedApiHeaders(),
+      body: JSON.stringify({ code: code.trim() }),
+    });
+    return { ok: response.ok, status: response.status, ...(response.data || {}) };
+  };
+
+  // Step 2: confirm admission of N guests (server-side atomic).
+  const confirmTicketEntry = async (args: { code?: string; ticketId?: string; quantityEntered: number; note?: string; counterId?: string }) => {
+    const response = await safeFetch<any>('/api/tickets/confirm-entry', {
+      method: 'POST',
+      headers: await authenticatedApiHeaders(),
+      body: JSON.stringify(args),
+    });
+    const data = response.data || {};
+    if (data.success && data.ticket) {
+      setAllTickets((prev) => prev.map((ticket) => ticket.id === data.ticket.id ? data.ticket : ticket));
+      setMyTickets((prev) => prev.map((ticket) => ticket.id === data.ticket.id ? data.ticket : ticket));
+    }
+    return { ok: response.ok, status: response.status, ...(response.data || {}) };
+  };
+
+  const fetchEntryHistory = async (ticketId: string) => {
+    const response = await safeFetch<any>('/api/tickets/entry-history', {
+      method: 'POST',
+      headers: await authenticatedApiHeaders(),
+      body: JSON.stringify({ ticketId: ticketId.trim() }),
+    });
+    const data = response.data || {};
+    if (!response.ok || !data.success) {
+      return { success: false, error: data.error || response.error || 'Could not load entry history.' };
+    }
+    return { success: true, records: data.records || [] };
+  };
+
   // Coupons State
   const [coupons, setCoupons] = useState<Coupon[]>([]);
 
@@ -1753,6 +1795,9 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         deleteEvent,
         scanTicketQR,
         undoTicketRedemption,
+        validateTicketEntry,
+        confirmTicketEntry,
+        fetchEntryHistory,
         validateCouponServer,
         createCoupon,
         toggleCouponStatus,
