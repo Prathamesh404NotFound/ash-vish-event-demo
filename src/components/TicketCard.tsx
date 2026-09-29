@@ -1,8 +1,9 @@
 import React from 'react';
-import { Star, Crown, AlertCircle, Gem, Smile } from 'lucide-react';
+import { Star, Crown, AlertCircle, Gem, Smile, Zap } from 'lucide-react';
 import { TicketTier } from '../types';
 import { formatINR } from '../utils/formatters';
 import { getTierBadgeStyle, getTierKind } from '../lib/ticketItems';
+import { EarlyBirdView, earlyBirdTicketPrice } from '../lib/earlyBird';
 
 interface TicketCardProps {
   tier: TicketTier;
@@ -20,6 +21,8 @@ interface TicketCardProps {
    */
   quantity?: number;
   onQuantityChange?: (tier: TicketTier, next: number) => void;
+  /** Active Early Bird promotion — renders discounted price + badge. */
+  earlyBird?: EarlyBirdView | null;
 }
 
 export const TicketCard: React.FC<TicketCardProps> = ({
@@ -31,9 +34,12 @@ export const TicketCard: React.FC<TicketCardProps> = ({
   isLoading = false,
   quantity = 0,
   onQuantityChange,
+  earlyBird = null,
 }) => {
   const isSoldOut = (tier.remainingInventory ?? 0) <= 0;
   const isLowStock = !isSoldOut && (tier.remainingInventory ?? 0) <= 5;
+  const ebActive = Boolean(earlyBird?.active);
+  const ebPrice = ebActive ? earlyBirdTicketPrice(tier, earlyBird ?? null) : tier.price;
   const isMulti = typeof onQuantityChange === 'function' && !isSoldOut;
   const count = isMulti ? Math.max(0, quantity || 0) : 0;
   const isSelected = isMulti ? count > 0 : selectedTierId === tier.id;
@@ -140,10 +146,28 @@ export const TicketCard: React.FC<TicketCardProps> = ({
 
         {/* Price */}
         <div className="border-t border-white/10 pt-4">
-          <span className="text-2xl sm:text-3xl font-heading font-bold text-[#D4AF37]">
-            {formatINR(tier.price)}
-          </span>
-          <span className="text-xs sm:text-sm text-gray-400 ml-2">per ticket</span>
+          {ebActive ? (
+            <>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-2xl sm:text-3xl font-heading font-bold text-[#D4AF37]">
+                  {formatINR(ebPrice)}
+                </span>
+                <span className="text-sm sm:text-base text-gray-500 line-through">{formatINR(tier.price)}</span>
+              </div>
+              <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-[10px] font-extrabold uppercase tracking-wider">
+                <Zap className="w-3 h-3 fill-current" />
+                Early Bird {earlyBird?.config.discountType === 'flat' ? `₹${earlyBird.flatOff} off` : `${earlyBird?.percentOff}% off`}
+              </span>
+              <span className="text-xs sm:text-sm text-gray-400 ml-2">per ticket</span>
+            </>
+          ) : (
+            <>
+              <span className="text-2xl sm:text-3xl font-heading font-bold text-[#D4AF37]">
+                {formatINR(tier.price)}
+              </span>
+              <span className="text-xs sm:text-sm text-gray-400 ml-2">per ticket</span>
+            </>
+          )}
         </div>
 
         {/* Perks */}

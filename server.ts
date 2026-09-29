@@ -415,9 +415,13 @@ setInterval(() => {
 interface ReservationQuote {
   currency: "INR";
   subtotalMinor: number; // paise
-  discountMinor: number; // paise
+  discountMinor: number; // paise (early-bird + any caller-added discounts)
   feesMinor: number; // paise
   totalMinor: number; // paise
+  /** True when the discount above comes from an active Early Bird promotion. */
+  earlyBird?: boolean;
+  /** Early Bird portion of discountMinor in paise (0 when inactive). Coupon discounts stack on top. */
+  earlyBirdMinor?: number;
 }
 
 interface ReservationRecord {
@@ -477,6 +481,91 @@ function seatPriceForRow(tiers: any[], seatMapTierName: string): number | undefi
 }
 
 /**
+ * Normalize + validate the early-bird config supplied by the event editor.
+ * Returns null when the promotion is absent, or an error string on invalid
+ * payloads. On success fills `out` with a sanitized object.
+ */
+function normalizeEarlyBirdInput(raw: any, out: { value: any }): string | null {
+  if (raw === undefined) return null; // field absent — leave untouched
+  if (raw === null || raw === false) {
+    out.value = null; // promotion explicitly removed
+    return null;
+  }
+  if (typeof raw !== "object" || Array.isArray(raw)) {
+    return "earlyBird must be an object when provided.";
+  }
+  const enabled = raw.enabled === true;
+  const discountType = String(raw.discountType || "percent");
+  if (discountType !== "percent" && discountType !== "flat") {
+    return "earlyBird.discountType must be 'percent' or 'flat'.";
+  }
+  const discountValue = Number(raw.discountValue);
+  if (!Number.isFinite(discountValue) || discountValue < 0) {
+    return "earlyBird.discountValue must be a number greater than or equal to 0.";
+  }
+  if (enabled && discountType === "percent" && discountValue > 100) {
+    return "earlyBird.discountValue (percent) must be between 0 and 100.";
+  }
+  const parseDate = (v: any): string | null => {
+    if (v === undefined || v === null || v === "") return null;
+    const t = Date.parse(String(v));
+    return Number.isNaN(t) ? "invalid" : new Date(t).toISOString();
+  };
+  const startsAt = parseDate(raw.startsAt);
+  if (startsAt === "invalid") return "earlyBird.startsAt must be a valid ISO 8601 date/time.";
+  const endsAt = parseDate(raw.endsAt);
+  if (endsAt === "invalid") return "earlyBird.endsAt must be a valid ISO 8601 date/time.";
+  if (startsAt && endsAt && Date.parse(endsAt) <= Date.parse(startsAt)) {
+    return "earlyBird.endsAt must be after earlyBird.startsAt.";
+  }
+  if (enabled && discountValue <= 0) {
+    return "earlyBird.discountValue must be greater than 0 when the promotion is enabled.";
+  }
+  out.value = {
+    enabled,
+    discountType: discountType as "percent" | "flat",
+    discountValue: Math.round(discountValue * 100) / 100,
+    startsAt: startsAt || null,
+    endsAt: endsAt || null,
+  };
+  return null;
+}
+
+/**
+ * True when the event's early-bird promotion exists, is enabled, and `now`
+ * falls inside its [startsAt, endsAt) window. Open boundaries: a missing
+ * startsAt is treated as "already started", a missing endsAt as "runs until
+ * the event completes".
+ */
+function isEarlyBirdActive(eventData: any, now: number = Date.now()): boolean {
+  const eb = eventData?.earlyBird;
+  if (!eb || typeof eb !== "object" || eb.enabled !== true) return false;
+  const v = Number(eb.discountValue);
+  if (!Number.isFinite(v) || v <= 0) return false;
+  if (eb.startsAt) {
+    const s = Date.parse(String(eb.startsAt));
+    if (!Number.isNaN(s) && now < s) return false;
+  }
+  if (eb.endsAt) {
+    const e = Date.parse(String(eb.endsAt));
+    if (!Number.isNaN(e) && now >= e) return false;
+  }
+  return true;
+}
+
+/**
+ * Per-ticket early-bird discount in ₹ for an active promotion.
+ * Returns 0 when the promotion is inactive or the ticket price is 0.
+ */
+function earlyBirdDiscountPerTicket(eventData: any, ticketPrice: number, now: number = Date.now()): number {
+  if (ticketPrice <= 0 || !isEarlyBirdActive(eventData, now)) return 0;
+  const eb = eventData.earlyBird;
+  const v = Number(eb.discountValue) || 0;
+  const raw = eb.discountType === "flat" ? Math.min(v, ticketPrice) : (ticketPrice * Math.min(100, v)) / 100;
+  return Math.min(ticketPrice, Math.max(0, raw));
+}
+
+/**
  * Compute a server-authoritative quote for a reservation request.
  * Uses event seat map + ticket tiers; rejects when seat map is missing and seatIds are requested.
  *
@@ -484,6 +573,11 @@ function seatPriceForRow(tiers: any[], seatMapTierName: string): number | undefi
  * live event tier (the client never supplies prices) and the subtotal is the
  * sum of every line. Only general-admission (non-seat-map) events can mix
  * ticket types — seat-based bookings stay single-tier.
+ *
+ * Early Bird: when the event has an active `earlyBird` promotion, each ticket
+ * line is discounted (percent or flat per ticket) and the savings are returned
+ * via `quote.discountMinor` + `quote.earlyBird` so every checkout surface and
+ * the payment verification sanity-check see the same reduced total.
  */
 function computeReservationQuote(
   eventData: any,
@@ -502,7 +596,9 @@ function computeReservationQuote(
   const seatMap = seatMapEnabled ? eventData.seatMap : undefined;
   const multiItems = Array.isArray(items) && items.length > 0 ? items : null;
   let subtotalMinor = 0;
+  let earlyBirdMinor = 0;
   const tier = tiers.find((t: any) => t.id === tierId);
+  const ebNow = Date.now();
 
   // Multi-type (general admission) quote — one line per ticket type, priced
   // exclusively from the live event tiers. Never trusts client-side prices.
@@ -538,8 +634,21 @@ function computeReservationQuote(
         throw new Error(`Not enough tickets remaining in ${lineTier.name || lineTierId}. Only ${lineTier.remainingInventory ?? 0} left.`);
       }
       subtotalMinor += linePrice * lineQty * 100;
+      earlyBirdMinor += Math.round(earlyBirdDiscountPerTicket(eventData, linePrice, ebNow) * lineQty * 100);
     }
-    return { quote: { currency: "INR", subtotalMinor, discountMinor: 0, feesMinor: 0, totalMinor: subtotalMinor }, seatMapVersion: 0, tier };
+    const ebQuoteMinor = Math.min(subtotalMinor, earlyBirdMinor);
+    return {
+      quote: {
+        currency: "INR",
+        subtotalMinor,
+        discountMinor: ebQuoteMinor,
+        feesMinor: 0,
+        totalMinor: Math.max(0, subtotalMinor - ebQuoteMinor),
+        ...(ebQuoteMinor > 0 ? { earlyBird: true as const, earlyBirdMinor: ebQuoteMinor } : {}),
+      },
+      seatMapVersion: 0,
+      tier,
+    };
   }
 
   if (normalizedSeatIds.length > 0) {
@@ -560,7 +669,19 @@ function computeReservationQuote(
     }
     const seatMapVersion = seatMap.version ?? 1;
     subtotalMinor = seatPrice * normalizedSeatIds.length * 100;
-    return { quote: { currency: "INR", subtotalMinor, discountMinor: 0, feesMinor: 0, totalMinor: subtotalMinor }, seatMapVersion, tier };
+    const ebMinor = Math.round(earlyBirdDiscountPerTicket(eventData, seatPrice, ebNow) * normalizedSeatIds.length * 100);
+    return {
+      quote: {
+        currency: "INR",
+        subtotalMinor,
+        discountMinor: ebMinor,
+        feesMinor: 0,
+        totalMinor: Math.max(0, subtotalMinor - ebMinor),
+        ...(ebMinor > 0 ? { earlyBird: true as const, earlyBirdMinor: ebMinor } : {}),
+      },
+      seatMapVersion,
+      tier,
+    };
   }
 
   // General admission tier without seat map
@@ -569,7 +690,19 @@ function computeReservationQuote(
     throw new Error(`Not enough tickets remaining. Only ${tier.remainingInventory ?? 0} tickets left.`);
   }
   subtotalMinor = tier.price * quantity * 100;
-  return { quote: { currency: "INR", subtotalMinor, discountMinor: 0, feesMinor: 0, totalMinor: subtotalMinor }, seatMapVersion: 0, tier };
+  const ebMinor = Math.round(earlyBirdDiscountPerTicket(eventData, tier.price, ebNow) * quantity * 100);
+  return {
+    quote: {
+      currency: "INR",
+      subtotalMinor,
+      discountMinor: ebMinor,
+      feesMinor: 0,
+      totalMinor: Math.max(0, subtotalMinor - ebMinor),
+      ...(ebMinor > 0 ? { earlyBird: true as const, earlyBirdMinor: ebMinor } : {}),
+    },
+    seatMapVersion: 0,
+    tier,
+  };
 }
 
 // ============================================================
@@ -3476,12 +3609,14 @@ export async function createApp() {
         if (coupon && coupon.isActive && new Date(coupon.validUntil) >= new Date() && (!coupon.eventId || coupon.eventId === record.eventId) && (!coupon.usageLimit || (coupon.usedCount || 0) < coupon.usageLimit)) {
           discountMinor = coupon.type === "percentage"
             ? Math.round((quoteResult.quote.totalMinor * Math.min(100, coupon.value)) / 100)
-            : coupon.value * 100;
+            : Math.min(quoteResult.quote.totalMinor, coupon.value * 100);
           appliedCoupon = { code: codeUpper, type: coupon.type, value: coupon.value };
         }
       }
-      const totalMinor = Math.max(0, quoteResult.quote.totalMinor - discountMinor);
-      return res.json({ success: true, quote: { ...quoteResult.quote, discountMinor, totalMinor }, appliedCoupon, serverNow: now });
+      const ebPortionMinor = quoteResult.quote.earlyBirdMinor || 0;
+      const combinedDiscountMinor = Math.min(quoteResult.quote.subtotalMinor, ebPortionMinor + discountMinor);
+      const totalMinor = Math.max(0, quoteResult.quote.subtotalMinor - combinedDiscountMinor);
+      return res.json({ success: true, quote: { ...quoteResult.quote, discountMinor: combinedDiscountMinor, totalMinor }, appliedCoupon, serverNow: now });
     } catch (err: any) {
       console.error("[RESERVATION QUOTE ERROR]", err.message || err);
       return res.status(400).json({ success: false, error: err.message || "Failed to compute quote." });
@@ -3530,11 +3665,13 @@ export async function createApp() {
         if (coupon && coupon.isActive && new Date(coupon.validUntil) >= new Date() && (!coupon.eventId || coupon.eventId === record.eventId) && (!coupon.usageLimit || (coupon.usedCount || 0) < coupon.usageLimit)) {
           discountMinor = coupon.type === "percentage"
             ? Math.round((quoteResult.quote.totalMinor * Math.min(100, coupon.value)) / 100)
-            : coupon.value * 100;
+            : Math.min(quoteResult.quote.totalMinor, coupon.value * 100);
           appliedCoupon = { code: codeUpper, type: coupon.type, value: coupon.value };
         }
       }
-      const totalMinor = Math.max(0, quoteResult.quote.totalMinor - discountMinor);
+      const ebPortionMinor = quoteResult.quote.earlyBirdMinor || 0;
+      const combinedDiscountMinor = Math.min(quoteResult.quote.subtotalMinor, ebPortionMinor + discountMinor);
+      const totalMinor = Math.max(0, quoteResult.quote.subtotalMinor - combinedDiscountMinor);
       const customerDetails = attendee || record.attendee || { name: "Guest Attendee", email: "", phone: "" };
 
       const orderId = `ord_coc_${Date.now()}_${secureRandomHex(4)}`;
@@ -3627,11 +3764,13 @@ export async function createApp() {
         if (coupon && coupon.isActive && new Date(coupon.validUntil) >= new Date() && (!coupon.eventId || coupon.eventId === record.eventId) && (!coupon.usageLimit || (coupon.usedCount || 0) < coupon.usageLimit)) {
           discountMinor = coupon.type === "percentage"
             ? Math.round((quoteResult.quote.totalMinor * Math.min(100, coupon.value)) / 100)
-            : coupon.value * 100;
+            : Math.min(quoteResult.quote.totalMinor, coupon.value * 100);
           appliedCoupon = { code: codeUpper, type: coupon.type, value: coupon.value };
         }
       }
-      const totalMinor = Math.max(0, quoteResult.quote.totalMinor - discountMinor);
+      const ebPortionMinor = quoteResult.quote.earlyBirdMinor || 0;
+      const combinedDiscountMinor = Math.min(quoteResult.quote.subtotalMinor, ebPortionMinor + discountMinor);
+      const totalMinor = Math.max(0, quoteResult.quote.subtotalMinor - combinedDiscountMinor);
 
       // Server-authoritative pending order (fulfillment source of truth).
       const orderId = `ord_${Date.now()}_${secureRandomHex(4)}`;
@@ -3726,11 +3865,13 @@ export async function createApp() {
         if (coupon && coupon.isActive && new Date(coupon.validUntil) >= new Date() && (!coupon.eventId || coupon.eventId === record.eventId) && (!coupon.usageLimit || (coupon.usedCount || 0) < coupon.usageLimit)) {
           discountMinor = coupon.type === "percentage"
             ? Math.round((quoteResult.quote.totalMinor * Math.min(100, coupon.value)) / 100)
-            : coupon.value * 100;
+            : Math.min(quoteResult.quote.totalMinor, coupon.value * 100);
           appliedCoupon = { code: codeUpper, type: coupon.type, value: coupon.value };
         }
       }
-      const totalMinor = Math.max(0, quoteResult.quote.totalMinor - discountMinor);
+      const ebPortionMinor = quoteResult.quote.earlyBirdMinor || 0;
+      const combinedDiscountMinor = Math.min(quoteResult.quote.subtotalMinor, ebPortionMinor + discountMinor);
+      const totalMinor = Math.max(0, quoteResult.quote.subtotalMinor - combinedDiscountMinor);
 
       // Always charge the full amount — deposit/partial payment is not supported.
       const amountPaiseToCharge = totalMinor;
@@ -4024,7 +4165,7 @@ export async function createApp() {
         });
       }
 
-      const quoteResult2 = computeReservationQuote(eventData2, pendingOrder.seatIds, pendingOrder.quantity, pendingOrder.tierId);
+      const quoteResult2 = computeReservationQuote(eventData2, pendingOrder.seatIds, pendingOrder.quantity, pendingOrder.tierId, pendingOrder.items);
       const expectedMinor2 = Math.max(0, quoteResult2.quote.totalMinor - (pendingOrder.couponDiscountMinor || 0));
       const targetExpectedMinor = pendingOrder.isPartial ? Math.round(expectedMinor2 * 0.5) : expectedMinor2;
       if (pendingOrder.amountMinor && pendingOrder.amountMinor !== targetExpectedMinor) {
@@ -4400,6 +4541,9 @@ export async function createApp() {
       if (event.externalBookingShowTicketInfo !== undefined && typeof event.externalBookingShowTicketInfo !== 'boolean') {
         return res.status(400).json({ success: false, error: "externalBookingShowTicketInfo must be a boolean." });
       }
+      const _ebCreate: { value: any } = { value: undefined };
+      const ebCreateError = normalizeEarlyBirdInput(event.earlyBird, _ebCreate);
+      if (ebCreateError) return res.status(400).json({ success: false, error: ebCreateError });
       if (event.externalBookingEnabled === true && (typeof event.externalBookingUrl !== 'string' || !event.externalBookingUrl.trim())) {
         return res.status(400).json({ success: false, error: "An external booking URL is required when external booking is enabled." });
       }
@@ -4456,6 +4600,7 @@ export async function createApp() {
         counterTimingText: event.counterTimingText ? String(event.counterTimingText).trim() : null,
         counterContactPhone: event.counterContactPhone ? String(event.counterContactPhone).trim() : null,
         assignedCounterIds: Array.isArray(event.assignedCounterIds) ? event.assignedCounterIds : [],
+        earlyBird: _ebCreate.value !== undefined ? _ebCreate.value : (event.earlyBird ?? null),
         createdBy: req.user.uid,
         createdAt: event.createdAt || new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -4516,6 +4661,9 @@ export async function createApp() {
       if (body.externalBookingShowTicketInfo !== undefined && typeof body.externalBookingShowTicketInfo !== 'boolean') {
         return res.status(400).json({ success: false, error: "externalBookingShowTicketInfo must be a boolean." });
       }
+      const _ebUpdate: { value: any } = { value: undefined };
+      const ebUpdateError = normalizeEarlyBirdInput(body.earlyBird, _ebUpdate);
+      if (ebUpdateError) return res.status(400).json({ success: false, error: ebUpdateError });
       if (body.externalBookingEnabled === true && (typeof body.externalBookingUrl !== 'string' || !body.externalBookingUrl.trim())) {
         return res.status(400).json({ success: false, error: "An external booking URL is required when external booking is enabled." });
       }
@@ -4632,6 +4780,7 @@ export async function createApp() {
         counterTimingText: body.counterTimingText === "" ? null : (body.counterTimingText !== undefined ? body.counterTimingText : (existing.counterTimingText ?? null)),
         counterContactPhone: body.counterContactPhone === "" ? null : (body.counterContactPhone !== undefined ? body.counterContactPhone : (existing.counterContactPhone ?? null)),
         assignedCounterIds: Array.isArray(body.assignedCounterIds) ? body.assignedCounterIds : (existing.assignedCounterIds ?? []),
+        earlyBird: body.earlyBird !== undefined ? _ebUpdate.value : (existing.earlyBird ?? null),
         isFeatured: typeof body.isFeatured === 'boolean' ? body.isFeatured : Boolean(existing.isFeatured),
         isTrending: typeof body.isTrending === 'boolean' ? body.isTrending : Boolean(existing.isTrending),
         isPopularThisWeek: typeof body.isPopularThisWeek === 'boolean' ? body.isPopularThisWeek : Boolean(existing.isPopularThisWeek),
@@ -4971,6 +5120,22 @@ export async function createApp() {
         phone: trimmedPhone || "",
       };
       const lineAmount = items ? itemsSubtotal : Number(tier.price) * quantity;
+      // Early Bird (time-boxed event promotion): when active, the discount is
+      // applied automatically on top of any counter coupon/override — the same
+      // promotion online guests get at quote time.
+      const ebNowWalkin = Date.now();
+      const ebLineTotal = items
+        ? items.reduce((sum, line) => {
+            const lt = dbTiers.find((t: any, i: number) => t?.id === line.tierId || (!t?.id && String(i) === line.tierId));
+            return sum + earlyBirdDiscountPerTicket(event, Number(lt?.price) || 0, ebNowWalkin) * (line.quantity || 0);
+          }, 0)
+        : earlyBirdDiscountPerTicket(event, Number(tier.price) || 0, ebNowWalkin) * quantity;
+      const earlyBirdDiscount = Math.min(lineAmount, Math.max(0, Math.round(ebLineTotal)));
+      let earlyBirdApplied = earlyBirdDiscount > 0;
+      // The promotion rides the same ledger column as counter coupons
+      // (totalPaid = amount - discount), so staff receipts and reports show
+      // the combined savings without any double-subtraction.
+      discountAmount += earlyBirdDiscount;
       // Discount override (Item 6): the frontend posts an approved override;
       // manager-level roles and counter staff (ticket_counter) may supply one,
       // and it must never exceed the order amount.
@@ -4995,7 +5160,10 @@ export async function createApp() {
         };
         discountAmount += overrideDiscount;
       }
-      const netTotal = lineAmount - discountAmount;
+      // Combined discount (coupon + early bird + override) can never exceed
+      // the order amount — protects totalPaid from going negative.
+      discountAmount = Math.min(discountAmount, lineAmount);
+      const netTotal = Math.max(0, lineAmount - discountAmount);
       if (splitPayments.length > 0) {
         const sum = splitPayments.reduce((acc, curr) => acc + curr.amount, 0);
         // Use 0.01 tolerance for floating point precision issues
@@ -5029,6 +5197,7 @@ export async function createApp() {
         totalPaid: netTotal,
         ...(splitPayments.length > 0 ? { payments: splitPayments } : {}),
         ...(discountOverrideRecord ? { discountOverride: discountOverrideRecord } : {}),
+        ...(earlyBirdApplied ? { earlyBird: true, earlyBirdDiscount } : {}),
         ...(shiftCode ? { shiftId: shiftCode, staffShiftId: shiftCode } : {}),
         ...(rawCid ? { counterId: rawCid, counterName } : {}),
         ...(subUserId ? { issuedBySubUserId: String(subUserId).slice(0, 64) } : {}),

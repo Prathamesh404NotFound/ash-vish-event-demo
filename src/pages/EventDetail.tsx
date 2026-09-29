@@ -29,6 +29,7 @@ import { EventReviewsSection } from '../components/EventReviewsSection';
 import { TicketCard } from '../components/TicketCard';
 import { TicketCardSkeleton } from '../components/TicketCardSkeleton';
 import { formatINR } from '../utils/formatters';
+import { getEarlyBirdView, earlyBirdTicketPrice } from '../lib/earlyBird';
 import { isSeatBasedEvent } from '../lib/seatMap';
 import { useSEO } from '../hooks/useSEO';
 import { generateEventSchema, generateOrganizationSchema } from '../utils/structuredData';
@@ -98,6 +99,9 @@ export const EventDetail: React.FC<EventDetailProps> = ({
   const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(0);
   const [allCounters, setAllCounters] = useState<PublicCounter[]>([]);
 
+  // Active Early Bird promotion (strike-through pricing on cards + sidebar)
+  const earlyBird = getEarlyBirdView(event);
+
   // Mixed bookings are reserved for general-admission events (no seat map) with
   // more than one ticket type; seat-based and single-type events keep the
   // classic single-tier flow below.
@@ -143,6 +147,13 @@ export const EventDetail: React.FC<EventDetailProps> = ({
     }));
   const totalSelectedTickets = sumItemQuantities(selectedLines);
   const totalSelectedAmount = selectedLines.reduce((s, l) => s + (l.price ?? 0) * l.quantity, 0);
+  // Early-Bird-adjusted totals for the mixed-selection sidebar.
+  const ebSelectedAmount = earlyBird?.active
+    ? selectedLines.reduce((s, l) => {
+        const tier = ticketTiers.find((t) => t.id === l.tierId);
+        return s + earlyBirdTicketPrice(tier ?? { id: l.tierId, name: '', price: l.price ?? 0, description: '', totalInventory: 0, remainingInventory: 0, perks: [] }, earlyBird) * l.quantity;
+      }, 0)
+    : totalSelectedAmount;
 
   React.useEffect(() => {
     const fetchCounters = async () => {
@@ -505,6 +516,7 @@ export const EventDetail: React.FC<EventDetailProps> = ({
                             onSelect={() => {}}
                             quantity={quantities[tier.id] || 0}
                             onQuantityChange={(t, n) => changeQty(t.id, n)}
+                            earlyBird={earlyBird}
                           />
                         );
                       }
@@ -519,6 +531,7 @@ export const EventDetail: React.FC<EventDetailProps> = ({
                             setSelectedTierId(tier.id);
                             setQuantity(1); // Reset quantity when tier changes
                           }}
+                          earlyBird={earlyBird}
                         />
                       );
                     })}
@@ -798,7 +811,14 @@ export const EventDetail: React.FC<EventDetailProps> = ({
                   {showPublicTicketInfo && (
                     <div className="flex justify-between py-1">
                       <span className="text-gray-400">Entry Rate:</span>
-                      <span className="font-bold text-[#D4AF37] text-sm">{formatINR(flatPrice)}</span>
+                      {earlyBird?.active ? (
+                        <span className="font-bold text-[#D4AF37] text-sm">
+                          {formatINR(earlyBirdTicketPrice({ id: 'flat', name: '', price: flatPrice, description: '', totalInventory: 0, remainingInventory: 0, perks: [] }, earlyBird))}
+                          <span className="ml-1 text-gray-500 line-through text-xs">{formatINR(flatPrice)}</span>
+                        </span>
+                      ) : (
+                        <span className="font-bold text-[#D4AF37] text-sm">{formatINR(flatPrice)}</span>
+                      )}
                     </div>
                   )}
                 </div>
@@ -857,9 +877,15 @@ export const EventDetail: React.FC<EventDetailProps> = ({
                     Total ({totalSelectedTickets} {totalSelectedTickets === 1 ? 'ticket' : 'tickets'})
                   </span>
                   <span className="font-heading font-extrabold text-2xl text-[#D4AF37]">
-                    {formatINR(totalSelectedAmount)}
+                    {formatINR(ebSelectedAmount)}
                   </span>
                 </div>
+                {earlyBird?.active && ebSelectedAmount < totalSelectedAmount && (
+                  <div className="flex justify-between text-emerald-400 font-bold">
+                    <span>Early Bird Discount</span>
+                    <span>-{formatINR(totalSelectedAmount - ebSelectedAmount)}</span>
+                  </div>
+                )}
                 <p className="text-[10px] text-gray-400">
                   GST & service charges included. One QR gate pass is issued per ticket.
                 </p>
@@ -883,7 +909,7 @@ export const EventDetail: React.FC<EventDetailProps> = ({
                     ? 'Loading Tickets...'
                     : totalSelectedTickets === 0
                       ? 'Select Tickets Above'
-                      : `Book ${totalSelectedTickets} ${totalSelectedTickets === 1 ? 'Ticket' : 'Tickets'} — ${formatINR(totalSelectedAmount)}`}
+                      : `Book ${totalSelectedTickets} ${totalSelectedTickets === 1 ? 'Ticket' : 'Tickets'} — ${formatINR(ebSelectedAmount)}`}
                 </span>
               </button>
 
@@ -963,6 +989,12 @@ export const EventDetail: React.FC<EventDetailProps> = ({
                       <span>{selectedTier.name} ({formatINR(selectedTier.price)} × {quantity})</span>
                       <span className="font-semibold text-white">{formatINR(selectedTier.price * quantity)}</span>
                     </div>
+                    {earlyBird?.active && (
+                      <div className="flex justify-between text-emerald-400 font-bold">
+                        <span>Early Bird Discount ({earlyBird.config.discountType === 'flat' ? `₹${earlyBird.flatOff}/ticket` : `${earlyBird.percentOff}%`})</span>
+                        <span>-{formatINR(Math.round((selectedTier.price - earlyBirdTicketPrice(selectedTier, earlyBird)) * quantity))}</span>
+                      </div>
+                    )}
                     <div className="flex justify-between">
                       <span>GST & Service Charge</span>
                       <span className="font-semibold text-emerald-400">INCLUDED</span>
@@ -970,8 +1002,7 @@ export const EventDetail: React.FC<EventDetailProps> = ({
                     <div className="pt-2 border-t border-white/10 flex justify-between items-center">
                       <span className="font-heading font-bold text-sm text-white">Total Amount</span>
                       <span className="font-heading font-extrabold text-2xl text-[#D4AF37]">
-                        {formatINR(selectedTier.price * quantity)}
-                      </span>
+                        {formatINR(earlyBirdTicketPrice(selectedTier, earlyBird) * quantity)}</span>
                     </div>
                   </div>
                 )}

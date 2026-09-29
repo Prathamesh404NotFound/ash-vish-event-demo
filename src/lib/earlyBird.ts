@@ -1,0 +1,86 @@
+/**
+ * Early Bird promotion — shared client-side model.
+ *
+ * The server is the pricing authority: `computeReservationQuote` recomputes
+ * the discount inside every quote/payment endpoint. These helpers mirror the
+ * same rules so the public event page, ticket cards, and checkout can render
+ * strike-through "Early Bird" pricing and countdowns while the window is live.
+ */
+import type { EarlyBirdConfig, EventItem, TicketTier } from '../types';
+
+/** Normalized view of an event's early-bird config with activation helpers. */
+export interface EarlyBirdView {
+  config: EarlyBirdConfig;
+  /** Promotion is enabled and `now` sits inside its window. */
+  active: boolean;
+  /** True while the window is configured but has not opened yet. */
+  upcoming: boolean;
+  /** Percentage off (0-100) when discountType === 'percent'. */
+  percentOff: number;
+  /** Flat ₹ off per ticket when discountType === 'flat'. */
+  flatOff: number;
+  /** ISO timestamp the window closes, when configured. */
+  endsAt: string | null;
+  /** ISO timestamp the window opens, when configured. */
+  startsAt: string | null;
+}
+
+function parseMs(v: unknown): number | null {
+  if (v === undefined || v === null || v === '') return null;
+  const t = Date.parse(String(v));
+  return Number.isNaN(t) ? null : t;
+}
+
+/** Read + evaluate an event's early-bird promotion against `now`. */
+export function getEarlyBirdView(event: EventItem | null | undefined, now: number = Date.now()): EarlyBirdView | null {
+  const config = event?.earlyBird as EarlyBirdConfig | null | undefined;
+  if (!config || typeof config !== 'object') return null;
+
+  const discountType = config.discountType === 'flat' ? 'flat' : 'percent';
+  const discountValue = Number(config.discountValue) || 0;
+  const startsMs = parseMs(config.startsAt);
+  const endsMs = parseMs(config.endsAt);
+  const started = startsMs === null || now >= startsMs;
+  const ended = endsMs !== null && now >= endsMs;
+  const active = config.enabled === true && discountValue > 0 && started && !ended;
+  const upcoming = config.enabled === true && discountValue > 0 && !started && !ended;
+
+  return {
+    config: { ...config, discountType, discountValue },
+    active,
+    upcoming,
+    percentOff: discountType === 'percent' ? Math.min(100, Math.max(0, discountValue)) : 0,
+    flatOff: discountType === 'flat' ? Math.max(0, discountValue) : 0,
+    startsAt: startsMs !== null ? new Date(startsMs).toISOString() : null,
+    endsAt: endsMs !== null ? new Date(endsMs).toISOString() : null,
+  };
+}
+
+/**
+ * Effective per-ticket price after the early-bird discount (when active).
+ * Mirrors server `earlyBirdDiscountPerTicket`: never below 0, flat discounts
+ * are capped at the ticket price, percentages capped at 100%.
+ */
+export function earlyBirdTicketPrice(tier: TicketTier, eb: EarlyBirdView | null): number {
+  const base = Number(tier.price) || 0;
+  if (!eb || !eb.active || base <= 0) return base;
+  const off = eb.config.discountType === 'flat'
+    ? Math.min(eb.flatOff, base)
+    : (base * eb.percentOff) / 100;
+  return Math.max(0, Math.round((base - off) * 100) / 100);
+}
+
+/** Compact countdown label until the promotion window closes. */
+export function earlyBirdCountdown(eb: EarlyBirdView, now: number = Date.now()): string | null {
+  if (!eb.endsAt) return null;
+  const endMs = Date.parse(eb.endsAt);
+  if (Number.isNaN(endMs) || endMs <= now) return null;
+  const ms = endMs - now;
+  const mins = Math.floor(ms / 60000);
+  if (mins < 1) return 'less than a minute left';
+  if (mins < 60) return `${mins}m left`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ${mins % 60}m left`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ${hours % 24}h left`;
+}

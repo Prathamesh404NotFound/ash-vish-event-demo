@@ -24,12 +24,13 @@ import {
   Mail,
   Building2,
   Send,
+  Tag,
 } from 'lucide-react';
 import { RowActions } from '../../components/admin/RowActions';
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { storage } from '../../lib/firebase';
 import { useBooking } from '../../contexts/BookingContext';
-import { EventCategory, EventItem, EventStatus, TicketTier, Artist, PublicCounter } from '../../types';
+import { EventCategory, EventItem, EventStatus, TicketTier, Artist, PublicCounter, EarlyBirdConfig } from '../../types';
 import { formatINR } from '../../utils/formatters';
 
 interface TierInput {
@@ -100,6 +101,13 @@ export const AdminEvents: React.FC = () => {
   const [counterLocation, setCounterLocation] = useState('');
   const [counterTimingText, setCounterTimingText] = useState('');
   const [counterContactPhone, setCounterContactPhone] = useState('');
+
+  // Early Bird discount (time-boxed promotion, priced server-side at checkout)
+  const [earlyBirdEnabled, setEarlyBirdEnabled] = useState(false);
+  const [earlyBirdType, setEarlyBirdType] = useState<'percent' | 'flat'>('percent');
+  const [earlyBirdValue, setEarlyBirdValue] = useState('');
+  const [earlyBirdStartsAt, setEarlyBirdStartsAt] = useState('');
+  const [earlyBirdEndsAt, setEarlyBirdEndsAt] = useState('');
 
   // Counter Panel Integration: Available & Assigned Counters
   const [availableCounters, setAvailableCounters] = useState<PublicCounter[]>([]);
@@ -260,6 +268,11 @@ export const AdminEvents: React.FC = () => {
     setCounterTimingText('');
     setCounterContactPhone('');
     setAssignedCounterIds([]);
+    setEarlyBirdEnabled(false);
+    setEarlyBirdType('percent');
+    setEarlyBirdValue('');
+    setEarlyBirdStartsAt('');
+    setEarlyBirdEndsAt('');
     setScheduledPublishAt('');
     setScheduledUnpublishAt('');
     setFormError(null);
@@ -307,6 +320,19 @@ export const AdminEvents: React.FC = () => {
     setCounterLocation(evt.counterLocation || '');
     setCounterTimingText(evt.counterTimingText || '');
     setCounterContactPhone(evt.counterContactPhone || '');
+    const eb = evt.earlyBird as EarlyBirdConfig | null | undefined;
+    setEarlyBirdEnabled(eb?.enabled === true);
+    setEarlyBirdType(eb?.discountType === 'flat' ? 'flat' : 'percent');
+    setEarlyBirdValue(eb && eb.discountValue !== undefined ? String(eb.discountValue) : '');
+    const toLocalInput = (iso?: string | null) => {
+      if (!iso) return '';
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return '';
+      const pad = (n: number) => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    };
+    setEarlyBirdStartsAt(toLocalInput(eb?.startsAt));
+    setEarlyBirdEndsAt(toLocalInput(eb?.endsAt));
     setAssignedCounterIds(evt.assignedCounterIds || []);
     setGalleryUrls(evt.gallery || []);
     setScheduleText((evt.schedule || [])
@@ -501,7 +527,24 @@ export const AdminEvents: React.FC = () => {
       }
     }
 
-    // 4. Validation: Pricing Tiers
+    // 4. Validation: Early Bird promotion
+    const parsedEarlyBirdValue = Number(earlyBirdValue);
+    if (earlyBirdEnabled) {
+      if (!Number.isFinite(parsedEarlyBirdValue) || parsedEarlyBirdValue <= 0) {
+        setFormError('Early Bird discount value must be a number greater than 0.');
+        return;
+      }
+      if (earlyBirdType === 'percent' && parsedEarlyBirdValue > 100) {
+        setFormError('Early Bird percentage must be between 0 and 100.');
+        return;
+      }
+      if (earlyBirdStartsAt && earlyBirdEndsAt && new Date(earlyBirdEndsAt) <= new Date(earlyBirdStartsAt)) {
+        setFormError('Early Bird end time must be after the start time.');
+        return;
+      }
+    }
+
+    // 5. Validation: Pricing Tiers
     const isExternalOnlyListing = isAdvertiseOnly && externalBookingEnabled && Boolean(cleanExternalBookingUrl);
     if (tiers.length === 0 && !isExternalOnlyListing) {
       setFormError('At least one ticket pricing tier is required unless this is an advertisement-only event with an external booking URL.');
@@ -632,6 +675,15 @@ export const AdminEvents: React.FC = () => {
       reviewsCount: editingEventId && existingEvt?.reviewsCount !== undefined ? existingEvt.reviewsCount : 0,
       scheduledPublishAt: scheduledPublishAt ? new Date(scheduledPublishAt).toISOString() : null,
       scheduledUnpublishAt: scheduledUnpublishAt ? new Date(scheduledUnpublishAt).toISOString() : null,
+      earlyBird: earlyBirdEnabled
+        ? {
+            enabled: true,
+            discountType: earlyBirdType,
+            discountValue: Math.round(parsedEarlyBirdValue * 100) / 100,
+            startsAt: earlyBirdStartsAt ? new Date(earlyBirdStartsAt).toISOString() : null,
+            endsAt: earlyBirdEndsAt ? new Date(earlyBirdEndsAt).toISOString() : null,
+          }
+        : null,
       // Admin-controlled seat-map toggle.
       usesSeatMap,
       // Event-level perks/features
@@ -1510,6 +1562,104 @@ export const AdminEvents: React.FC = () => {
                       />
                     </button>
                   </div>
+                </div>
+
+                {/* Early Bird Discount (time-boxed promotion) */}
+                <div className="p-4 rounded-xl bg-[#1C1C1C] border border-[#D4AF37]/30 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-start gap-3">
+                      <div className="p-2 rounded-lg bg-[#D4AF37]/10 text-[#D4AF37] border border-[#D4AF37]/25 shrink-0">
+                        <Tag className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <label className="text-white font-bold block mb-0.5 text-xs">Early Bird Discount</label>
+                        <p className="text-[11px] text-gray-400">
+                          Applies automatically to every booking made inside the window — shown as a strike-through
+                          price on the event page and deducted server-side at checkout, on top of coupons.
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={earlyBirdEnabled}
+                      onClick={() => setEarlyBirdEnabled((v) => !v)}
+                      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors cursor-pointer ${
+                        earlyBirdEnabled ? 'bg-[#D4AF37]' : 'bg-gray-600'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                          earlyBirdEnabled ? 'translate-x-6' : 'translate-x-1'
+                        }`}
+                      />
+                    </button>
+                  </div>
+
+                  {earlyBirdEnabled && (
+                    <div className="pt-3 border-t border-white/10 space-y-3 animate-in fade-in">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div>
+                          <label className="text-gray-400 text-[10px] font-bold block mb-1">Discount Type</label>
+                          <select
+                            value={earlyBirdType}
+                            onChange={(e) => setEarlyBirdType(e.target.value as 'percent' | 'flat')}
+                            className="w-full bg-[#121212] border border-white/10 rounded-lg px-2.5 py-2 text-white text-xs focus:outline-none focus:border-[#D4AF37]"
+                          >
+                            <option value="percent">Percentage (% off)</option>
+                            <option value="flat">Flat (₹ off per ticket)</option>
+                        </select>
+                        </div>
+                        <div>
+                          <label className="text-gray-400 text-[10px] font-bold block mb-1">
+                            {earlyBirdType === 'percent' ? 'Discount (%)' : 'Discount (₹ per ticket)'}
+                          </label>
+                          <input
+                            type="number"
+                            min={0}
+                            step={earlyBirdType === 'percent' ? 1 : 0.01}
+                            max={earlyBirdType === 'percent' ? 100 : undefined}
+                            value={earlyBirdValue}
+                            onChange={(e) => setEarlyBirdValue(e.target.value)}
+                            placeholder={earlyBirdType === 'percent' ? 'e.g. 15' : 'e.g. 100'}
+                            className="w-full bg-[#121212] border border-white/10 rounded-lg px-2.5 py-2 text-[#D4AF37] font-extrabold text-xs focus:outline-none focus:border-[#D4AF37]"
+                          />
+                        </div>
+                        <div className="flex items-end pb-1">
+                          <p className="text-[10px] text-gray-500 leading-snug">
+                            Applies to every ticket tier. Percentage examples: 15 = 15% off; Flat examples: 100 = ₹100 off per ticket.
+                          </p>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-gray-400 text-[10px] font-bold block mb-1">Sale Starts (optional)</label>
+                          <input
+                            type="datetime-local"
+                            value={earlyBirdStartsAt}
+                            onChange={(e) => setEarlyBirdStartsAt(e.target.value)}
+                            className="w-full bg-[#121212] border border-white/10 rounded-lg px-2.5 py-2 text-white text-xs focus:outline-none focus:border-[#D4AF37]"
+                          />
+                          <span className="text-[10px] text-gray-500 block mt-1">Leave empty to start immediately.</span>
+                        </div>
+                        <div>
+                          <label className="text-gray-400 text-[10px] font-bold block mb-1">Sale Ends (optional)</label>
+                          <input
+                            type="datetime-local"
+                            value={earlyBirdEndsAt}
+                            onChange={(e) => setEarlyBirdEndsAt(e.target.value)}
+                            className="w-full bg-[#121212] border border-white/10 rounded-lg px-2.5 py-2 text-white text-xs focus:outline-none focus:border-[#D4AF37]"
+                          />
+                          <span className="text-[10px] text-gray-500 block mt-1">Leave empty to run until the event completes.</span>
+                        </div>
+                      </div>
+                      {earlyBirdType === 'percent' && Number(earlyBirdValue) > 0 && Number(earlyBirdValue) <= 100 && (
+                        <p className="text-[11px] text-[#F3E5AB] bg-[#D4AF37]/10 border border-[#D4AF37]/20 rounded-lg px-3 py-2">
+                          Preview: a ₹999 ticket sells at <span className="font-extrabold">₹{Math.round(999 * (1 - Number(earlyBirdValue) / 100))}</span> while the Early Bird window is active.
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div>

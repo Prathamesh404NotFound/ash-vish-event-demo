@@ -157,6 +157,12 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
   const serverTotal = serverTotalMinor !== undefined ? Math.round(serverTotalMinor / 100) : Math.max(0, originalTotalPrice - discountAmount);
   const serverDiscount = serverDiscountMinor !== undefined ? Math.round(serverDiscountMinor / 100) : discountAmount;
   const serverSubtotal = serverSubtotalMinor !== undefined ? Math.round(serverSubtotalMinor / 100) : originalTotalPrice;
+  // Server marks active Early Bird pricing on the quote and reports the exact
+  // EB portion in earlyBirdMinor, so coupons stacking on top render correctly.
+  const serverEarlyBirdActive = Boolean(quote?.quote.earlyBird);
+  const serverEarlyBirdAmount = serverEarlyBirdActive
+    ? Math.round((quote?.quote.earlyBirdMinor ?? 0) / 100)
+    : 0;
 
 
   // ------------------------------------------------------------------
@@ -893,10 +899,16 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
                   <span>Digital QR Pass Delivery</span>
                   <span className="font-semibold text-emerald-400">FREE</span>
                 </div>
+                {serverEarlyBirdActive && serverEarlyBirdAmount > 0 && (
+                  <div className="flex justify-between text-emerald-400 font-bold bg-emerald-500/10 p-2 rounded-lg border border-emerald-500/20">
+                    <span>Early Bird Discount</span>
+                    <span>-{formatINR(serverEarlyBirdAmount)}</span>
+                  </div>
+                )}
                 {serverDiscount > 0 && quoteAppliedCoupon && (
                   <div className="flex justify-between text-emerald-400 font-bold bg-emerald-500/10 p-2 rounded-lg border border-emerald-500/20">
                     <span>Coupon Discount ({quoteAppliedCoupon.code})</span>
-                    <span>-{formatINR(serverDiscount)}</span>
+                    <span>-{formatINR(Math.max(0, serverDiscount - serverEarlyBirdAmount))}</span>
                   </div>
                 )}
                 <div className="pt-3 border-t border-white/10 flex justify-between items-center">
@@ -1049,7 +1061,11 @@ export const CheckoutWizard: React.FC<CheckoutWizardProps> = ({ onBack, onSucces
               <div className="text-right">
                 <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Total Due Now</p>
                 <p className="font-heading font-extrabold text-2xl text-[#D4AF37]">{formatINR(serverTotal)}</p>
-                {serverDiscount > 0 && <p className="text-[10px] text-emerald-400">-{formatINR(serverDiscount)} coupon applied</p>}
+                {serverDiscount > 0 && (
+                  <p className="text-[10px] text-emerald-400">
+                    -{formatINR(serverDiscount)} {serverEarlyBirdActive && quoteAppliedCoupon ? 'early bird + coupon' : serverEarlyBirdActive ? 'early bird pricing' : 'coupon applied'}
+                  </p>
+                )}
               </div>
             </div>
             <p className="text-[10px] text-gray-500 mt-3 flex items-center gap-1">

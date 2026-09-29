@@ -42,7 +42,7 @@ export interface ReservationState {
 }
 
 export interface QuoteResult {
-  quote: { currency: string; subtotalMinor: number; discountMinor: number; feesMinor: number; totalMinor: number };
+  quote: { currency: string; subtotalMinor: number; discountMinor: number; feesMinor: number; totalMinor: number; earlyBird?: boolean; earlyBirdMinor?: number };
   appliedCoupon?: { code: string; type: string; value: number };
 }
 

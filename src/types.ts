@@ -67,6 +67,20 @@ export interface SeatNode {
   seatIdLabel?: string; // human-readable row/label override for the event
 }
 
+/** Time-boxed Early Bird discount configured per event in the admin panel. */
+export interface EarlyBirdConfig {
+  /** Master switch for the promotion. */
+  enabled: boolean;
+  /** 'percent' takes off `discountValue`% of each ticket; 'flat' takes off ₹`discountValue` per ticket. */
+  discountType: 'percent' | 'flat';
+  /** Percentage (0-100) or flat amount in ₹ per ticket, depending on discountType. */
+  discountValue: number;
+  /** ISO-8601 timestamp when the promotion window opens (empty/absent = open now). */
+  startsAt?: string | null;
+  /** ISO-8601 timestamp when the promotion window closes (empty/absent = runs until the event ends). */
+  endsAt?: string | null;
+}
+
 export interface EventItem {
   id: string;
   title: string;
@@ -144,6 +158,8 @@ export interface EventItem {
   counterTimingText?: string;
   counterContactPhone?: string;
   assignedCounterIds?: string[];
+  /** Early Bird time-boxed discount; applied server-side while the window is active. */
+  earlyBird?: EarlyBirdConfig | null;
 }
 
 export interface CounterSubUser {
