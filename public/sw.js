@@ -1,4 +1,6 @@
-const CACHE_NAME = 'ashvish-v1';
+// Bumped whenever the cache contents must be dropped. v2: purge shells and
+// chunks cached before the asset-validation fix below.
+const CACHE_NAME = 'ashvish-v2';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -48,10 +50,30 @@ self.addEventListener('fetch', (event) => {
       if (isBuildAsset || isNavigation) {
         try {
           const fresh = await fetch(request);
-          if (fresh && fresh.ok) {
+          const contentType = (fresh.headers.get('content-type') || '').toLowerCase();
+
+          // The SPA fallback answers any unknown path with index.html and
+          // HTTP 200. Returning that for a /assets/ request both poisons the
+          // cache and makes the module import fail with a confusing MIME
+          // error, so treat it as a miss rather than a response.
+          const servedHtml = isBuildAsset && contentType.includes('text/html');
+
+          if (fresh && fresh.ok && !servedHtml) {
             const clone = fresh.clone();
             caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+            return fresh;
           }
+
+          const cached = await caches.match(request);
+          if (cached) return cached;
+
+          if (servedHtml) {
+            // Chunk really is missing (deploy race) — reject so the page's
+            // retry logic refreshes the document instead of parsing HTML
+            // as JavaScript.
+            throw new Error(`Missing build asset: ${url.pathname}`);
+          }
+
           return fresh;
         } catch (err) {
           const cached = await caches.match(request);

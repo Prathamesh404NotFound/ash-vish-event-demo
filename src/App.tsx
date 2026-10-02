@@ -88,31 +88,57 @@ const FestivalHubPage = lazyWithRetry(() => import('./pages/FestivalHubPage').th
 const AdminCheckinDashboard = lazyWithRetry(() => import('./pages/admin/AdminCheckinDashboard').then(m => ({ default: m.AdminCheckinDashboard })));
 import { PWAInstallPrompt, registerServiceWorker } from './components/PWAInstallPrompt';
 
-// Retry helper for lazy imports — when a chunk hash is stale after deploy,
-// the old file no longer exists and the server may return index.html for the
-// .js request (the classic 'text/html is not a valid JavaScript MIME type'
-// error). Simple re-imports can hit the browser's in-memory cache for the
-// failed module, so we first do a full page reload with a cache-busting flag:
-// a fresh document fetch resolves the new index.html which references the NEW
-// hashed chunk names. If the reload flag is already set (retry loop guard),
-// fall through to the plain re-import once, then surface the error.
+// Recovery wrapper for lazy imports.
+//
+// A chunk hash goes stale after every deploy: the old file no longer exists and
+// the SPA fallback answers the .js request with index.html (HTTP 200), so the
+// import fails with "Failed to fetch dynamically imported module". The sequence
+// below is: back off and re-import once (deploy window), then reload a freshly
+// fetched document (new hashed chunk names), then give up and let the error
+// boundary handle it — all throttled so a genuinely missing chunk cannot loop.
 function lazyWithRetry<T extends React.ComponentType<any>>(
   importFn: () => Promise<{ default: T }>
 ): React.LazyExoticComponent<T> {
+  const KEY = 'av_chunk_retry_at';
+
+  // Re-read the document into the HTTP cache before reloading. After a deploy
+  // the cached index.html can still point at chunk hashes that no longer exist,
+  // so a plain reload would just fail the exact same way a second time.
+  const refreshDocument = async () => {
+    try {
+      await fetch('/', { cache: 'reload' });
+    } catch {
+      /* offline — the reload below uses whatever HTML is still available */
+    }
+  };
+
   return React.lazy(() =>
-    importFn().catch((err) => {
+    importFn().catch(async (err) => {
       console.warn('[ChunkRetry] Chunk load failed, recovering...', err);
-      const KEY = 'av_chunk_retry_at';
+
+      // 1. Short backoff, then re-import: covers a chunk that is unavailable
+      //    only for the few seconds of an in-progress deploy.
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+      try {
+        return await importFn();
+      } catch (retryErr) {
+        console.warn('[ChunkRetry] Re-import failed, reloading...', retryErr);
+      }
+
+      // 2. One cache-busted reload per 15s window — enough to pick up a
+      //    finished deploy, while the throttle prevents a reload loop.
       const now = Date.now();
       const last = Number(sessionStorage.getItem(KEY) || 0);
-      if (now - last > 10_000) {
-        // One automatic recovery per 10s window — prevents reload loops.
+      if (now - last > 15_000) {
         sessionStorage.setItem(KEY, String(now));
+        await refreshDocument();
         window.location.reload();
-        // Unreachable in practice; keeps the promise pending during reload.
+        // Pending forever while the document reloads.
         return new Promise<{ default: T }>(() => {});
       }
-      return importFn();
+
+      // 3. Reload budget exhausted — surface the original failure.
+      throw err;
     })
   );
 }

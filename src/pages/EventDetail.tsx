@@ -4,8 +4,6 @@ import {
   Calendar,
   Clock,
   MapPin,
-  Share2,
-  Heart,
   Star,
   Sparkles,
   CheckCircle2,
@@ -30,6 +28,7 @@ import { TicketCard } from '../components/TicketCard';
 import { TicketCardSkeleton } from '../components/TicketCardSkeleton';
 import { formatINR } from '../utils/formatters';
 import { getEarlyBirdView, earlyBirdTicketPrice } from '../lib/earlyBird';
+import { EventHero } from '../components/event/EventHero';
 import { isSeatBasedEvent } from '../lib/seatMap';
 import { useSEO } from '../hooks/useSEO';
 import { generateEventSchema, generateOrganizationSchema } from '../utils/structuredData';
@@ -99,8 +98,43 @@ export const EventDetail: React.FC<EventDetailProps> = ({
   const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(0);
   const [allCounters, setAllCounters] = useState<PublicCounter[]>([]);
 
+  // Shared clock. Ticks only while a configured promotion window is still
+  // pending, so the hero's discount banner, timer and prices flip the instant
+  // the window opens or closes — and then the interval stops itself.
+  const [now, setNow] = useState(() => Date.now());
+  React.useEffect(() => {
+    const deadlineMs = [event.earlyBird?.startsAt, event.earlyBird?.endsAt]
+      .map((value) => (value ? Date.parse(value) : NaN))
+      .filter((ms) => !Number.isNaN(ms));
+    if (deadlineMs.length === 0) return;
+    const id = window.setInterval(() => {
+      const t = Date.now();
+      setNow(t);
+      if (deadlineMs.every((ms) => t >= ms)) window.clearInterval(id);
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [event.id, event.earlyBird?.startsAt, event.earlyBird?.endsAt]);
+
   // Active Early Bird promotion (strike-through pricing on cards + sidebar)
-  const earlyBird = getEarlyBirdView(event);
+  const earlyBird = getEarlyBirdView(event, now);
+
+  // Hero pricing: the live promotion applied to the advertised flat price.
+  const heroBasePrice = flatPrice;
+  const heroCurrentPrice =
+    earlyBird?.active && heroBasePrice > 0
+      ? earlyBirdTicketPrice(
+          {
+            id: 'hero',
+            name: '',
+            price: heroBasePrice,
+            description: '',
+            totalInventory: 0,
+            remainingInventory: 0,
+            perks: [],
+          },
+          earlyBird
+        )
+      : heroBasePrice;
 
   // Mixed bookings are reserved for general-admission events (no seat map) with
   // more than one ticket type; seat-based and single-type events keep the
@@ -202,6 +236,12 @@ export const EventDetail: React.FC<EventDetailProps> = ({
     onProceedToCheckout(event, tierToBook, quantity, []);
   };
 
+  /** Hero "View Tickets" — smooth-scroll to the ticket selection block. */
+  const scrollToTickets = () => {
+    const target = document.getElementById('ticket-selection');
+    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
   return (
     <div className="pb-16 pt-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8 animate-in fade-in">
       
@@ -214,76 +254,28 @@ export const EventDetail: React.FC<EventDetailProps> = ({
           <ArrowLeft className="w-4 h-4" />
           <span>Back to Events</span>
         </button>
-
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => {
-              navigator.clipboard?.writeText(window.location.href);
-              alert('Event link copied to clipboard!');
-            }}
-            className="p-2.5 rounded-xl bg-[#141414] hover:bg-[#1C1C1C] text-gray-300 hover:text-white border border-white/10 transition-colors"
-          >
-            <Share2 className="w-4 h-4" />
-          </button>
-
-          <button
-            onClick={() => toggleFavorite(event.id)}
-            className="p-2.5 rounded-xl bg-[#141414] hover:bg-[#1C1C1C] text-gray-300 border border-white/10 transition-colors"
-          >
-            <Heart className={`w-4 h-4 ${isFav ? 'fill-[#D4AF37] text-[#D4AF37]' : ''}`} />
-          </button>
-        </div>
       </div>
 
-      {/* Event Summary — title, badges and rating. On mobile the banner
-          sits immediately below this card, then the info cards follow. */}
-      <section className="rounded-3xl bg-[#141414] border border-white/10 p-5 sm:p-7 shadow-xl">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
-          <div className="space-y-3 min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest bg-[#D4AF37] text-black">
-                {event.category}
-              </span>
-              {event.isAdvertiseOnly && (
-                <span className="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest bg-amber-500/10 text-amber-300 border border-amber-500/30">
-                  Counter Only
-                </span>
-              )}
-            </div>
-            <h1 className="font-heading font-extrabold text-3xl sm:text-5xl text-white leading-tight break-words">
-              {event.title}
-            </h1>
-            {event.subtitle && (
-              <p className="text-gray-300 text-sm sm:text-base leading-relaxed max-w-3xl">
-                {event.subtitle}
-              </p>
-            )}
-          </div>
-
-          {/* Rating badge: inline with title on desktop, below subtitle on mobile */}
-          <div className="flex items-center gap-2 px-4 py-3 rounded-2xl bg-[#1C1C1C] border border-amber-400/25 text-white text-sm font-bold shadow-lg w-fit shrink-0">
-            <Star className="w-5 h-5 fill-amber-400 text-amber-400" />
-            <span className="text-lg">{event.rating}</span>
-            <span className="text-gray-400 font-medium text-xs">({event.reviewsCount} reviews)</span>
-          </div>
-        </div>
-      </section>
-
-      {/* Hero Cover Image — on mobile: portrait crop below title, above info cards.
-          On sm+: wide cinematic banner. */}
-      <div className="aspect-[4/5] sm:aspect-[2.5/1] w-full rounded-3xl overflow-hidden border border-white/10 bg-[#1C1C1C] shadow-2xl">
-        {event.coverUrl || event.posterUrl ? (
-        <img
-          src={event.coverUrl || event.posterUrl}
-          alt={event.title}
-          className="aspect-ratio-fix w-full h-full object-cover object-top sm:object-center filter brightness-[0.95] contrast-[1.05]"
-        />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center bg-[#262626]">
-            <Ticket className="w-16 h-16 text-white/25" />
-          </div>
-        )}
-      </div>
+      {/* Hero — festive, conversion-focused identity block. Discount urgency,
+          metadata, prices and artwork are all derived from the event payload. */}
+      <EventHero
+        event={event}
+        earlyBird={earlyBird}
+        now={now}
+        basePrice={heroBasePrice}
+        currentPrice={heroCurrentPrice}
+        isLoading={isLoadingTickets}
+        isSaved={isFav}
+        showTicketCta={showPublicTicketInfo}
+        externalUrl={hasExternalBooking ? normalizedExternalBookingUrl : null}
+        onBook={handleBookNow}
+        onViewTickets={scrollToTickets}
+        onToggleSave={() => toggleFavorite(event.id)}
+        onShare={() => {
+          navigator.clipboard?.writeText(window.location.href);
+          alert('Event link copied to clipboard!');
+        }}
+      />
 
       {/* Main Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
@@ -291,55 +283,7 @@ export const EventDetail: React.FC<EventDetailProps> = ({
         {/* Left Column */}
         <div className="lg:col-span-8 space-y-8">
           
-          {/* Info Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 p-5 rounded-2xl bg-[#141414] border border-white/10">
-            <div className="flex items-start gap-3">
-              <div className="p-2.5 rounded-xl bg-[#D4AF37]/10 text-[#D4AF37] border border-[#D4AF37]/20 shrink-0">
-                <Calendar className="w-5 h-5" />
-              </div>
-              <div>
-                <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wider block">
-                  Date & Time
-                </span>
-                <span className="text-xs sm:text-sm font-semibold text-white block mt-0.5">
-                  {event.date}
-                </span>
-                <span className="text-xs text-gray-400 flex items-center gap-1">
-                  <Clock className="w-3 h-3 text-[#D4AF37]" /> {event.time}
-                </span>
-              </div>
-            </div>
-
-            <div className="flex items-start gap-3">
-              <div className="p-2.5 rounded-xl bg-purple-500/10 text-purple-400 border border-purple-500/20 shrink-0">
-                <MapPin className="w-5 h-5" />
-              </div>
-              <div>
-                <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wider block">
-                  Venue & City
-                </span>
-                <span className="text-xs sm:text-sm font-semibold text-white block mt-0.5">
-                  {event.venue}
-                </span>
-                <span className="text-xs text-gray-400 truncate block">{event.city}</span>
-              </div>
-            </div>
-
-            <div className="flex items-start gap-3">
-              <div className="p-2.5 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shrink-0">
-                <Building2 className="w-5 h-5" />
-              </div>
-              <div>
-                <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wider block">
-                  Organized By
-                </span>
-                <span className="text-xs sm:text-sm font-semibold text-white block mt-0.5">
-                  {event.presentedBy || event.organizer}
-                </span>
-                
-              </div>
-            </div>
-          </div>
+          {/* Metadata (date / venue / organiser) now lives in the hero strip. */}
 
           {/* About */}
           <div className="space-y-3">
@@ -450,6 +394,7 @@ export const EventDetail: React.FC<EventDetailProps> = ({
           )}
 
           {/* Ticket information or external booking CTA */}
+          <div id="ticket-selection" className="scroll-mt-28 space-y-4">
           {event.isAdvertiseOnly && hasExternalBooking ? (
             <div className="p-5 rounded-2xl bg-[#141414] border border-[#D4AF37]/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div className="flex items-start gap-3">
@@ -590,6 +535,7 @@ export const EventDetail: React.FC<EventDetailProps> = ({
               )}
             </>
           )}
+          </div>
 
           {/* Schedule */}
           {event.schedule && event.schedule.length > 0 && (
