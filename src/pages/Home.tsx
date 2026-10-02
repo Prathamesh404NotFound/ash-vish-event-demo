@@ -19,7 +19,7 @@ import { EventItem, EventCategory } from '../types';
 import { useBooking } from '../contexts/BookingContext';
 import { EventCard } from '../components/EventCard';
 import { CategoryChip } from '../components/CategoryChip';
-import { earlyBirdCountdown, getEarlyBirdView } from '../lib/earlyBird';
+import { getEarlyBirdView } from '../lib/earlyBird';
 import { useSEO } from '../hooks/useSEO';
 import { generateOrganizationSchema } from '../utils/structuredData';
 import { getCategoryBadgeText } from '../config/categoryConfig';
@@ -29,6 +29,25 @@ interface HomeProps {
   onSelectEvent: (event: EventItem) => void;
   onBookNow: (event: EventItem) => void;
   onNavigateToSearch: (category?: EventCategory | 'all') => void;
+}
+
+/**
+ * Live promotion timer for the hero urgency banner, e.g. "05:12:44" or
+ * "2d 05:12:44". Returns null when there is no deadline or it has passed, so
+ * the banner disappears on its own — never a hardcoded date.
+ */
+function heroCountdown(deadline: string | null | undefined, now: number): string | null {
+  if (!deadline) return null;
+  const ms = Date.parse(deadline) - now;
+  if (!Number.isFinite(ms) || ms <= 0) return null;
+  const total = Math.floor(ms / 1000);
+  const days = Math.floor(total / 86400);
+  const hours = Math.floor((total % 86400) / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = total % 60;
+  const pad = (value: number) => String(value).padStart(2, '0');
+  const clock = `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+  return days > 0 ? `${days}d ${clock}` : clock;
 }
 
 export const Home: React.FC<HomeProps> = ({
@@ -97,8 +116,29 @@ export const Home: React.FC<HomeProps> = ({
 
   const isSaved = currentHeroEvent ? favorites.includes(currentHeroEvent.id) : false;
 
-  // Early Bird promotion for the hero event (badge + discounted CTA price).
-  const heroEb = getEarlyBirdView(currentHeroEvent);
+  // Shared clock for the hero's scarcity timer. Ticks once a second only
+  // while a configured promotion window is still pending, then stops itself.
+  const [now, setNow] = useState(() => Date.now());
+  React.useEffect(() => {
+    const promo = currentHeroEvent?.earlyBird;
+    const deadlines = [promo?.startsAt, promo?.endsAt]
+      .map((value) => (value ? Date.parse(value) : NaN))
+      .filter((ms) => !Number.isNaN(ms));
+    if (deadlines.length === 0) return;
+    const id = window.setInterval(() => {
+      const t = Date.now();
+      setNow(t);
+      if (deadlines.every((ms) => t >= ms)) window.clearInterval(id);
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [
+    currentHeroEvent?.id,
+    currentHeroEvent?.earlyBird?.startsAt,
+    currentHeroEvent?.earlyBird?.endsAt,
+  ]);
+
+  // Early Bird promotion for the hero event (urgency banner + CTA gating).
+  const heroEb = getEarlyBirdView(currentHeroEvent, now);
   const heroBasePrice = currentHeroEvent ? Number(currentHeroEvent.startingPrice) || 0 : 0;
   const heroEbActive = Boolean(heroEb?.active) && heroBasePrice > 0;
   const heroEbLabel = heroEb
@@ -106,7 +146,7 @@ export const Home: React.FC<HomeProps> = ({
       ? `₹${heroEb.flatOff} off`
       : `${heroEb.percentOff}% off`
     : '';
-  const heroEbCountdown = heroEbActive && heroEb ? earlyBirdCountdown(heroEb) : null;
+  const heroTimer = heroEbActive && heroEb ? heroCountdown(heroEb.endsAt, now) : null;
 
   const trendingEvents = useMemo(
     () => publicEvents.filter((event) => event.isTrending).slice(0, 8),
@@ -219,25 +259,47 @@ export const Home: React.FC<HomeProps> = ({
       <section className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 sm:pt-6">
         <div className="bg-[#0D0D10] border border-white/10 rounded-3xl sm:rounded-[32px] overflow-hidden p-4 sm:p-8 lg:p-12 shadow-2xl relative">
 
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-12 items-center">
+          {/* Festive ambient lighting — deep crimson, burnt saffron and warm
+              gold, heavily blurred and clipped to the card so text contrast is
+              untouched. */}
+          <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
+            <div className="absolute -left-24 -top-24 h-72 w-72 rounded-full bg-[#7F1D1D] opacity-45 blur-[80px]" />
+            <div className="absolute -bottom-28 left-1/3 h-72 w-72 rounded-full bg-[#C2410C] opacity-35 blur-[80px]" />
+            <div className="absolute -right-24 top-1/4 h-64 w-64 rounded-full bg-[#D4AF37] opacity-30 blur-[80px]" />
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-12 items-center relative">
 
             {/* LEFT COLUMN: Editorial & Event Information */}
-            <div className="lg:col-span-7 flex flex-col justify-center space-y-6 sm:space-y-8 z-10">
+            <div className="lg:col-span-7 relative z-10 flex flex-col justify-center space-y-6 sm:space-y-8">
 
-              {/* Eyebrow Category Label */}
-              <div className="flex items-center gap-2 flex-wrap">
+              {/* Eyebrow label + high-contrast discount/scarcity banner */}
+              <div className="flex flex-col items-start gap-3">
                 <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#D4AF37]/10 text-[#D4AF37] border border-[#D4AF37]/30 text-[11px] font-semibold tracking-wider uppercase">
                   <Sparkles className="w-3 h-3 text-[#D4AF37]" />
                   {getCategoryBadgeText(currentHeroEvent.category)}
                 </span>
+
                 {heroEbActive && heroEb && (
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-[11px] font-semibold tracking-wider uppercase">
-                    <Zap className="w-3 h-3 fill-current" />
-                    Early Bird {heroEbLabel}
-                  </span>
-                )}
-                {heroEbCountdown && (
-                  <span className="text-[11px] font-semibold text-amber-300/90 tracking-wide">{heroEbCountdown}</span>
+                  <div className="inline-flex flex-wrap items-center gap-2.5 rounded-2xl border border-amber-400/45 bg-gradient-to-r from-amber-500/25 via-[#D4AF37]/20 to-orange-500/20 px-3 py-2 shadow-[0_0_32px_-8px_rgba(212,175,55,0.85)] backdrop-blur-md">
+                    <span className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-[#F9EFC6] via-[#E6C766] to-[#D4AF37] px-2.5 py-1 text-[11px] font-black uppercase tracking-widest text-black">
+                      <span className="relative flex h-1.5 w-1.5" aria-hidden="true">
+                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-black/50" />
+                        <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-black/70" />
+                      </span>
+                      <Zap className="h-3 w-3 fill-current" />
+                      Early Bird · {heroEbLabel}
+                    </span>
+                    {heroTimer && (
+                      <span
+                        role="timer"
+                        aria-label={`Early Bird offer ends in ${heroTimer}`}
+                        className="rounded-xl border border-amber-300/40 bg-black/45 px-2.5 py-1 font-mono text-[11px] font-bold tabular-nums tracking-tight text-amber-200"
+                      >
+                        {heroTimer}
+                      </span>
+                    )}
+                  </div>
                 )}
               </div>
 
@@ -251,43 +313,42 @@ export const Home: React.FC<HomeProps> = ({
                 </p>
               </div>
 
-              {/* Metadata 3-Item Row */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3.5 sm:p-4 rounded-2xl bg-[#141414]/90 border border-white/10 shadow-inner">
+              {/* Metadata strip — frosted-glass micro-cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 {/* DATE */}
-                <div className="flex items-center gap-3 px-2 py-1.5">
-                  <div className="w-8 h-8 rounded-xl bg-[#1C1C1C] border border-white/10 flex items-center justify-center shrink-0">
-                    <Calendar className="w-4 h-4 text-[#D4AF37]" />
+                <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-3.5 py-3 backdrop-blur-md transition-colors hover:border-[#D4AF37]/35">
+                  <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#F3E5AB]/25 to-[#D4AF37]/5 border border-[#D4AF37]/35 flex items-center justify-center shrink-0">
+                    <Calendar className="w-4 h-4 text-[#F3E5AB]" />
                   </div>
                   <div className="min-w-0">
-                    <span className="block text-[10px] font-bold uppercase tracking-wider text-gray-400">Date</span>
-                    <span className="text-xs sm:text-sm font-semibold text-gray-100 truncate block">
+                    <span className="block text-[10px] font-bold uppercase tracking-[0.18em] text-gray-400">Date</span>
+                    <span className="block truncate text-xs sm:text-sm font-semibold text-white">
                       {currentHeroEvent.date || 'Date TBD'}
                     </span>
                   </div>
                 </div>
 
                 {/* TIME */}
-                <div className="flex items-center gap-3 px-2 py-1.5 sm:border-l sm:border-white/10">
-                  <div className="w-8 h-8 rounded-xl bg-[#1C1C1C] border border-white/10 flex items-center justify-center shrink-0">
-                    <Clock className="w-4 h-4 text-[#D4AF37]" />
+                <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-3.5 py-3 backdrop-blur-md transition-colors hover:border-[#D4AF37]/35">
+                  <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#F3E5AB]/25 to-[#D4AF37]/5 border border-[#D4AF37]/35 flex items-center justify-center shrink-0">
+                    <Clock className="w-4 h-4 text-[#F3E5AB]" />
                   </div>
                   <div className="min-w-0">
-                    <span className="block text-[10px] font-bold uppercase tracking-wider text-gray-400">Time</span>
-                    <span className="text-xs sm:text-sm font-semibold text-gray-100 truncate block">
+                    <span className="block text-[10px] font-bold uppercase tracking-[0.18em] text-gray-400">Time</span>
+                    <span className="block truncate text-xs sm:text-sm font-semibold text-white">
                       {currentHeroEvent.time || 'Time TBD'}
                     </span>
                   </div>
-                </div>
-
-                {/* VENUE */}
-                <div className="flex items-center gap-3 px-2 py-1.5 sm:border-l sm:border-white/10">
-                  <div className="w-8 h-8 rounded-xl bg-[#1C1C1C] border border-white/10 flex items-center justify-center shrink-0">
-                    <MapPin className="w-4 h-4 text-[#D4AF37]" />
+                </div>                {/* VENUE */}
+                <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-3.5 py-3 backdrop-blur-md transition-colors hover:border-[#D4AF37]/35">
+                  <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#F3E5AB]/25 to-[#D4AF37]/5 border border-[#D4AF37]/35 flex items-center justify-center shrink-0">
+                    <MapPin className="w-4 h-4 text-[#F3E5AB]" />
                   </div>
                   <div className="min-w-0">
-                    <span className="block text-[10px] font-bold uppercase tracking-wider text-gray-400">Venue</span>
+                    <span className="block text-[10px] font-bold uppercase tracking-[0.18em] text-gray-400">Venue</span>
+
                     <span
-                      className="text-xs sm:text-sm font-semibold text-gray-100 truncate block"
+                      className="block truncate text-xs sm:text-sm font-semibold text-white"
                       title={currentHeroEvent.venue}
                     >
                       {currentHeroEvent.venue || 'Venue TBD'}
@@ -296,23 +357,23 @@ export const Home: React.FC<HomeProps> = ({
                 </div>
               </div>
 
-              {/* CTAs */}
+              {/* CTAs — one luminous primary trigger, glass secondaries */}
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-2">
-                {/* Primary CTA */}
+                {/* Primary CTA: action only — no price ever appears here */}
                 <button
                   onClick={() =>
                     currentHeroEvent.isAdvertiseOnly
                       ? onSelectEvent(currentHeroEvent)
                       : onBookNow(currentHeroEvent)
                   }
-                  className="inline-flex min-h-[52px] items-center justify-center gap-2 rounded-xl bg-[#D4AF37] px-7 text-sm font-black text-black  transition hover:bg-[#E3C456] active:scale-[0.98] sm:text-base"
+                  className="inline-flex min-h-[52px] items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#F9EFC6] via-[#D4AF37] to-[#C5A059] px-7 text-sm font-black uppercase tracking-wide text-black shadow-[0_10px_28px_-10px_rgba(212,175,55,0.85)] transition-all duration-300 hover:-translate-y-0.5 hover:brightness-110 hover:shadow-[0_18px_40px_-10px_rgba(212,175,55,1)] active:translate-y-0 active:scale-[0.98] sm:text-base"
                 >
                   {currentHeroEvent.isAdvertiseOnly ? (
                     <Info className="h-5 w-5" />
                   ) : (
                     <Ticket className="h-5 w-5" />
                   )}
-                  {currentHeroEvent.isAdvertiseOnly ? 'View Event Details' : 'Book Now'}
+                  {currentHeroEvent.isAdvertiseOnly ? 'View Event Details' : 'Book Tickets'}
                 </button>
 
                 {/* Secondary: Save Event */}
@@ -321,20 +382,20 @@ export const Home: React.FC<HomeProps> = ({
                     toggleFavorite(currentHeroEvent.id);
                     showToast(isSaved ? 'Removed from saved shows' : 'Saved to your shows', 'success');
                   }}
-                  className={`inline-flex min-h-[52px] items-center justify-center gap-2 rounded-xl border px-7 text-sm font-bold transition sm:text-base ${
+                  className={`inline-flex min-h-[52px] items-center justify-center gap-2 rounded-2xl border px-7 text-sm font-bold backdrop-blur-md transition sm:text-base ${
                     isSaved
-                      ? 'bg-red-500/15 border-red-500/30 text-red-400'
-                      : 'bg-white/5 border-white/20 text-white backdrop-blur-md hover:bg-white/10'
+                      ? 'border-red-400/40 bg-red-500/15 text-red-400'
+                      : 'border-white/15 bg-white/[0.06] text-white hover:bg-white/[0.12]'
                   }`}
                 >
                   <Heart className={`w-5 h-5 ${isSaved ? 'fill-red-400 text-red-400' : 'text-gray-400'}`} />
                   <span>{isSaved ? 'Saved' : 'Save Event'}</span>
                 </button>
 
-                {/* Tertiary: View Event Info */}
+                {/* Tertiary: View Event */}
                 <button
                   onClick={() => onSelectEvent(currentHeroEvent)}
-                  className="inline-flex min-h-[52px] items-center justify-center rounded-xl border border-white/20 bg-white/5 px-7 text-sm font-bold text-white backdrop-blur-md transition hover:bg-white/10 sm:text-base"
+                  className="inline-flex min-h-[52px] items-center justify-center rounded-2xl border border-white/15 bg-white/[0.06] px-7 text-sm font-bold text-white backdrop-blur-md transition hover:bg-white/[0.12] sm:text-base"
                 >
                   View Event
                 </button>
@@ -385,29 +446,45 @@ export const Home: React.FC<HomeProps> = ({
             </div>
 
             {/* RIGHT COLUMN: Dominant Artist / Event Poster Artwork */}
-            <div className="lg:col-span-5 relative flex items-center justify-center">
-              <div className="relative w-full max-w-md mx-auto aspect-[4/5] rounded-2xl sm:rounded-3xl overflow-hidden border border-white/10 shadow-2xl bg-[#141414] group">
-                <img
-                  src={currentHeroEvent.posterUrl || currentHeroEvent.coverUrl || ''}
-                  alt={currentHeroEvent.title}
-                  className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-700 ease-out filter brightness-[0.95] contrast-[1.05]"
-                  fetchPriority="high"
-                  onError={(e) => {
-                    e.currentTarget.style.display = 'none';
-                  }}
+            <div className="lg:col-span-5 relative z-10 flex items-center justify-center">
+              <div className="relative w-full max-w-md mx-auto aspect-[4/5]">
+                {/* Ambient backlight complementing the poster's warm tones */}
+                <div
+                  aria-hidden="true"
+                  className="absolute -inset-6 rounded-[3rem] bg-gradient-to-tr from-[#7F1D1D]/70 via-[#C2410C]/45 to-[#D4AF37]/55 opacity-80 blur-3xl"
                 />
 
-                {/* Soft gradient overlay */}
-                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent pointer-events-none" />
+                <div className="group relative h-full w-full overflow-hidden rounded-[28px] border border-white/10 bg-[#141414] shadow-[0_25px_50px_-12px_rgba(0,0,0,0.75),0_14px_34px_-18px_rgba(176,23,42,0.6)]">
+                  <img
+                    src={currentHeroEvent.posterUrl || currentHeroEvent.coverUrl || ''}
+                    alt={currentHeroEvent.title}
+                    className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-700 ease-out filter brightness-[0.95] contrast-[1.05]"
+                    fetchPriority="high"
+                    decoding="async"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                    }}
+                  />
 
-                {/* Bottom tag */}
-                <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between pointer-events-none">
-                  <span className="text-[11px] font-semibold text-gray-200 bg-black/60 backdrop-blur-md px-3 py-1 rounded-lg border border-white/10">
-                    {currentHeroEvent.organizer || 'Ash-vish Events'}
-                  </span>
-                  <span className="text-[11px] font-bold text-[#F3E5AB] bg-[#D4AF37]/20 backdrop-blur-md px-2.5 py-1 rounded-lg border border-[#D4AF37]/30">
-                    ★ {currentHeroEvent.rating || '4.9'}
-                  </span>
+                  {/* Soft gradient overlay */}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent pointer-events-none" />
+
+                  {/* Internal highlight ring — rendered above the artwork, so it
+                      stays visible even with the poster on top of it. */}
+                  <div
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-0 rounded-[28px] ring-1 ring-inset ring-white/15"
+                  />
+
+                  {/* Bottom tag */}
+                  <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between pointer-events-none">
+                    <span className="text-[11px] font-semibold text-gray-200 bg-black/60 backdrop-blur-md px-3 py-1 rounded-lg border border-white/10">
+                      {currentHeroEvent.organizer || 'Ash-vish Events'}
+                    </span>
+                    <span className="text-[11px] font-bold text-[#F3E5AB] bg-[#D4AF37]/20 backdrop-blur-md px-2.5 py-1 rounded-lg border border-[#D4AF37]/30">
+                      ★ {currentHeroEvent.rating || '4.9'}
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
