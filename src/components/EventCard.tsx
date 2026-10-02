@@ -1,17 +1,40 @@
 import React from 'react';
-import { Calendar, MapPin, Heart, Star, Ticket, Info } from 'lucide-react';
+import { Calendar, MapPin, Heart, Star, Ticket, Info, Zap } from 'lucide-react';
 import { EventItem } from '../types';
 import { useBooking } from '../contexts/BookingContext';
+import { EarlyBirdView, earlyBirdCountdown, earlyBirdTicketPrice, getEarlyBirdView } from '../lib/earlyBird';
+import { formatINR } from '../utils/formatters';
 
 interface EventCardProps {
   event: EventItem;
   onSelectEvent: (event: EventItem) => void;
   onBookNow: (event: EventItem) => void;
+  /** Optional precomputed Early Bird view; derived from the event when omitted. */
+  earlyBird?: EarlyBirdView | null;
 }
 
-export const EventCard: React.FC<EventCardProps> = React.memo(({ event, onSelectEvent, onBookNow }) => {
+export const EventCard: React.FC<EventCardProps> = React.memo(({ event, onSelectEvent, onBookNow, earlyBird }) => {
   const { favorites, toggleFavorite } = useBooking();
   const isFav = favorites.includes(event.id);
+
+  // Early Bird discount — derived per event so every listing (home rails,
+  // search, category/festival grids, favourites, similar events) shows it.
+  const eb = earlyBird ?? getEarlyBirdView(event);
+  const ebActive = Boolean(eb?.active);
+  const basePrice = Number(event.startingPrice) || 0;
+  const ebPrice =
+    ebActive && eb
+      ? earlyBirdTicketPrice(
+          { id: 'card', name: '', price: basePrice, description: '', totalInventory: 0, remainingInventory: 0, perks: [] },
+          eb
+        )
+      : basePrice;
+  const ebLabel = eb
+    ? eb.config.discountType === 'flat'
+      ? `₹${eb.flatOff} off`
+      : `${eb.percentOff}% off`
+    : '';
+  const ebCountdown = ebActive && eb ? earlyBirdCountdown(eb) : null;
 
   const getCategoryColor = (cat: string) => {
     switch (cat) {
@@ -118,6 +141,25 @@ export const EventCard: React.FC<EventCardProps> = React.memo(({ event, onSelect
             <span className="truncate text-gray-400">{event.venue}, {event.city}</span>
           </div>
         </div>
+
+        {/* Early Bird price — struck original + gold discounted price + badge */}
+        {ebActive && basePrice > 0 && (
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex items-baseline gap-2">
+                <span className="font-heading font-bold text-lg text-[#D4AF37]">{formatINR(ebPrice)}</span>
+                <span className="text-xs text-gray-500 line-through">{formatINR(basePrice)}</span>
+              </div>
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-[10px] font-extrabold uppercase tracking-wider">
+                <Zap className="w-3 h-3 fill-current" />
+                Early Bird {ebLabel}
+              </span>
+            </div>
+            {ebCountdown && (
+              <p className="text-[10px] font-semibold text-amber-300/90">{ebCountdown}</p>
+            )}
+          </div>
+        )}
 
         {/* Footer Row: Book Button */}
         <div className="pt-3 border-t border-white/10 mt-auto">

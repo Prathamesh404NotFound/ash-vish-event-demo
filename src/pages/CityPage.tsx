@@ -1,10 +1,12 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { MapPin, Calendar, Sparkles, CheckCircle2, ShieldCheck, Star, ArrowRight, Building, Music, PartyPopper } from 'lucide-react';
+import { MapPin, Calendar, Sparkles, CheckCircle2, ShieldCheck, Star, ArrowRight, Building, Music, PartyPopper, Zap } from 'lucide-react';
 import { useSEO } from '../hooks/useSEO';
 import { Button } from '../components/Button';
 import { useBooking } from '../contexts/BookingContext';
 import { generateBreadcrumbSchema, generateFAQSchema } from '../utils/structuredData';
+import { earlyBirdTicketPrice, getEarlyBirdView } from '../lib/earlyBird';
+import { formatINR } from '../utils/formatters';
 
 interface CityPageProps {
   city: 'kolhapur' | 'maharashtra' | 'india' | 'pune' | 'mumbai';
@@ -178,7 +180,23 @@ export function CityPage({ city }: CityPageProps) {
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {cityEvents.map(event => (
+            {cityEvents.map(event => {
+              const eb = getEarlyBirdView(event);
+              const base = Number(event.startingPrice) || 0;
+              const ebActive = Boolean(eb?.active) && base > 0;
+              const ebPrice =
+                ebActive && eb
+                  ? earlyBirdTicketPrice(
+                      { id: 'city', name: '', price: base, description: '', totalInventory: 0, remainingInventory: 0, perks: [] },
+                      eb
+                    )
+                  : base;
+              const ebLabel = eb
+                ? eb.config.discountType === 'flat'
+                  ? `₹${eb.flatOff} off`
+                  : `${eb.percentOff}% off`
+                : '';
+              return (
               <div
                 key={event.id}
                 onClick={() => navigate(`/events/${event.id}`)}
@@ -186,8 +204,19 @@ export function CityPage({ city }: CityPageProps) {
               >
                 <div className="relative h-48 overflow-hidden">
                   <img src={event.posterUrl} alt={event.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-                  <div className="absolute top-3 right-3 px-3 py-1 rounded-full bg-black/70 backdrop-blur-md text-[#D4AF37] text-xs font-bold border border-white/10">
-                    ₹{event.startingPrice} onwards
+                  <div className="absolute top-3 right-3 flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/70 backdrop-blur-md text-xs font-bold border border-white/10">
+                    {ebActive ? (
+                      <>
+                        <span className="text-[#D4AF37]">{formatINR(ebPrice)}</span>
+                        <span className="text-gray-400 line-through text-[10px]">{formatINR(base)}</span>
+                        <span className="inline-flex items-center gap-1 text-emerald-300 text-[10px] font-extrabold uppercase tracking-wider">
+                          <Zap className="w-3 h-3 fill-current" />
+                          Early Bird {ebLabel}
+                        </span>
+                      </>
+                    ) : (
+                      <span className="text-[#D4AF37]">₹{event.startingPrice} onwards</span>
+                    )}
                   </div>
                 </div>
                 <div className="p-5 space-y-3">
@@ -204,7 +233,8 @@ export function CityPage({ city }: CityPageProps) {
                   </div>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

@@ -12,6 +12,7 @@ import {
   Sparkles,
   Star,
   Ticket,
+  Zap,
 } from 'lucide-react';
 
 import { EventItem, EventCategory } from '../types';
@@ -19,6 +20,7 @@ import { useBooking } from '../contexts/BookingContext';
 import { EventCard } from '../components/EventCard';
 import { CategoryChip } from '../components/CategoryChip';
 import { formatINR } from '../utils/formatters';
+import { earlyBirdCountdown, earlyBirdTicketPrice, getEarlyBirdView } from '../lib/earlyBird';
 import { useSEO } from '../hooks/useSEO';
 import { generateOrganizationSchema } from '../utils/structuredData';
 import { getCategoryBadgeText } from '../config/categoryConfig';
@@ -95,6 +97,24 @@ export const Home: React.FC<HomeProps> = ({
       : undefined; // No fallback - only show real events
 
   const isSaved = currentHeroEvent ? favorites.includes(currentHeroEvent.id) : false;
+
+  // Early Bird promotion for the hero event (badge + discounted CTA price).
+  const heroEb = getEarlyBirdView(currentHeroEvent);
+  const heroBasePrice = currentHeroEvent ? Number(currentHeroEvent.startingPrice) || 0 : 0;
+  const heroEbActive = Boolean(heroEb?.active) && heroBasePrice > 0;
+  const heroEbPrice =
+    heroEbActive && heroEb
+      ? earlyBirdTicketPrice(
+          { id: 'hero', name: '', price: heroBasePrice, description: '', totalInventory: 0, remainingInventory: 0, perks: [] },
+          heroEb
+        )
+      : heroBasePrice;
+  const heroEbLabel = heroEb
+    ? heroEb.config.discountType === 'flat'
+      ? `₹${heroEb.flatOff} off`
+      : `${heroEb.percentOff}% off`
+    : '';
+  const heroEbCountdown = heroEbActive && heroEb ? earlyBirdCountdown(heroEb) : null;
 
   const trendingEvents = useMemo(
     () => publicEvents.filter((event) => event.isTrending).slice(0, 8),
@@ -213,11 +233,20 @@ export const Home: React.FC<HomeProps> = ({
             <div className="lg:col-span-7 flex flex-col justify-center space-y-6 sm:space-y-8 z-10">
 
               {/* Eyebrow Category Label */}
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#D4AF37]/10 text-[#D4AF37] border border-[#D4AF37]/30 text-[11px] font-semibold tracking-wider uppercase">
                   <Sparkles className="w-3 h-3 text-[#D4AF37]" />
                   {getCategoryBadgeText(currentHeroEvent.category)}
                 </span>
+                {heroEbActive && heroEb && (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-[11px] font-semibold tracking-wider uppercase">
+                    <Zap className="w-3 h-3 fill-current" />
+                    Early Bird {heroEbLabel}
+                  </span>
+                )}
+                {heroEbCountdown && (
+                  <span className="text-[11px] font-semibold text-amber-300/90 tracking-wide">{heroEbCountdown}</span>
+                )}
               </div>
 
               {/* Event Title & Subtitle */}
@@ -293,7 +322,10 @@ export const Home: React.FC<HomeProps> = ({
                   )}
                   {currentHeroEvent.isAdvertiseOnly
                     ? 'View Event Details'
-                    : `Book Now · ${formatINR(currentHeroEvent.startingPrice)}`}
+                    : `Book Now · ${formatINR(heroEbPrice)}`}
+                  {heroEbActive && !currentHeroEvent.isAdvertiseOnly && (
+                    <span className="text-xs font-bold line-through opacity-70">{formatINR(heroBasePrice)}</span>
+                  )}
                 </button>
 
                 {/* Secondary: Save Event */}
