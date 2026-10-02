@@ -19,8 +19,7 @@ import { EventItem, EventCategory } from '../types';
 import { useBooking } from '../contexts/BookingContext';
 import { EventCard } from '../components/EventCard';
 import { CategoryChip } from '../components/CategoryChip';
-import { formatINR } from '../utils/formatters';
-import { earlyBirdCountdown, earlyBirdTicketPrice, getEarlyBirdView } from '../lib/earlyBird';
+import { earlyBirdCountdown, getEarlyBirdView } from '../lib/earlyBird';
 import { useSEO } from '../hooks/useSEO';
 import { generateOrganizationSchema } from '../utils/structuredData';
 import { getCategoryBadgeText } from '../config/categoryConfig';
@@ -102,13 +101,6 @@ export const Home: React.FC<HomeProps> = ({
   const heroEb = getEarlyBirdView(currentHeroEvent);
   const heroBasePrice = currentHeroEvent ? Number(currentHeroEvent.startingPrice) || 0 : 0;
   const heroEbActive = Boolean(heroEb?.active) && heroBasePrice > 0;
-  const heroEbPrice =
-    heroEbActive && heroEb
-      ? earlyBirdTicketPrice(
-          { id: 'hero', name: '', price: heroBasePrice, description: '', totalInventory: 0, remainingInventory: 0, perks: [] },
-          heroEb
-        )
-      : heroBasePrice;
   const heroEbLabel = heroEb
     ? heroEb.config.discountType === 'flat'
       ? `₹${heroEb.flatOff} off`
@@ -320,12 +312,7 @@ export const Home: React.FC<HomeProps> = ({
                   ) : (
                     <Ticket className="h-5 w-5" />
                   )}
-                  {currentHeroEvent.isAdvertiseOnly
-                    ? 'View Event Details'
-                    : `Book Now · ${formatINR(heroEbPrice)}`}
-                  {heroEbActive && !currentHeroEvent.isAdvertiseOnly && (
-                    <span className="text-xs font-bold line-through opacity-70">{formatINR(heroBasePrice)}</span>
-                  )}
+                  {currentHeroEvent.isAdvertiseOnly ? 'View Event Details' : 'Book Now'}
                 </button>
 
                 {/* Secondary: Save Event */}
