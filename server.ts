@@ -6667,6 +6667,9 @@ export async function createApp() {
       const q = req.query || {};
       const from = typeof q.from === "string" ? q.from : undefined;
       const to = typeof q.to === "string" ? q.to : undefined;
+      // Optional per-event scope: when provided, every metric below is limited
+      // to that event so admin dashboards can filter their report.
+      const eventId = typeof q.eventId === "string" && q.eventId ? q.eventId : undefined;
       const eventsSnap = await rtdbGet("events", adminToken);
       const eventsById: Record<string, any> = (eventsSnap.data || {}) as Record<string, any>;
 
@@ -6677,6 +6680,8 @@ export async function createApp() {
       let tickets = Object.values((ticketsSnap.data || {}) as Record<string, any>);
       // Exclude soft-deleted tickets (same filter the roster applies).
       tickets = tickets.filter((t: any) => String(t?.status || "").toLowerCase() !== "deleted");
+      // Optional per-event filter.
+      if (eventId) tickets = tickets.filter((t: any) => t.eventId === eventId);
       // Optional date-range filter on purchasedAt (tickets purchase timestamp).
       if (from) tickets = tickets.filter((t: any) => String(t?.purchasedAt || t?.createdAt || "") >= String(from));
       if (to) tickets = tickets.filter((t: any) => String(t?.purchasedAt || t?.createdAt || "") <= String(to));
@@ -6684,6 +6689,7 @@ export async function createApp() {
       // Orders are fetched only for per-order breakdowns and channel counts.
       const ordersSnap = await rtdbGet("orders", adminToken);
       let orders = Object.values((ordersSnap.data || {}) as Record<string, any>);
+      if (eventId) orders = orders.filter((o: any) => o.eventId === eventId);
       if (from) orders = orders.filter((o: any) => String(o.createdAt) >= String(from));
       if (to) orders = orders.filter((o: any) => String(o.createdAt) <= String(to));
       const confirmed = orders.filter((o: any) => o.status === "confirmed");
@@ -6739,6 +6745,17 @@ export async function createApp() {
         if (t.scannedAt) acc[t.eventId].checkedIn += 1;
         return acc;
       }, {})) as any[];
+      // When scoping to a single event, always surface its capacity row — even
+      // with zero tickets sold — so the filtered dashboard still shows capacity.
+      if (eventId && eventsById[eventId] && !attendanceVsCapacity.some((a: any) => a.eventId === eventId)) {
+        attendanceVsCapacity.push({
+          eventId,
+          title: eventsById[eventId].title || eventId,
+          capacity: eventsById[eventId].totalCapacity || 0,
+          sold: 0,
+          checkedIn: 0,
+        });
+      }
 
       // ── Sales by Channel (from tickets) ─────────────────────────────────────
       const channels = activeTickets.reduce((acc: Record<string, number>, t: any) => {

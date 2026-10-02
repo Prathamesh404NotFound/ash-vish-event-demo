@@ -1547,7 +1547,7 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return res;
   };
 
-  const fetchReports = async (params: { from?: string; to?: string } = {}) => {
+  const fetchReports = async (params: { from?: string; to?: string; eventId?: string } = {}) => {
     try {
       const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined && v !== "").map(([k, v]) => [k, String(v)]) as [string, string][]).toString();
       const res = await adminApi(`/api/admin/reports${qs ? `?${qs}` : ""}`);

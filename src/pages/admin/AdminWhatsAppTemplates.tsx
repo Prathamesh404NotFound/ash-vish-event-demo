@@ -53,6 +53,17 @@ export const AdminWhatsAppTemplates: React.FC = () => {
   const [formEventIds, setFormEventIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [showVarHelp, setShowVarHelp] = useState(false);
+  const [filterEventId, setFilterEventId] = useState('');
+
+  // When an event is selected, show the templates that will apply to it:
+  // event-assigned templates for that event, plus default templates (unassigned
+  // ones apply to every event).
+  const visibleTemplates = filterEventId
+    ? whatsappTemplates.filter((tpl) => {
+        const ids = (tpl as any).assignedEventIds as string[] | undefined;
+        return !ids || ids.length === 0 || ids.includes(filterEventId);
+      })
+    : whatsappTemplates;
 
   const resetForm = () => {
     setFormName('');
@@ -239,7 +250,37 @@ export const AdminWhatsAppTemplates: React.FC = () => {
         </div>
       ) : (
         <div className="space-y-3">
-          {whatsappTemplates.map(tpl => (
+          {/* Event filter */}
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex items-center gap-2 bg-[#1C1C1C] border border-white/10 rounded-xl px-3 py-2 text-xs text-gray-300">
+              <Tag className="w-3.5 h-3.5 text-[#D4AF37]" />
+              <select
+                value={filterEventId}
+                onChange={(e) => setFilterEventId(e.target.value)}
+                className="bg-transparent text-white focus:outline-none cursor-pointer"
+                aria-label="Filter templates by event"
+              >
+                <option value="">All Events</option>
+                {events.map((evt) => (
+                  <option key={evt.id} value={evt.id}>
+                    {evt.title}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <span className="text-[10px] text-gray-500">
+              {visibleTemplates.length} template{visibleTemplates.length === 1 ? '' : 's'}
+              {filterEventId ? ' apply to this event' : ''}
+            </span>
+          </div>
+
+          {visibleTemplates.length === 0 && (
+            <div className="p-8 rounded-2xl bg-[#141414] border border-white/10 text-center">
+              <p className="text-xs text-gray-500">No templates apply to the selected event yet.</p>
+            </div>
+          )}
+
+          {visibleTemplates.map(tpl => (
             <div
               key={tpl.id}
               className={`p-4 sm:p-5 rounded-2xl border transition-all ${

@@ -26,10 +26,17 @@ export const AdminDashboard: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  // When set, the whole dashboard (server report + local fallbacks) is scoped
+  // to a single event; empty string = all events.
+  const [reportEventId, setReportEventId] = useState('');
   const refreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mountedRef = useRef(true);
+  // Stale-response guard: only the latest request may write state, so a slow
+  // response for the previous event filter can't overwrite the current one.
+  const loadSeqRef = useRef(0);
 
   const loadData = useCallback(async (isBackground = false) => {
+    const seq = ++loadSeqRef.current;
     if (isBackground) {
       setRefreshing(true);
     } else {
@@ -37,22 +44,28 @@ export const AdminDashboard: React.FC = () => {
     }
     setError(null);
     try {
-      const data = await fetchReports({});
-      if (mountedRef.current) {
-        setReport(data);
-        setLastUpdated(new Date());
-      }
+      const data = await fetchReports({ eventId: reportEventId || undefined });
+      if (seq !== loadSeqRef.current || !mountedRef.current) return; // superseded
+      setReport(data);
+      setLastUpdated(new Date());
     } catch (err: any) {
-      if (mountedRef.current) {
-        setError(err.message || "Failed to load real-time reports.");
-      }
+      if (seq !== loadSeqRef.current || !mountedRef.current) return;
+      setError(err.message || "Failed to load real-time reports.");
     } finally {
-      if (mountedRef.current) {
+      if (seq === loadSeqRef.current && mountedRef.current) {
         setLoading(false);
         setRefreshing(false);
       }
     }
-  }, [fetchReports]);
+  }, [fetchReports, reportEventId]);
+
+  // Self-heal: drop the filter if the selected event was deleted so the select
+  // doesn't render blank and the dashboard stops querying a ghost id.
+  useEffect(() => {
+    if (reportEventId && events.length > 0 && !events.some((e) => e.id === reportEventId)) {
+      setReportEventId('');
+    }
+  }, [events, reportEventId]);
 
   // Initial load
   useEffect(() => {
@@ -90,7 +103,13 @@ export const AdminDashboard: React.FC = () => {
   // collection) so they match the attendees roster when the server report is
   // unavailable. Non-deleted, non-cancelled, non-refunded, non-void tickets
   // with a non-pending paymentStatus are considered "active & paid".
-  const activeTickets = allTickets.filter(t => {
+  // When an event filter is active, the fallbacks are scoped to that event so
+  // they stay consistent with the server report.
+  const scopedTickets = React.useMemo(
+    () => (reportEventId ? allTickets.filter((t) => t?.eventId === reportEventId) : allTickets),
+    [allTickets, reportEventId]
+  );
+  const activeTickets = scopedTickets.filter(t => {
     const s = String(t?.status || '').toLowerCase();
     return s !== 'deleted' && s !== 'cancelled' && s !== 'refunded' && s !== 'void';
   });
@@ -154,9 +173,15 @@ export const AdminDashboard: React.FC = () => {
 
   const maxRevenue = Math.max(...chartData.map(d => d.revenue), 1000);
 
+  // Live Event Portfolio — scoped to the selected event when a filter is active.
+  const portfolioEvents = React.useMemo(
+    () => (reportEventId ? events.filter((e) => e.id === reportEventId) : events.slice(0, 3)),
+    [events, reportEventId]
+  );
+
   // Total refund amount for summary (derived from tickets when report unavailable).
   const totalRefunded = report?.summary?.totalRefunded ??
-    allTickets
+    scopedTickets
       .filter(t => { const s = String(t?.status || '').toLowerCase(); return s === 'refunded' || s === 'void'; })
       .reduce((sum, t) => sum + (Number((t as any).refundAmount) || Number(t.totalPaid) || 0), 0);
   const netRevenue = totalRevenue - totalRefunded;
@@ -179,6 +204,23 @@ export const AdminDashboard: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-3 flex-shrink-0">
+          {/* Event filter */}
+          <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-lg px-2.5 py-2 text-xs text-gray-300">
+            <Calendar className="w-3 h-3 text-[#D4AF37]" />
+            <select
+              value={reportEventId}
+              onChange={(e) => setReportEventId(e.target.value)}
+              className="bg-transparent text-white text-xs focus:outline-none cursor-pointer"
+              aria-label="Filter dashboard by event"
+            >
+              <option value="">All Events</option>
+              {events.map((evt) => (
+                <option key={evt.id} value={evt.id}>
+                  {evt.title}
+                </option>
+              ))}
+            </select>
+          </div>
           {/* Last updated indicator */}
           {lastUpdated && !loading && (
             <div className="flex items-center gap-1.5 text-[10px] text-gray-500 bg-white/5 border border-white/10 px-2.5 py-1.5 rounded-lg">
@@ -404,7 +446,7 @@ export const AdminDashboard: React.FC = () => {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-          {events.slice(0, 3).map((e) => (
+          {portfolioEvents.map((e) => (
             <div key={e.id} className="p-4 rounded-2xl bg-[#1C1C1C] border border-white/5 space-y-2 hover:border-[#D4AF37]/30 transition-all">
               <img src={e.posterUrl} alt={e.title} className="w-full h-28 rounded-xl object-cover" loading="lazy" />
               <h3 className="font-bold text-sm text-white truncate">{e.title}</h3>
@@ -417,7 +459,7 @@ export const AdminDashboard: React.FC = () => {
           ))}
         </div>
 
-        {events.length === 0 && !loading && (
+        {portfolioEvents.length === 0 && !loading && (
           <p className="text-xs text-gray-500 text-center py-6">No events found.</p>
         )}
       </div>

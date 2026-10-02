@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useBooking } from '../../contexts/BookingContext';
 import {
   BarChart3, CalendarDays, Download, IndianRupee, TrendingUp, Users,
@@ -13,26 +13,43 @@ interface ReportData {
 }
 
 export const AdminReports: React.FC = () => {
-  const { fetchReports } = useBooking();
+  const { fetchReports, events } = useBooking();
   const [report, setReport] = useState<ReportData | null>(null);
   const [loading, setLoading] = useState(false);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  const [eventId, setEventId] = useState('');
+  // Guards against out-of-order responses: only the most recent request may
+  // write report/loading state (rapid event switches otherwise race).
+  const requestSeqRef = useRef(0);
 
   const load = async () => {
+    const seq = ++requestSeqRef.current;
     setLoading(true);
     try {
-      const data = await fetchReports({ from: from || undefined, to: to || undefined });
+      const data = await fetchReports({ from: from || undefined, to: to || undefined, eventId: eventId || undefined });
+      if (seq !== requestSeqRef.current) return; // a newer request owns the state
       setReport(data);
     } finally {
-      setLoading(false);
+      if (seq === requestSeqRef.current) setLoading(false);
     }
   };
 
   useEffect(() => {
     load();
+    // Refetch immediately when the event filter changes; date changes use Refresh.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [eventId]);
+
+  // Self-heal: if the selected event no longer exists (deleted elsewhere),
+  // fall back to "All Events" instead of querying a ghost id.
+  useEffect(() => {
+    if (eventId && events.length > 0 && !events.some((e) => e.id === eventId)) {
+      setEventId('');
+    }
+  }, [events, eventId]);
+
+  const selectedEvent = events.find((e) => e.id === eventId);
 
   const exportCsv = () => {
     if (!report) return;
@@ -59,9 +76,29 @@ export const AdminReports: React.FC = () => {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">Reports & Analytics</h1>
-          <p className="text-sm text-gray-400 mt-1">Revenue, attendance, and sales-channel breakdown across all events.</p>
+          <p className="text-sm text-gray-400 mt-1">
+            {selectedEvent
+              ? `Revenue, attendance, and sales-channel breakdown for ${selectedEvent.title}.`
+              : 'Revenue, attendance, and sales-channel breakdown across all events.'}
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm">
+            <span className="text-xs font-semibold text-gray-400">Event</span>
+            <select
+              value={eventId}
+              onChange={(e) => setEventId(e.target.value)}
+              className="bg-transparent text-sm text-white focus:outline-none cursor-pointer"
+              aria-label="Filter report by event"
+            >
+              <option value="">All Events</option>
+              {events.map((evt) => (
+                <option key={evt.id} value={evt.id}>
+                  {evt.title}
+                </option>
+              ))}
+            </select>
+          </div>
           <div className="flex items-center gap-2 text-sm">
             <CalendarDays className="w-4 h-4 text-gray-400" />
             <input
