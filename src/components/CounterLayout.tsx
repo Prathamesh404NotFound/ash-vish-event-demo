@@ -62,6 +62,8 @@ export const CounterLayout: React.FC = () => {
             <img
               src="/ashvish-logo.png"
               alt="Ash-vish Events Logo"
+              width={1254}
+              height={1254}
               onError={(e) => {
                 const target = e.currentTarget;
                 if (target.src.includes('ashvish-logo.png')) {

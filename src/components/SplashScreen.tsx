@@ -33,7 +33,7 @@ export const SplashScreen: React.FC<{ onComplete: () => void }> = ({ onComplete 
     >
       {/* Subtle background glow */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-[#D4AF37]/[0.04] rounded-full blur-[120px]" />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[360px] h-[360px] bg-[#D4AF37]/[0.04] rounded-full blur-[80px]" />
       </div>
 
       {/* Logo */}
@@ -43,6 +43,10 @@ export const SplashScreen: React.FC<{ onComplete: () => void }> = ({ onComplete 
           <img
             src="/ashvish-logo.png"
             alt="Ash-vish Events"
+            width={1254}
+            height={1254}
+            fetchPriority="high"
+            decoding="async"
             onError={(e) => {
               const target = e.currentTarget;
               if (target.src.includes('ashvish-logo.png')) {

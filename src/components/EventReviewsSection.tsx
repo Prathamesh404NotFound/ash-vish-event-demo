@@ -9,8 +9,15 @@ interface EventReviewsSectionProps {
 }
 
 export const EventReviewsSection: React.FC<EventReviewsSectionProps> = ({ eventId }) => {
-  const { getEventReviews, submitReview } = useBooking();
+  const { getEventReviews, submitReview, ensureReviews } = useBooking();
   const { user } = useAuth();
+
+  // Reviews are fetched on demand (see BookingContext) so anonymous visitors
+  // browsing the home page never pay for them; this screen is what needs them.
+  React.useEffect(() => {
+    ensureReviews();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const reviews = getEventReviews(eventId);
   const totalReviews = reviews.length;

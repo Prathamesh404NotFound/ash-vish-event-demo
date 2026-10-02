@@ -424,7 +424,9 @@ export async function sendTicketWhatsAppWithImage(
     ticket?.posterUrl ||
     ticket?.coverUrl ||
     ticket?.eventPoster ||
-    `${appUrl}/sufiyana-shaam-poster.jpg`;
+    // Same asset as the social card — the poster copy was a byte-identical
+    // duplicate (902 KB) kept under a second filename.
+    `${appUrl}/og-image.jpg`;
   // Make relative paths absolute
   const posterUrl = rawPoster.startsWith('http') ? rawPoster : `${appUrl}${rawPoster.startsWith('/') ? '' : '/'}${rawPoster}`;
 

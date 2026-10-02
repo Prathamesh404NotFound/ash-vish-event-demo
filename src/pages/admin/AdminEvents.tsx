@@ -27,8 +27,10 @@ import {
   Tag,
 } from 'lucide-react';
 import { RowActions } from '../../components/admin/RowActions';
-import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { storage } from '../../lib/firebase';
+import { ref as storageRef, uploadBytes, getDownloadURL, getStorage } from 'firebase/storage';
+// Resolved here inside the lazily-loaded admin chunk, rather than re-exported
+// from lib/firebase, so firebase/storage stays out of the entry bundle.
+const storage = getStorage();
 import { useBooking } from '../../contexts/BookingContext';
 import { EventCategory, EventItem, EventStatus, TicketTier, Artist, PublicCounter, EarlyBirdConfig } from '../../types';
 import { formatINR } from '../../utils/formatters';

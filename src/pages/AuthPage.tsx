@@ -141,12 +141,17 @@ export const AuthPage: React.FC = () => {
           <img
             src="/og-image.jpg"
             alt="AV Events branding"
+            width={1080}
+            height={1350}
+            loading="lazy"
+            decoding="async"
+            fetchPriority="low"
             className="absolute inset-0 w-full h-full object-cover filter brightness-[0.4] contrast-[1.1]"
           />
           <div className="absolute inset-0 bg-gradient-to-t from-[#090909] via-black/40 to-transparent" />
 
           <div className="relative z-10 flex items-center gap-2">
-            <img src="/logo-tiny.webp" alt="Logo" className="w-9 h-9 rounded-xl object-cover shadow-lg" />
+            <img src="/favicon-64.png" alt="Logo" width={64} height={64} decoding="async" onError={(e) => { if (e.currentTarget.src.includes('favicon-64.png')) e.currentTarget.src = '/favicon-192.png'; }} className="w-9 h-9 rounded-xl object-cover shadow-lg" />
             <span className="font-heading font-extrabold text-2xl text-white">
               Ash-vish<span className="text-[#D4AF37]"> events</span>
             </span>

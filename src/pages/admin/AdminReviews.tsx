@@ -4,7 +4,14 @@ import { RowActions } from '../../components/admin/RowActions';
 import { useBooking } from '../../contexts/BookingContext';
 
 export const AdminReviews: React.FC = () => {
-  const { reviews, toggleReviewVisibility, deleteReview, events } = useBooking();
+  const { reviews, toggleReviewVisibility, deleteReview, events, ensureReviews } = useBooking();
+
+  // The moderation queue needs the full reviews tree — pull it on first render
+  // rather than on every page load for every visitor.
+  React.useEffect(() => {
+    ensureReviews();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const [selectedEventId, setSelectedEventId] = useState<string>('all');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');

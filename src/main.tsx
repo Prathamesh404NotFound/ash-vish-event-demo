@@ -12,8 +12,22 @@ import { SplashScreen } from './components/SplashScreen';
   ? String((import.meta as any).env.VITE_API_URL).replace(/\/$/, '')
   : '';
 
+// The brand splash is a one-time overlay: showing it on every full page load
+// cost ~800ms of blocked screen (600ms minimum + 200ms fade) on every visit,
+// which was the single largest perceived-speed drag in the perf audit.
+const SPLASH_SEEN_KEY = 'av_splash_seen_v1';
+const showBrandSplash = (() => {
+  try {
+    if (localStorage.getItem(SPLASH_SEEN_KEY) === '1') return false;
+    localStorage.setItem(SPLASH_SEEN_KEY, '1');
+    return true;
+  } catch {
+    return false; // storage unavailable → skip the splash rather than block
+  }
+})();
+
 function Root() {
-  const [splashDone, setSplashDone] = useState(false);
+  const [splashDone, setSplashDone] = useState(!showBrandSplash);
   const handleSplashComplete = useCallback(() => setSplashDone(true), []);
 
   return (

@@ -165,6 +165,7 @@ interface BookingContextType {
   deleteCoupon: (code: string) => Promise<void>;
   fetchCoupons: () => Promise<void>;
   getEventReviews: (eventId: string) => EventReview[];
+  ensureReviews: () => Promise<void>;
   submitReview: (eventId: string, rating: number, comment: string, userName?: string, userAvatar?: string) => Promise<boolean>;
   toggleReviewVisibility: (reviewId: string) => Promise<void>;
   deleteReview: (reviewId: string) => Promise<void>;
@@ -189,6 +190,12 @@ const BookingContext = createContext<BookingContextType | undefined>(undefined);
 
 export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useAuth();
+
+  // Data that only staff/organizer screens render. Anonymous and customer
+  // visitors never see these screens, so they must not pay for the round trip
+  // on every page load.
+  const ADMIN_ONLY_ROLES = ['admin', 'super_admin', 'event_manager'];
+  const ORGANIZER_ROLES = [...ADMIN_ONLY_ROLES, 'organizer', 'auditor'];
   const { showToast, clearToast } = useToast();
 
   // Firebase is the single source of truth. A clean production workspace starts
@@ -1159,6 +1166,7 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   useEffect(() => {
+    if (!user?.role || !ADMIN_ONLY_ROLES.includes(user.role)) return;
     fetchCoupons();
   }, [user?.role, user?.id]);
 
@@ -1569,7 +1577,13 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // Review state is populated only from persisted RTDB records.
   const [reviews, setReviews] = useState<EventReview[]>([]);
 
-  const fetchAllReviewsForAdmin = async () => {
+  // The full reviews tree is only needed by screens that actually render
+  // reviews (public event pages + the admin moderation queue). Fetch it on
+  // demand instead of for every anonymous visitor landing on the home page.
+  const reviewsRequestedRef = React.useRef(false);
+  const ensureReviews = async () => {
+    if (reviewsRequestedRef.current) return;
+    reviewsRequestedRef.current = true;
     try {
       const token = auth.currentUser ? await auth.currentUser.getIdToken() : undefined;
       const snap = await rtdbGet('reviews', token);
@@ -1579,13 +1593,10 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setReviews(reviewsList);
     } catch (err) {
       console.warn('RTDB reviews fetch notice:', err);
+      reviewsRequestedRef.current = false;
       setReviews([]);
     }
   };
-
-  useEffect(() => {
-    fetchAllReviewsForAdmin();
-  }, [user?.role, user?.id]);
 
   const getEventReviews = (eventId: string) => {
     return reviews.filter((r) => r.eventId === eventId && r.status === 'published');
@@ -1689,6 +1700,7 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   useEffect(() => {
+    if (!user?.role || !ORGANIZER_ROLES.includes(user.role)) return;
     fetchOrganizers();
   }, [user?.role, user?.id]);
 
@@ -1808,6 +1820,7 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         deleteCoupon,
         fetchCoupons,
         getEventReviews,
+        ensureReviews,
         submitReview,
         toggleReviewVisibility,
         deleteReview,

@@ -14,7 +14,10 @@ import { EventCard } from './components/EventCard';
 import { EmptyState } from './components/EmptyState';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ChunkErrorBoundary } from './components/ChunkErrorBoundary';
-import { QRScanner } from './components/QRScanner';
+
+// QRScanner is only needed on the /scan routes, and PWAInstallPrompt only on
+// the client after boot — both pull heavy deps (jsqr, motion/react) that would
+// otherwise sit in the entry chunk and delay first paint for every visitor.
 
 // Public / Customer Pages (lazy-loaded for code splitting)
 const Home = lazyWithRetry(() => import('./pages/Home').then(m => ({ default: m.Home })));
@@ -33,6 +36,10 @@ const BlogPostPage = lazyWithRetry(() => import('./pages/BlogPostPage').then(m =
 const TermsPage = lazyWithRetry(() => import('./pages/TermsPage').then(m => ({ default: m.TermsPage })));
 const PaymentCallbackPage = lazyWithRetry(() => import('./pages/PaymentCallbackPage').then(m => ({ default: m.PaymentCallbackPage })));
 const NotFoundPage = lazyWithRetry(() => import('./pages/NotFoundPage').then(m => ({ default: m.NotFoundPage })));
+const QRScanner = lazyWithRetry(() => import('./components/QRScanner').then(m => ({ default: m.QRScanner })));
+const PWAInstallPrompt = lazyWithRetry(() =>
+  import('./components/PWAInstallPrompt').then(m => ({ default: m.PWAInstallPrompt }))
+);
 
 function HashPassRedirectHandler() {
   const navigate = useNavigate();
@@ -79,14 +86,13 @@ const ShiftPage = lazyWithRetry(() => import('./pages/counter/ShiftPage').then(m
 const CounterOrders = lazyWithRetry(() => import('./pages/counter/CounterOrders').then(m => ({ default: m.CounterOrders })));
 const MySalesPage = lazyWithRetry(() => import('./pages/counter/MySalesPage').then(m => ({ default: m.MySalesPage })));
 const RemoteScannerPage = lazyWithRetry(() => import('./pages/counter/RemoteScannerPage').then(m => ({ default: m.RemoteScannerPage })));
-import { readPreferredStoredActiveShift } from './lib/counterSession';
 
 // New Feature Pages (lazy-loaded)
 const VerifyTicketPage = lazyWithRetry(() => import('./pages/VerifyTicketPage').then(m => ({ default: m.VerifyTicketPage })));
 const CategoryLandingPage = lazyWithRetry(() => import('./pages/CategoryLandingPage').then(m => ({ default: m.CategoryLandingPage })));
 const FestivalHubPage = lazyWithRetry(() => import('./pages/FestivalHubPage').then(m => ({ default: m.FestivalHubPage })));
 const AdminCheckinDashboard = lazyWithRetry(() => import('./pages/admin/AdminCheckinDashboard').then(m => ({ default: m.AdminCheckinDashboard })));
-import { PWAInstallPrompt, registerServiceWorker } from './components/PWAInstallPrompt';
+import { readPreferredStoredActiveShift } from './lib/counterSession';
 
 // Recovery wrapper for lazy imports.
 //
@@ -313,8 +319,13 @@ function SuspenseWrapper({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
-  // Register service worker on mount
-  React.useEffect(() => { registerServiceWorker(); }, []);
+  // Register service worker on mount (kept out of the entry chunk — the
+  // prompt module also carries motion/react, which nothing needs at boot).
+  React.useEffect(() => {
+    import('./components/PWAInstallPrompt')
+      .then((m) => m.registerServiceWorker())
+      .catch(() => {});
+  }, []);
 
   return (
     <ErrorBoundary>
@@ -432,7 +443,9 @@ export default function App() {
           </Routes>
           </SuspenseWrapper>
         </BrowserRouter>
-        <PWAInstallPrompt />
+        <React.Suspense fallback={null}>
+          <PWAInstallPrompt />
+        </React.Suspense>
         </LocaleProvider>
       </BookingProvider>
     </AuthProvider>

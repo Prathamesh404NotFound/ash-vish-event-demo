@@ -22,6 +22,8 @@ export const Footer: React.FC<FooterProps> = ({ setActiveTab }) => {
               <img
                 src="/ashvish-logo.png"
                 alt="Ash-vish Events Logo"
+                width={1254}
+                height={1254}
                 onError={(e) => {
                   const target = e.currentTarget;
                   if (target.src.includes('ashvish-logo.png')) {

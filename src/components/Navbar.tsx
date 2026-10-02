@@ -81,6 +81,8 @@ export const Navbar: React.FC<NavbarProps> = React.memo(({ onOpenSearch }) => {
               <img
                 src="/ashvish-logo.png"
                 alt="Ash-vish Events"
+                width={1254}
+                height={1254}
                 onError={(e) => {
                   const t = e.currentTarget;
                   if (t.src.includes('ashvish-logo.png')) t.src = '/favicon-192.png';

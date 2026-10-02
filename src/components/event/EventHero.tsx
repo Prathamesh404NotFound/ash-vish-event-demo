@@ -129,15 +129,15 @@ export const EventHero: React.FC<EventHeroProps> = ({
       {/* Festive ambient lighting behind the poster. */}
       <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
         <div
-          className="absolute -right-24 -top-32 h-80 w-80 rounded-full bg-[#FF9933] opacity-30"
+          className="absolute -right-16 -top-24 h-56 w-56 rounded-full bg-[#FF9933] opacity-30"
           style={{ filter: 'blur(80px)' }}
         />
         <div
-          className="absolute -right-8 top-1/3 h-72 w-72 rounded-full bg-[#D4AF37] opacity-25"
+          className="absolute -right-6 top-1/3 h-52 w-52 rounded-full bg-[#D4AF37] opacity-25"
           style={{ filter: 'blur(80px)' }}
         />
         <div
-          className="absolute -left-28 -bottom-24 h-72 w-72 rounded-full bg-[#B0172A] opacity-25"
+          className="absolute -left-20 -bottom-16 h-52 w-52 rounded-full bg-[#B0172A] opacity-25"
           style={{ filter: 'blur(80px)' }}
         />
       </div>
@@ -202,7 +202,7 @@ export const EventHero: React.FC<EventHeroProps> = ({
               {metaItems.map((item) => (
                 <div
                   key={item.key}
-                  className="flex items-start gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-3.5 py-3 backdrop-blur-md transition-colors hover:border-[#D4AF37]/30"
+                  className="flex items-start gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-3.5 py-3 backdrop-blur-sm sm:backdrop-blur-md transition-colors hover:border-[#D4AF37]/30"
                 >
                   <span className="shrink-0 text-[#D4AF37]">{item.icon}</span>
                   <span className="min-w-0">
@@ -310,7 +310,7 @@ export const EventHero: React.FC<EventHeroProps> = ({
         <div className="relative flex items-center justify-center">
           <div
             aria-hidden="true"
-            className="absolute -inset-6 rounded-[2.5rem] bg-gradient-to-tr from-[#D4AF37]/30 via-transparent to-[#B0172A]/25 blur-2xl"
+            className="absolute -inset-4 rounded-[2rem] bg-gradient-to-tr from-[#D4AF37]/30 via-transparent to-[#B0172A]/25 blur-2xl"
           />
           <div className="relative w-full max-w-sm lg:max-w-none">
             {artwork ? (

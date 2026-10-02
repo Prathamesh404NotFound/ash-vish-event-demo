@@ -2,7 +2,9 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider } from 'firebase/auth';
 import { getDatabase } from 'firebase/database';
-import { getStorage } from 'firebase/storage';
+// NOTE: firebase/storage is deliberately NOT imported here. This module is in
+// the entry chunk, and storage is only ever used by the lazily-loaded admin
+// media uploader — importing it here would ship ~19 KB gzip to every visitor.
 
 // SECURITY: All Firebase config values MUST come from env vars only — no
 // hardcoded fallbacks. Hardcoded values (vuln-0001) were removed 2026-08-19;
@@ -33,5 +35,4 @@ if (missingKeys.length > 0) {
 export const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const rtdb = getDatabase(app);
-export const storage = getStorage(app);
 export const googleProvider = new GoogleAuthProvider();
