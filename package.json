@@ -14,6 +14,7 @@
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
     "optimize:images": "node scripts/optimize-images.js",
+    "og:image": "node scripts/generate-og-image.js",
     "test:smoke": "tsx scripts/smoke-test.ts",
     "test:seat-selection": "tsx scripts/test-contiguous-seat-selection.ts",
     "test:multi-type": "tsx scripts/test-multi-type-tickets.ts",
