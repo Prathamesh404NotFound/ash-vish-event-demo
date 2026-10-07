@@ -1,8 +1,11 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Sparkles, ShieldCheck, Mail, Lock, User, ArrowRight, MessageCircle } from 'lucide-react';
 import { Button } from '../components/Button';
 import { useAuth } from '../contexts/AuthContext';
+import { useBooking } from '../contexts/BookingContext';
+import { useSEO } from '../hooks/useSEO';
+import { getUpcomingEventImageUrl } from '../utils/eventPreview';
 import { sanitizeString, validateEmail, validatePhone } from '../lib/sanitizer';
 import { TermsAcceptanceModal } from '../components/TermsAcceptanceModal';
 
@@ -14,6 +17,12 @@ export const AuthPage: React.FC = () => {
   const location = useLocation();
 
   const redirectPath = (location.state as any)?.from?.pathname || '/';
+
+  // The link preview (og:image / twitter:image) always follows the current
+  // upcoming event from the database instead of the fixed /og-image.jpg plate.
+  const { events } = useBooking();
+  const upcomingEventImage = useMemo(() => getUpcomingEventImageUrl(events), [events]);
+  useSEO({ image: upcomingEventImage });
 
   const [mode, setMode] = useState<AuthMode>('login');
   const [errorMsg, setErrorMsg] = useState('');
@@ -136,17 +145,19 @@ export const AuthPage: React.FC = () => {
       {showTerms && <TermsAcceptanceModal />}
       <div className="w-full grid grid-cols-1 lg:grid-cols-12 rounded-3xl overflow-hidden bg-[#141414] border border-white/10 shadow-2xl">
         
-        {/* Left Side: Cinematic Event Graphic */}
+        {/* Left Side: Themed brand panel (fixed event artwork removed) */}
         <div className="hidden lg:flex lg:col-span-6 relative p-12 flex-col justify-between overflow-hidden bg-[#090909]">
-          <img
-            src="/og-image.jpg"
-            alt="Current Ash-vish Events image"
-            width={1080}
-            height={1350}
-            loading="lazy"
-            decoding="async"
-            fetchPriority="low"
-            className="absolute inset-0 w-full h-full object-cover filter brightness-[0.4] contrast-[1.1]"
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_25%_18%,rgba(212,175,55,0.22),transparent_55%)]" />
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_80%_85%,rgba(212,175,55,0.10),transparent_45%)]" />
+          <div
+            className="absolute inset-0 opacity-[0.15]"
+            style={{
+              backgroundImage:
+                'linear-gradient(rgba(212,175,55,0.35) 1px, transparent 1px), linear-gradient(90deg, rgba(212,175,55,0.35) 1px, transparent 1px)',
+              backgroundSize: '48px 48px',
+              maskImage: 'radial-gradient(circle at 50% 40%, black, transparent 75%)',
+              WebkitMaskImage: 'radial-gradient(circle at 50% 40%, black, transparent 75%)',
+            }}
           />
 
           <div className="absolute inset-0 bg-gradient-to-t from-[#090909] via-black/40 to-transparent" />

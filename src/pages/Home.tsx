@@ -22,6 +22,7 @@ import { CategoryChip } from '../components/CategoryChip';
 import { getEarlyBirdView } from '../lib/earlyBird';
 import { useSEO } from '../hooks/useSEO';
 import { generateOrganizationSchema } from '../utils/structuredData';
+import { getUpcomingEventImageUrl } from '../utils/eventPreview';
 import { getCategoryBadgeText } from '../config/categoryConfig';
 import { Button } from '../components/Button';
 
@@ -59,12 +60,20 @@ export const Home: React.FC<HomeProps> = ({
   const [selectedCategory, setSelectedCategory] = useState<EventCategory | 'all'>('all');
   const [heroIndex, setHeroIndex] = useState(0);
 
+  // Site-wide link preview (og:image / twitter:image) tracks the current
+  // upcoming event from the database instead of the fixed /og-image.jpg.
+  const upcomingPreviewImage = useMemo(
+    () => getUpcomingEventImageUrl(events),
+    [events]
+  );
+
   useSEO({
     title: 'Best Event Organisers in Kolhapur, Maharashtra & India',
     description:
       'Book official tickets for concerts, standup comedy, stadium events, and theatre in Kolhapur & across Maharashtra. Ash-vish Events — trusted event organisers with instant QR-code digital entry.',
     keywords:
       'event organisers kolhapur, events in kolhapur, book tickets kolhapur, concert tickets maharashtra, event management kolhapur, best event organisers india, ash-vish events, digital qr ticket, live concerts kolhapur, standup comedy kolhapur, wedding events kolhapur, corporate events kolhapur',
+    image: upcomingPreviewImage,
     structuredData: generateOrganizationSchema(),
   });
 
