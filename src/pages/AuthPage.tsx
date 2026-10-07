@@ -140,7 +140,7 @@ export const AuthPage: React.FC = () => {
         <div className="hidden lg:flex lg:col-span-6 relative p-12 flex-col justify-between overflow-hidden bg-[#090909]">
           <img
             src="/og-image.jpg"
-            alt="AV Events branding"
+            alt="Current Ash-vish Events image"
             width={1080}
             height={1350}
             loading="lazy"
@@ -148,6 +148,7 @@ export const AuthPage: React.FC = () => {
             fetchPriority="low"
             className="absolute inset-0 w-full h-full object-cover filter brightness-[0.4] contrast-[1.1]"
           />
+
           <div className="absolute inset-0 bg-gradient-to-t from-[#090909] via-black/40 to-transparent" />
 
           <div className="relative z-10 flex items-center gap-2">
