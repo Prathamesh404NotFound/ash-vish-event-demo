@@ -39,6 +39,14 @@ export const SearchPage: React.FC<SearchPageProps> = ({
 
   const [showMobileFilters, setShowMobileFilters] = useState(false);
 
+  // Keep the category in sync when the page is opened with ?category=...
+  // (e.g. from the Home page category chips) so the filter actually applies.
+  React.useEffect(() => {
+    setFilters((prev) =>
+      prev.category === initialCategory ? prev : { ...prev, category: initialCategory }
+    );
+  }, [initialCategory]);
+
   // Available cities — dynamically derived from live events so any city
   // where an event is hosted appears in the filter list automatically.
   const cities = useMemo(() => {
@@ -60,8 +68,9 @@ export const SearchPage: React.FC<SearchPageProps> = ({
   // Filtered & Sorted events computation
   const filteredEvents = useMemo(() => {
     return events.filter((evt) => {
-      // Exclude draft, cancelled, and completed events from public search
+      // Exclude draft, cancelled, completed and admin-hidden events from public search
       if (evt.status === 'draft' || evt.status === 'cancelled' || evt.status === 'completed') return false;
+      if (evt.isEventPublic === false) return false;
 
       // Search query match
       if (
@@ -142,8 +151,8 @@ export const SearchPage: React.FC<SearchPageProps> = ({
       {/* Main Grid with Filter Sidebar & Results */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         
-        {/* Desktop Filter Sidebar */}
-        <div className="hidden lg:block lg:col-span-3 space-y-6 bg-[#141414] border border-white/10 p-6 rounded-3xl h-fit">
+        {/* Desktop Filter Sidebar / Mobile Filter Panel (toggled) */}
+        <div className={`${showMobileFilters ? 'block' : 'hidden'} lg:block lg:col-span-3 space-y-6 bg-[#141414] border border-white/10 p-6 rounded-3xl h-fit`}>
           <div className="flex items-center justify-between border-b border-white/10 pb-4">
             <h3 className="font-heading font-bold text-lg text-white flex items-center gap-2">
               <Filter className="w-4 h-4 text-[#D4AF37]" />
@@ -253,7 +262,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
               className="lg:hidden flex items-center gap-2 px-3.5 py-2 rounded-xl bg-[#1C1C1C] text-xs font-bold text-white border border-white/10"
             >
               <SlidersHorizontal className="w-4 h-4 text-[#D4AF37]" />
-              <span>Filters</span>
+              <span>{showMobileFilters ? 'Hide Filters' : 'Filters'}</span>
             </button>
           </div>
 

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, useNavigate, useParams, Outlet } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate, useParams, useSearchParams, Outlet } from 'react-router-dom';
+import { EventCategory } from './types';
 import { AuthProvider } from './contexts/AuthContext';
 import { BookingProvider, useBooking } from './contexts/BookingContext';
 import { ToastProvider } from './contexts/ToastContext';
@@ -189,7 +190,13 @@ function HomeRoute() {
       onBookNow={(evt) => {
         navigate(`/events/${evt.id}`);
       }}
-      onNavigateToSearch={() => navigate('/events')}
+      onNavigateToSearch={(category?: EventCategory | 'all') =>
+        navigate(
+          category && category !== 'all'
+            ? `/events?category=${encodeURIComponent(category)}`
+            : '/events'
+        )
+      }
     />
   );
 }
@@ -230,11 +237,22 @@ function EventDetailRoute() {
 
 function SearchRoute() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { selectTicketsForCheckout } = useBooking();
+
+  // Honour the category the Home page (or any other link) passed in the URL so
+  // the search results open with that filter actually applied.
+  const categoryParam = searchParams.get('category') || 'all';
+  const validCategories: (EventCategory | 'all')[] = [
+    'all', 'concert', 'comedy', 'sports', 'theatre', 'festival',
+  ];
+  const initialCategory = validCategories.includes(categoryParam as EventCategory | 'all')
+    ? (categoryParam as EventCategory | 'all')
+    : 'all';
 
   return (
     <SearchPage
-      initialCategory="all"
+      initialCategory={initialCategory}
       onSelectEvent={(evt) => navigate(`/events/${evt.id}`)}
       onBookNow={(evt) => {
         navigate(`/events/${evt.id}`);

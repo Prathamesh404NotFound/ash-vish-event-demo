@@ -194,6 +194,9 @@ export const AdminBookings: React.FC = () => {
   const [discountStatus, setDiscountStatus] = useState<'all' | 'applied' | 'none'>('all');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  // True only when the orders API itself is unreachable. A successful request
+  // that matches zero rows must show an empty table, not the unfiltered list.
+  const [ordersApiDown, setOrdersApiDown] = useState(false);
 
   // Pagination
   const [page, setPage] = useState(1);
@@ -246,8 +249,10 @@ export const AdminBookings: React.FC = () => {
         setOrders(result.data as AdminOrder[]);
         setTotalCount(result.data.length);
       }
+      setOrdersApiDown(result.ok === false);
       setLastSyncedAt(new Date());
     } catch {
+      setOrdersApiDown(true);
       if (!silent) showBanner('error', 'Could not load orders.');
     } finally {
       if (silent) setIsRefreshing(false);
@@ -311,7 +316,10 @@ export const AdminBookings: React.FC = () => {
         })),
     [allTickets]
   );
-  const viewOrders = orders.length > 0 ? orders : fallbackOrders;
+  // Only fall back to the local RTDB ticket list when the orders API cannot be
+  // reached at all. When the API answers, its (possibly empty) filtered result
+  // is the source of truth so the table always reflects the active filters.
+  const viewOrders = ordersApiDown && orders.length === 0 ? fallbackOrders : orders;
 
   const handleExportFilteredCSV = async () => {
     try {

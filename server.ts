@@ -9540,10 +9540,12 @@ app.get("/api/counter/my-sales", requireRole(["counter_staff", "event_manager", 
         if (issuedBySubId !== subIdLower && orderSubUserId !== subIdLower) return false;
       }
 
-      // Check if this ticket belongs to the requesting staff member (or their sub-users)
-      // Admins and Event Managers can see everything in this view for now, or we can scope it.
-      if (rbacRole === "super_admin" || rbacRole === "event_manager") return true;
+      // Admins and Event Managers can see every staff member's sales. Their
+      // scope check is skipped, but the event/status/date/search filters
+      // below must still apply — otherwise the UI filters do nothing for them.
+      const isUnscopedViewer = rbacRole === "super_admin" || rbacRole === "event_manager";
 
+      // Check if this ticket belongs to the requesting staff member (or their sub-users)
       const isStaffMatch = 
         scannedBy === staffId.toLowerCase() ||
         scannedBy === staffEmail.toLowerCase() ||
@@ -9552,7 +9554,7 @@ app.get("/api/counter/my-sales", requireRole(["counter_staff", "event_manager", 
         orderCreatedBy === staffId.toLowerCase() ||
         (order?.shiftId && String(order.shiftId).toLowerCase().includes(staffId.toLowerCase()));
 
-      if (!isStaffMatch) return false;
+      if (!isUnscopedViewer && !isStaffMatch) return false;
 
       if (eventId && t.eventId !== eventId) return false;
       if (status && t.status !== status) return false;

@@ -1456,6 +1456,7 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       return {
+        ok: true as const,
         orders: json.orders || [],
         total: json.total || 0,
         summary: json.summary || { totalRevenue: 0, totalDiscount: 0, totalTickets: 0, totalOrders: 0 },
@@ -1464,7 +1465,9 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       };
     } catch (err) {
       console.warn('fetchOrders failed:', err);
-      return { orders: [], total: 0, summary: { totalRevenue: 0, totalDiscount: 0, totalTickets: 0, totalOrders: 0 }, page: 1, pageSize: 20 };
+      // `ok: false` lets callers tell an unreachable API apart from a
+      // legitimate "0 rows match these filters" response.
+      return { ok: false as const, orders: [], total: 0, summary: { totalRevenue: 0, totalDiscount: 0, totalTickets: 0, totalOrders: 0 }, page: 1, pageSize: 20 };
     }
   };
 
