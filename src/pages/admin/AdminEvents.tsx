@@ -25,6 +25,8 @@ import {
   Building2,
   Send,
   Tag,
+  Handshake,
+  Link as LinkIcon,
 } from 'lucide-react';
 import { RowActions } from '../../components/admin/RowActions';
 import { ref as storageRef, uploadBytes, getDownloadURL, getStorage } from 'firebase/storage';
@@ -32,7 +34,7 @@ import { ref as storageRef, uploadBytes, getDownloadURL, getStorage } from 'fire
 // from lib/firebase, so firebase/storage stays out of the entry bundle.
 const storage = getStorage();
 import { useBooking } from '../../contexts/BookingContext';
-import { EventCategory, EventItem, EventStatus, TicketTier, Artist, PublicCounter, EarlyBirdConfig } from '../../types';
+import { EventCategory, EventItem, EventStatus, TicketTier, Artist, PublicCounter, EarlyBirdConfig, Sponsor, SponsorType } from '../../types';
 import { formatINR } from '../../utils/formatters';
 
 interface TierInput {
@@ -117,6 +119,10 @@ export const AdminEvents: React.FC = () => {
   // Counter Panel Integration: Available & Assigned Counters
   const [availableCounters, setAvailableCounters] = useState<PublicCounter[]>([]);
   const [assignedCounterIds, setAssignedCounterIds] = useState<string[]>([]);
+
+  // Sponsors
+  const [sponsors, setSponsors] = useState<Sponsor[]>([]);
+  const [sponsorLogoUploading, setSponsorLogoUploading] = useState<Record<string, boolean>>({});
 
   // Fetch available counters from Counter Panel
   React.useEffect(() => {
@@ -281,6 +287,8 @@ export const AdminEvents: React.FC = () => {
     setEarlyBirdEndsAt('');
     setScheduledPublishAt('');
     setScheduledUnpublishAt('');
+    setSponsors([]);
+    setSponsorLogoUploading({});
     setFormError(null);
     setUploadError(null);
     setShowModal(true);
@@ -382,7 +390,63 @@ export const AdminEvents: React.FC = () => {
 
     setFormError(null);
     setUploadError(null);
+    setSponsors(Array.isArray((evt as any).sponsors) ? (evt as any).sponsors : []);
+    setSponsorLogoUploading({});
     setShowModal(true);
+  };
+
+  // Sponsor logo upload — uploads to Firebase Storage and sets the URL on the sponsor record.
+  const handleSponsorLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>, sponsorId: string) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml'];
+    if (!allowed.includes(file.type)) {
+      alert('Sponsor logo must be a JPEG, PNG, WEBP, GIF or SVG file.');
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      alert('Sponsor logo must be under 2 MB.');
+      return;
+    }
+    setSponsorLogoUploading((prev) => ({ ...prev, [sponsorId]: true }));
+    try {
+      const targetId = editingEventId || 'new_event_' + Date.now();
+      const cleanName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
+      const path = `events/${targetId}/sponsors/${sponsorId}_${Date.now()}_${cleanName}`;
+      const ref = storageRef(storage, path);
+      const snap = await uploadBytes(ref, file);
+      const url = await getDownloadURL(snap.ref);
+      setSponsors((prev) => prev.map((s) => s.id === sponsorId ? { ...s, logoUrl: url } : s));
+    } catch (err: any) {
+      // Data URL fallback
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const dataUrl = ev.target?.result as string;
+        if (dataUrl) setSponsors((prev) => prev.map((s) => s.id === sponsorId ? { ...s, logoUrl: dataUrl } : s));
+      };
+      reader.readAsDataURL(file);
+    } finally {
+      setSponsorLogoUploading((prev) => ({ ...prev, [sponsorId]: false }));
+    }
+  };
+
+  const handleAddSponsor = () => {
+    const newSponsor: Sponsor = {
+      id: `sponsor_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      name: '',
+      type: 'title',
+      logoUrl: '',
+      website: '',
+    };
+    setSponsors((prev) => [...prev, newSponsor]);
+  };
+
+  const handleRemoveSponsor = (sponsorId: string) => {
+    setSponsors((prev) => prev.filter((s) => s.id !== sponsorId));
+  };
+
+  const handleUpdateSponsor = (sponsorId: string, field: keyof Sponsor, value: any) => {
+    setSponsors((prev) => prev.map((s) => (s.id === sponsorId ? { ...s, [field]: value } : s)));
   };
 
   // Client-side file type & size validation + Firebase Storage upload
@@ -697,6 +761,8 @@ export const AdminEvents: React.FC = () => {
       usesSeatMap,
       // Event-level perks/features
       perks: perksText.split(',').map((p) => p.trim()).filter(Boolean),
+      // Sponsors
+      sponsors: sponsors.length > 0 ? sponsors : [],
     };
 
     setIsSaving(true);
@@ -2064,6 +2130,167 @@ export const AdminEvents: React.FC = () => {
                     ))
                   )}
                 </div>
+              </div>
+
+              {/* Section 5: Event Sponsors & Brand Partners */}
+              <div className="space-y-4 pt-4 border-t border-white/10">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-heading font-black text-white text-base flex items-center gap-2">
+                      <Handshake className="w-5 h-5 text-[#D4AF37]" />
+                      Event Sponsors &amp; Brand Partners
+                    </h3>
+                    <p className="text-gray-400 text-xs mt-0.5">
+                      Categorize event sponsors (Title, Gold, Silver, Media, etc.). Logos are shown on the event page, ticket PDF, and embedded subtly inside the ticket QR code.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleAddSponsor}
+                    className="py-2 px-3 bg-[#D4AF37]/10 hover:bg-[#D4AF37]/20 border border-[#D4AF37]/30 text-[#D4AF37] rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
+                  >
+                    <Plus className="w-4 h-4" /> Add Sponsor
+                  </button>
+                </div>
+
+                {sponsors.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-white/10 p-6 text-center bg-white/[0.01]">
+                    <p className="text-gray-400 text-xs">No sponsors configured for this event yet.</p>
+                    <button
+                      type="button"
+                      onClick={handleAddSponsor}
+                      className="mt-3 text-xs text-[#D4AF37] hover:underline font-bold"
+                    >
+                      + Add Title / Presenting / Tier Sponsors
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {sponsors.map((sp, idx) => (
+                      <div
+                        key={sp.id}
+                        className="bg-[#181818] border border-white/10 rounded-2xl p-4 space-y-3 relative group"
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-2">
+                            <span className="w-6 h-6 rounded-full bg-[#D4AF37]/20 text-[#D4AF37] font-mono text-[11px] font-black flex items-center justify-center">
+                              {idx + 1}
+                            </span>
+                            <span className="text-xs font-bold text-white">
+                              {sp.name || 'Untitled Sponsor'}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveSponsor(sp.id)}
+                            className="text-gray-400 hover:text-red-400 p-1 rounded-lg hover:bg-white/5 transition-colors cursor-pointer"
+                            title="Remove Sponsor"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                          {/* Sponsor Name */}
+                          <div>
+                            <label className="text-gray-400 text-[10px] font-bold block mb-1">
+                              Sponsor Name *
+                            </label>
+                            <input
+                              type="text"
+                              required
+                              value={sp.name}
+                              onChange={(e) => handleUpdateSponsor(sp.id, 'name', e.target.value)}
+                              placeholder="e.g. Red Bull / Spotify"
+                              className="w-full bg-[#101010] border border-white/10 rounded-lg px-2.5 py-2 text-white text-xs focus:outline-none focus:border-[#D4AF37]"
+                            />
+                          </div>
+
+                          {/* Sponsor Type */}
+                          <div>
+                            <label className="text-gray-400 text-[10px] font-bold block mb-1">
+                              Sponsor Type *
+                            </label>
+                            <select
+                              value={sp.type}
+                              onChange={(e) =>
+                                handleUpdateSponsor(sp.id, 'type', e.target.value as SponsorType)
+                              }
+                              className="w-full bg-[#101010] border border-white/10 rounded-lg px-2.5 py-2 text-white text-xs focus:outline-none focus:border-[#D4AF37]"
+                            >
+                              <option value="title">Title Sponsor</option>
+                              <option value="presenting">Presenting Sponsor</option>
+                              <option value="gold">Gold Sponsor</option>
+                              <option value="silver">Silver Sponsor</option>
+                              <option value="bronze">Bronze Sponsor</option>
+                              <option value="media_partner">Media Partner</option>
+                              <option value="associate">Associate Partner</option>
+                            </select>
+                          </div>
+
+                          {/* Website URL */}
+                          <div>
+                            <label className="text-gray-400 text-[10px] font-bold block mb-1">
+                              Website URL (Optional)
+                            </label>
+                            <input
+                              type="url"
+                              value={sp.website || ''}
+                              onChange={(e) => handleUpdateSponsor(sp.id, 'website', e.target.value)}
+                              placeholder="https://..."
+                              className="w-full bg-[#101010] border border-white/10 rounded-lg px-2.5 py-2 text-white text-xs focus:outline-none focus:border-[#D4AF37]"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Logo Upload / URL */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2 border-t border-white/5">
+                          <div>
+                            <label className="text-gray-400 text-[10px] font-bold block mb-1">
+                              Logo Image File
+                            </label>
+                            <input
+                              type="file"
+                              accept="image/jpeg,image/png,image/webp,image/gif,image/svg+xml"
+                              onChange={(e) => handleSponsorLogoUpload(e, sp.id)}
+                              className="w-full text-xs text-gray-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-[#D4AF37]/20 file:text-[#D4AF37] hover:file:bg-[#D4AF37]/30 cursor-pointer"
+                            />
+                            {sponsorLogoUploading[sp.id] && (
+                              <p className="text-[10px] text-[#D4AF37] mt-1 animate-pulse">
+                                Uploading logo...
+                              </p>
+                            )}
+                          </div>
+
+                          <div>
+                            <label className="text-gray-400 text-[10px] font-bold block mb-1">
+                              Or Direct Logo Image URL
+                            </label>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="url"
+                                value={sp.logoUrl || ''}
+                                onChange={(e) => handleUpdateSponsor(sp.id, 'logoUrl', e.target.value)}
+                                placeholder="https://..."
+                                className="w-full bg-[#101010] border border-white/10 rounded-lg px-2.5 py-1.5 text-white text-xs focus:outline-none focus:border-[#D4AF37]"
+                              />
+                              {sp.logoUrl && (
+                                <img
+                                  src={sp.logoUrl}
+                                  alt="Preview"
+                                  className="w-8 h-8 rounded bg-white/10 object-contain p-0.5 border border-white/20 shrink-0"
+                                  onError={(e) => {
+                                    (e.target as HTMLElement).style.display = 'none';
+                                  }}
+                                />
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Submit Buttons */}

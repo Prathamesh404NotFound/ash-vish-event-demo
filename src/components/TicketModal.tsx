@@ -23,13 +23,23 @@ export const TicketModal: React.FC<TicketModalProps> = ({ ticket, onClose }) => 
 
   const event = getEventById(ticket.eventId);
 
+  /** Highest-priority sponsor logo for the QR overlay (Title > Presenting > Gold). */
+  const primarySponsorLogoUrl: string | undefined = (() => {
+    const sponsors = Array.isArray(event?.sponsors) ? event!.sponsors! : [];
+    for (const t of ['title', 'presenting', 'gold']) {
+      const sp = sponsors.find((s) => s.type === t && s.logoUrl);
+      if (sp?.logoUrl) return sp.logoUrl;
+    }
+    return undefined;
+  })();
+
   const handleDownloadPDF = async () => {
     if (isDownloading) return;
     setIsDownloading(true);
     // Yield to the browser main thread to allow the Framer Motion spinner to mount/spin and the high-res canvas to fully paint.
     await new Promise((resolve) => setTimeout(resolve, 600));
     try {
-      await generateTicketPDF(ticket, event, signedToken);
+      await generateTicketPDF(ticket, event, signedToken, Array.isArray(event?.sponsors) ? event!.sponsors : undefined);
     } catch (err) {
       console.error('Failed to generate PDF:', err);
     } finally {
@@ -95,7 +105,7 @@ export const TicketModal: React.FC<TicketModalProps> = ({ ticket, onClose }) => 
         {/* QR Code Section */}
         <div className="p-6 flex flex-col items-center justify-center bg-[#090909] text-center">
           <div id={`qr-canvas-${ticket.id}`} className="p-4 bg-white rounded-2xl shadow-2xl border-4 border-[#D4AF37]">
-            <QRPlaceholder id={ticket.id} value={signedToken} size={200} showScanLine />
+            <QRPlaceholder id={ticket.id} value={signedToken} size={200} showScanLine sponsorLogoUrl={primarySponsorLogoUrl} />
           </div>
 
           <p className="mt-3 font-mono text-xs text-[#D4AF37] tracking-widest font-bold">

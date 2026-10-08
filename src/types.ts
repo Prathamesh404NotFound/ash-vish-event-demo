@@ -73,6 +73,30 @@ export interface SeatNode {
   seatIdLabel?: string; // human-readable row/label override for the event
 }
 
+/** Sponsor type categories — controls the badge label in the UI. */
+export type SponsorType =
+  | 'title'
+  | 'presenting'
+  | 'gold'
+  | 'silver'
+  | 'bronze'
+  | 'media_partner'
+  | 'associate';
+
+/**
+ * A single sponsor entry attached to an event.
+ * The logo is hosted on Firebase Storage (or any CDN URL).
+ */
+export interface Sponsor {
+  id: string;
+  name: string;
+  type: SponsorType;
+  /** Publicly accessible image URL for the sponsor logo. */
+  logoUrl?: string;
+  /** Optional click-through link shown on the event page. */
+  website?: string;
+}
+
 /** Time-boxed Early Bird discount configured per event in the admin panel. */
 export interface EarlyBirdConfig {
   /** Master switch for the promotion. */
@@ -166,6 +190,12 @@ export interface EventItem {
   assignedCounterIds?: string[];
   /** Early Bird time-boxed discount; applied server-side while the window is active. */
   earlyBird?: EarlyBirdConfig | null;
+  /**
+   * Sponsors for this event. Each entry carries a type (title / gold / silver / …)
+   * and an optional logo URL. Displayed subtly on the event page and embedded
+   * as a small overlay in the QR code and PDF ticket.
+   */
+  sponsors?: Sponsor[];
 }
 
 export interface CounterSubUser {

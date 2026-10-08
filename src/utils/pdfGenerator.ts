@@ -1,9 +1,10 @@
-import { Ticket, EventItem } from '../types';
+import { Ticket, EventItem, Sponsor } from '../types';
 
 export const generateTicketPDF = async (
   ticket: Ticket,
   event?: EventItem,
-  signedToken?: string
+  signedToken?: string,
+  sponsors?: Sponsor[]
 ): Promise<void> => {
   const { default: jsPDF } = await import('jspdf');
   const doc = new jsPDF({
@@ -290,9 +291,39 @@ export const generateTicketPDF = async (
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
   doc.setTextColor(180, 180, 180);
-  doc.text('• Gate closes 30 minutes prior to event start. Re-entry is strictly prohibited unless authorized.', 23, 253);
-  doc.text('• Sharing duplicate prints or digital snapshots of this pass will trigger automatic ticket blacklisting.', 23, 258);
-  doc.text('• A valid matching Photo ID must be presented upon entry for wristband exchange and seat allocation.', 23, 263);
+  doc.text('\u2022 Gate closes 30 minutes prior to event start. Re-entry is strictly prohibited unless authorized.', 23, 253);
+  doc.text('\u2022 Sharing duplicate prints or digital snapshots of this pass will trigger automatic ticket blacklisting.', 23, 258);
+  doc.text('\u2022 A valid matching Photo ID must be presented upon entry for wristband exchange and seat allocation.', 23, 263);
+
+  // 10b. Sponsor strip (rendered only when sponsor data is present)
+  if (sponsors && sponsors.length > 0) {
+    // Thin separator
+    doc.setDrawColor(55, 55, 55);
+    doc.setLineWidth(0.2);
+    doc.line(23, 266, 187, 266);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.5);
+    doc.setTextColor(120, 120, 120);
+    doc.text('SPONSORS & PARTNERS:', 23, 269.5);
+
+    const sponsorNames = sponsors
+      .map((s) => {
+        const typeLabel = s.type === 'media_partner' ? 'Media Partner' :
+          s.type.charAt(0).toUpperCase() + s.type.slice(1);
+        return `${s.name} (${typeLabel})`;
+      })
+      .join('  \u2022  ');
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.5);
+    doc.setTextColor(150, 150, 150);
+    // Wrap long sponsor lists to fit within the ticket width
+    const sponsorLines = doc.splitTextToSize(sponsorNames, 164);
+    sponsorLines.slice(0, 2).forEach((line: string, i: number) => {
+      doc.text(line, 23, 273 + i * 3.5);
+    });
+  }
 
   // 11. Luxury Gold Footer Band
   doc.setFillColor(gold[0], gold[1], gold[2]);

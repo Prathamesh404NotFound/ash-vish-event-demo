@@ -33,6 +33,7 @@ import { isSeatBasedEvent } from '../lib/seatMap';
 import { useSEO } from '../hooks/useSEO';
 import { generateEventSchema, generateOrganizationSchema } from '../utils/structuredData';
 import { TicketLineItem, sumItemQuantities } from '../lib/ticketItems';
+import { EventSponsorStrip } from '../components/EventSponsorStrip';
 
 interface EventDetailProps {
   event: EventItem;
@@ -73,6 +74,22 @@ export const EventDetail: React.FC<EventDetailProps> = ({
   /** Tiers that can only be purchased at a physical ticket counter. */
   const counterOnlyTiers = ticketTiers.filter((t) => t.counterOnly);
 
+  /** Sponsors list from event data. */
+  const sponsors = Array.isArray(event.sponsors) ? event.sponsors : [];
+  /**
+   * The highest-priority sponsor logo used as a subtle center overlay in the
+   * QR code. We pick Title > Presenting > Gold in that order; absent those,
+   * we leave the QR overlay as the standard ticket icon.
+   */
+  const primarySponsorLogoUrl: string | undefined = (() => {
+    const priority: Array<string> = ['title', 'presenting', 'gold'];
+    for (const t of priority) {
+      const sp = sponsors.find((s) => s.type === t && s.logoUrl);
+      if (sp?.logoUrl) return sp.logoUrl;
+    }
+    return undefined;
+  })();
+
   const eventSchema = generateEventSchema(event);
   useSEO({
     title: `${event.title} - ${event.venue}, ${event.city}`,
@@ -103,7 +120,8 @@ export const EventDetail: React.FC<EventDetailProps> = ({
   const [allCounters, setAllCounters] = useState<PublicCounter[]>([]);
 
   // Shared clock. Ticks only while a configured promotion window is still
-  // pending, so the hero's discount banner, timer and prices flip the instant
+  // pending, so the hero's discount banner, timer and pr
+  // ices flip the instant
   // the window opens or closes — and then the interval stops itself.
   const [now, setNow] = useState(() => Date.now());
   React.useEffect(() => {
@@ -280,6 +298,12 @@ export const EventDetail: React.FC<EventDetailProps> = ({
           alert('Event link copied to clipboard!');
         }}
       />
+
+      {/* Sponsors strip — shown between the hero and main content when the
+          event has at least one sponsor configured.                          */}
+      {sponsors.length > 0 && (
+        <EventSponsorStrip sponsors={sponsors} />
+      )}
 
       {/* Main Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
