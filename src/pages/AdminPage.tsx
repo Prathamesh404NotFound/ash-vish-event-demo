@@ -22,12 +22,33 @@ import { EventEditor } from '../components/admin/EventEditor';
 import { RowActions } from '../components/admin/RowActions';
 import { safeFetch } from '../lib/api';
 import { authenticatedApiHeaders } from '../lib/authHeaders';
+import { Button } from '../components/Button';
+import { ExportSetupDialog } from '../components/admin/ExportSetupDialog';
+import { downloadTable, type ExportFormat } from '../lib/exportFile';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '../components/Dialog/Dialog';
 
 export const AdminPage: React.FC = () => {
   const { events, myTickets, addEvent, updateEvent, deleteEvent, scanTicketQR, showToast } = useBooking();
 
   const [activeTab, setActiveTab] = useState<'dashboard' | 'events' | 'scanner' | 'bookings'>('dashboard');
   const [editorMode, setEditorMode] = useState<'create' | 'edit' | null>(null);
+  const [rosterExportOpen, setRosterExportOpen] = useState(false);
+  const [rosterColumns, setRosterColumns] = useState<string[]>([
+    'Ticket Ref',
+    'Attendee Name',
+    'Email',
+    'Phone',
+    'Event',
+    'Tier',
+    'Price Paid',
+    'Status',
+  ]);
   const [editorEvent, setEditorEvent] = useState<EventItem | null>(null);
 
   // Scanner state
@@ -105,28 +126,36 @@ export const AdminPage: React.FC = () => {
 
   // Attendee roster CSV export — downloads the currently filtered attendee
   // table as a properly-escaped CSV file.
-  const handleExportRosterCsv = () => {
+  const handleExportRosterCsv = (columns?: string[], format: ExportFormat = 'csv') => {
     if (filteredBookings.length === 0) {
       showToast('No attendees match the current filters to export.', 'error');
       return;
     }
-    const csvCell = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-    const headers = ['Ticket Ref', 'Attendee Name', 'Email', 'Phone', 'Event', 'Tier', 'Price Paid', 'Status'];
-    const rows = filteredBookings.map((b: any) =>
-      [b.ticketNumber, b.attendeeName, b.attendeeEmail || '', b.attendeePhone || '',
-       b.eventTitle, b.tierName || '', b.totalPaid ?? 0, b.status]
-        .map(csvCell).join(',')
+    const defaultColumns = [
+      { id: 'Ticket Ref', label: 'Ticket Ref', value: (b: any) => b.ticketNumber ?? '' },
+      { id: 'Attendee Name', label: 'Attendee Name', value: (b: any) => b.attendeeName ?? '' },
+      { id: 'Email', label: 'Email', value: (b: any) => b.attendeeEmail ?? '' },
+      { id: 'Phone', label: 'Phone', value: (b: any) => b.attendeePhone ?? '' },
+      { id: 'Event', label: 'Event', value: (b: any) => b.eventTitle ?? '' },
+      { id: 'Tier', label: 'Tier', value: (b: any) => b.tierName ?? '' },
+      { id: 'Price Paid', label: 'Price Paid', value: (b: any) => b.totalPaid ?? 0 },
+      { id: 'Status', label: 'Status', value: (b: any) => b.status ?? '' },
+    ];
+    const selectedDefs = columns && columns.length
+      ? defaultColumns.filter((c) => columns.includes(c.id))
+      : defaultColumns;
+    if (selectedDefs.length === 0) {
+      showToast('Select at least one column to export.', 'error');
+      return;
+    }
+    const rows = filteredBookings.map((b) => selectedDefs.map((c) => c.value(b)));
+    downloadTable(
+      selectedDefs.map((c) => c.label),
+      rows,
+      format,
+      `attendee_roster_${new Date().toISOString().split('T')[0]}`
     );
-    const blob = new Blob(['\ufeff' + [headers.join(','), ...rows].join('\n')], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `attendee_roster_${new Date().toISOString().split('T')[0]}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    showToast(`Exported ${filteredBookings.length} attendee(s) to CSV.`, 'success');
+    showToast(`Exported ${filteredBookings.length} attendee(s).`, 'success');
   };
 
   // Delete ticket handler
@@ -444,12 +473,35 @@ export const AdminPage: React.FC = () => {
             </div>
 
             <button
-              onClick={handleExportRosterCsv}
+              onClick={() => setRosterExportOpen(true)}
               className="px-4 py-2.5 rounded-xl bg-[#141414] border border-white/10 text-white font-semibold text-xs flex items-center gap-2"
             >
               <Download className="w-4 h-4" />
               <span>Export Roster CSV</span>
             </button>
+            <ExportSetupDialog
+              open={rosterExportOpen}
+              onOpenChange={setRosterExportOpen}
+              setup={{
+                title: 'Export Attendee Roster',
+                format: 'csv',
+                columns: rosterColumns,
+                defaultColumns: [
+                  'Ticket Ref',
+                  'Attendee Name',
+                  'Email',
+                  'Phone',
+                  'Event',
+                  'Tier',
+                  'Price Paid',
+                  'Status',
+                ],
+              }}
+              onConfirm={(columns, format) => {
+                setRosterColumns(columns);
+                handleExportRosterCsv(columns, format);
+              }}
+            />
           </div>
 
           <div className="bg-[#141414] border border-white/10 rounded-3xl overflow-hidden shadow-2xl">

@@ -8,6 +8,7 @@ import { rtdbGet, rtdbSet, rtdbDelete, rtdbUpdate } from '../lib/rtdb';
 import { isSeatBasedEvent } from '../lib/seatMap';
 import { useToast } from './ToastContext';
 import { TicketLineItem, sumItemQuantities } from '../lib/ticketItems';
+import { downloadCsvText } from '../lib/exportFile';
 
 export interface CheckoutSession {
   event: EventItem;
@@ -1506,8 +1507,9 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     eventId?: string; status?: string; channel?: string;
     counterName?: string; issuer?: string; discountStatus?: 'applied' | 'none';
     dateFrom?: string; dateTo?: string; search?: string;
+    columns?: string[]; format?: 'csv' | 'excel';
   } = {}) => {
-    const { orderIds, subject, message, ...filters } = payload;
+    const { orderIds, subject, message, format, ...filters } = payload;
     const body: any = { action };
     if (orderIds && orderIds.length > 0) body.orderIds = orderIds;
     if (action === 'email' || action === 'cancel') {
@@ -1521,13 +1523,10 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         body: JSON.stringify(body),
       });
       if (res.ok) {
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `orders-export-${new Date().toISOString().slice(0, 10)}.csv`;
-        a.click();
-        URL.revokeObjectURL(url);
+        // The API always answers CSV text; convert to Excel when requested so
+        // the checklist's format choice actually reaches the downloaded file.
+        const csv = await res.text();
+        downloadCsvText(csv, format || 'csv', `orders-export-${new Date().toISOString().slice(0, 10)}`);
         return res;
       }
       return res;

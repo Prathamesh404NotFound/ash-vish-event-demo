@@ -18,9 +18,18 @@ import {
   Users,
 } from 'lucide-react';
 import { RowActions } from '../../components/admin/RowActions';
+import { ExportSetupDialog } from '../../components/admin/ExportSetupDialog';
+import { downloadTable, downloadCsvText, type ExportFormat } from '../../lib/exportFile';
 import { useBooking } from '../../contexts/BookingContext';
 import { safeFetch } from '../../lib/api';
 import { authenticatedApiHeaders } from '../../lib/authHeaders';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '../../components/Dialog/Dialog';
 
 interface AdminCounterOption {
   id: string;
@@ -321,9 +330,9 @@ export const AdminBookings: React.FC = () => {
   // is the source of truth so the table always reflects the active filters.
   const viewOrders = ordersApiDown && orders.length === 0 ? fallbackOrders : orders;
 
-  const handleExportFilteredCSV = async () => {
+  const handleExportFilteredCSV = async (columns?: string[], format: ExportFormat = 'csv') => {
     try {
-      await bulkOrdersAction('export', {
+      const res = await bulkOrdersAction('export', {
         eventId: filterEventId || undefined,
         status: filterStatus || undefined,
         channel: filterChannel || undefined,
@@ -333,79 +342,72 @@ export const AdminBookings: React.FC = () => {
         dateFrom: dateFrom || undefined,
         dateTo: dateTo || undefined,
         search: search || undefined,
+        columns: columns && columns.length ? columns : undefined,
+        format,
       });
+      if (!res.ok) throw new Error('export failed');
       showBanner('success', 'Filtered export downloaded.');
     } catch {
       showBanner('error', 'Filtered export failed; falling back to CSV of current table.');
-      const headers =
-        'Order ID,Event,Customer,Email,Phone,Amount,Status,Channel,Created\n';
-      const rows = viewOrders
-        .map((o) =>
-          [
-            o.orderId || o.id,
-            o.eventTitle || o.eventName || '',
-            o.customerName || o.attendeeName || '',
-            o.customerEmail || o.attendeeEmail || '',
-            o.customerPhone || o.attendeePhone || '',
-            `₹${o.totalAmount ?? o.amount ?? o.amountPaid ?? 0}`,
-            o.status || '',
-            o.channel || '',
-            o.createdAt || '',
-          ]
-            .map((v) => `"${String(v).replace(/"/g, '""')}"`)
-            .join(',')
-        )
-        .join('\n');
-      const blob = new Blob([headers + rows], { type: 'text/csv' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `ash_vish_orders_export_${Date.now()}.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
+      const fallbackCols = [
+        { id: 'Order ID', value: (o: AdminOrder) => o.orderId || o.id || '' },
+        { id: 'Event', value: (o: AdminOrder) => o.eventTitle || o.eventName || '' },
+        { id: 'Customer', value: (o: AdminOrder) => o.customerName || (o as any).attendeeName || '' },
+        { id: 'Email', value: (o: AdminOrder) => o.customerEmail || (o as any).attendeeEmail || '' },
+        { id: 'Phone', value: (o: AdminOrder) => o.customerPhone || (o as any).attendeePhone || '' },
+        { id: 'Tier', value: (o: AdminOrder) => (o as any).tierName || '' },
+        { id: 'Quantity', value: (o: AdminOrder) => o.quantity || o.seatsCount || 1 },
+        { id: 'Amount', value: (o: AdminOrder) => `₹${o.totalAmount ?? (o as any).amount ?? o.amountPaid ?? 0}` },
+        { id: 'Discount', value: (o: AdminOrder) => (o as any).discountAmount || 0 },
+        { id: 'Amount Paid', value: (o: AdminOrder) => o.amountPaid ?? '' },
+        { id: 'Status', value: (o: AdminOrder) => o.status || '' },
+        { id: 'Channel', value: (o: AdminOrder) => o.channel || '' },
+        { id: 'Counter', value: (o: AdminOrder) => (o as any).counterName || '' },
+        { id: 'Created', value: (o: AdminOrder) => o.createdAt || '' },
+      ];
+      const selected = columns && columns.length
+        ? fallbackCols.filter((c) => columns!.includes(c.id))
+        : fallbackCols;
+      const rows = viewOrders.map((o) => selected.map((c) => c.value(o)));
+      downloadTable(
+        selected.map((c) => c.id),
+        rows,
+        format,
+        `ash_vish_orders_export_${Date.now()}`
+      );
     }
   };
 
-  const handleExportEntryReport = async () => {
+  const handleExportEntryReport = async (columns?: string[], format: ExportFormat = 'csv') => {
     try {
       const headers = await authenticatedApiHeaders();
       const params = new URLSearchParams({ format: 'csv' });
       if (filterEventId) params.set('eventId', filterEventId);
       if (search) params.set('q', search);
+      if (columns && columns.length) params.set('columns', columns.join(','));
       const res = await fetch(`/api/admin/entry-report?${params.toString()}`, { headers });
       if (!res.ok) throw new Error('export failed');
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `entry-report-${Date.now()}.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
+      const csv = await res.text();
+      downloadCsvText(csv, format, `entry-report-${Date.now()}`);
       showBanner('success', 'Entry report exported.');
     } catch {
       showBanner('error', 'Entry report export failed.');
     }
   };
 
-  const handleExportGateChecklist = async () => {
+  const handleExportGateChecklist = async (columns?: string[], format: ExportFormat = 'csv') => {
     if (!filterEventId) {
       showBanner('error', 'Select an event filter first — the checklist is per event.');
       return;
     }
     try {
       const headers = await authenticatedApiHeaders();
-      const res = await fetch(`/api/admin/events/${encodeURIComponent(filterEventId)}/gate-checklist`, { headers });
+      const params = new URLSearchParams({ format: 'csv' });
+      if (columns && columns.length) params.set('columns', columns.join(','));
+      const res = await fetch(`/api/admin/events/${encodeURIComponent(filterEventId)}/gate-checklist?${params.toString()}`, { headers });
       if (!res.ok) throw new Error('Checklist export failed.');
       const csv = await res.text();
-      const blob = new Blob([csv], { type: 'text/csv' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `gate-checklist-${filterEventId}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      downloadCsvText(csv, format, `gate-checklist-${filterEventId}`);
       showBanner('success', 'Gate checklist downloaded — print it for the gate.');
     } catch {
       showBanner('error', 'Gate checklist export failed. Please retry.');
@@ -440,6 +442,57 @@ export const AdminBookings: React.FC = () => {
       showBanner('error', 'Bulk action failed.');
     }
   };
+
+  const [filteredExportOpen, setFilteredExportOpen] = useState(false);
+  const [entryExportOpen, setEntryExportOpen] = useState(false);
+  const [gateExportOpen, setGateExportOpen] = useState(false);
+  const [filteredColumns, setFilteredColumns] = useState<string[]>([
+    'Order ID',
+    'Event',
+    'Customer',
+    'Email',
+    'Phone',
+    'Tier',
+    'Quantity',
+    'Amount',
+    'Discount',
+    'Amount Paid',
+    'Status',
+    'Channel',
+    'Counter',
+    'Created',
+  ]);
+  const [entryColumns, setEntryColumns] = useState<string[]>([
+    'Event',
+    'Ticket ID',
+    'Ticket #',
+    'Customer',
+    'Phone',
+    'Ticket Type',
+    'Ticket Quantity',
+    'Guests Admitted',
+    'Guests Remaining',
+    'Entry Status',
+    'Last Scan Time',
+    'Staff',
+    'Counter',
+    'Notes',
+  ]);
+  const [gateColumns, setGateColumns] = useState<string[]>([
+    'S.No',
+    'Ticket No',
+    'Attendee',
+    'Email',
+    'Phone',
+    'Category',
+    'Qty',
+    'Seats',
+    'Checked In',
+    'Hold At Counter',
+    'Payment',
+    'Status',
+  ]);
+  const [selectedExportOpen, setSelectedExportOpen] = useState(false);
 
   const toggleSelect = (id: string) => {
     setSelectedIds((prev) => {
@@ -786,30 +839,115 @@ export const AdminBookings: React.FC = () => {
           </button>
 
           <button
-            onClick={handleExportFilteredCSV}
+            onClick={() => setFilteredExportOpen(true)}
             className="py-2.5 px-4 rounded-2xl bg-[#222] hover:bg-[#333] text-white font-bold text-xs flex items-center gap-2 border border-white/10 transition-all flex-shrink-0"
           >
             <Download className="w-4 h-4 text-[#D4AF37]" />
             <span>Export CSV</span>
           </button>
+          <ExportSetupDialog
+            open={filteredExportOpen}
+            onOpenChange={setFilteredExportOpen}
+            setup={{
+              title: 'Export Bookings CSV',
+              format: 'csv',
+              columns: filteredColumns,
+              defaultColumns: [
+                'Order ID',
+                'Event',
+                'Customer',
+                'Email',
+                'Phone',
+                'Tier',
+                'Quantity',
+                'Amount',
+                'Discount',
+                'Amount Paid',
+                'Status',
+                'Channel',
+                'Counter',
+                'Created',
+              ],
+            }}
+            onConfirm={(columns, format) => {
+              setFilteredColumns(columns);
+              handleExportFilteredCSV(columns, format);
+            }}
+          />
 
           <button
-            onClick={handleExportEntryReport}
+            onClick={() => setEntryExportOpen(true)}
             className="py-2.5 px-4 rounded-2xl bg-[#222] hover:bg-[#333] text-white font-bold text-xs flex items-center gap-2 border border-white/10 transition-all flex-shrink-0"
             title="Entry usage report: admitted / remaining / status per ticket"
           >
             <Users className="w-4 h-4 text-[#D4AF37]" />
             <span>Entry Report</span>
           </button>
+          <ExportSetupDialog
+            open={entryExportOpen}
+            onOpenChange={setEntryExportOpen}
+            setup={{
+              title: 'Export Entry Report',
+              format: 'csv',
+              columns: entryColumns,
+              defaultColumns: [
+                'Event',
+                'Ticket ID',
+                'Ticket #',
+                'Customer',
+                'Phone',
+                'Ticket Type',
+                'Ticket Quantity',
+                'Guests Admitted',
+                'Guests Remaining',
+                'Entry Status',
+                'Last Scan Time',
+                'Staff',
+                'Counter',
+                'Notes',
+              ],
+            }}
+            onConfirm={(columns, format) => {
+              setEntryColumns(columns);
+              handleExportEntryReport(columns, format);
+            }}
+          />
 
           <button
-            onClick={handleExportGateChecklist}
+            onClick={() => setGateExportOpen(true)}
             className="py-2.5 px-4 rounded-2xl bg-[#222] hover:bg-[#333] text-white font-bold text-xs flex items-center gap-2 border border-white/10 transition-all flex-shrink-0"
             title="Printable per-event checklist for the gate"
           >
             <ClipboardList className="w-4 h-4 text-[#D4AF37]" />
             <span>Gate Checklist</span>
           </button>
+          <ExportSetupDialog
+            open={gateExportOpen}
+            onOpenChange={setGateExportOpen}
+            setup={{
+              title: 'Export Gate Checklist',
+              format: 'csv',
+              columns: gateColumns,
+              defaultColumns: [
+                'S.No',
+                'Ticket No',
+                'Attendee',
+                'Email',
+                'Phone',
+                'Category',
+                'Qty',
+                'Seats',
+                'Checked In',
+                'Hold At Counter',
+                'Payment',
+                'Status',
+              ],
+            }}
+            onConfirm={(columns, format) => {
+              setGateColumns(columns);
+              handleExportGateChecklist(columns, format);
+            }}
+          />
         </div>
       </div>
 
@@ -986,11 +1124,40 @@ export const AdminBookings: React.FC = () => {
             </span>
             <div className="flex gap-2 flex-wrap">
               <button
-                onClick={() => handleBulkAction('export')}
+                onClick={() => setSelectedExportOpen(true)}
                 className="py-2 px-3.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 font-bold text-xs flex items-center gap-1.5 cursor-pointer"
               >
                 <Download className="w-3.5 h-3.5" /> Export Selected
               </button>
+              <ExportSetupDialog
+                open={selectedExportOpen}
+                onOpenChange={setSelectedExportOpen}
+                setup={{
+                  title: 'Export Selected Orders',
+                  format: 'csv',
+                  columns: filteredColumns,
+                  defaultColumns: [
+                    'Order ID',
+                    'Event',
+                    'Customer',
+                    'Email',
+                    'Phone',
+                    'Tier',
+                    'Quantity',
+                    'Amount',
+                    'Discount',
+                    'Amount Paid',
+                    'Status',
+                    'Channel',
+                    'Counter',
+                    'Created',
+                  ],
+                }}
+                onConfirm={(columns, format) => {
+                  setFilteredColumns(columns);
+                  handleBulkAction('export', { columns, format });
+                }}
+              />
               <button
                 onClick={() => {
                   const subject = prompt('Email subject:');

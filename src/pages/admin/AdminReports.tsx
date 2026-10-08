@@ -3,6 +3,16 @@ import { useBooking } from '../../contexts/BookingContext';
 import {
   BarChart3, CalendarDays, Download, IndianRupee, TrendingUp, Users,
 } from 'lucide-react';
+import { ExportSetupDialog } from '../../components/admin/ExportSetupDialog';
+import { downloadTable, type ExportFormat } from '../../lib/exportFile';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '../../components/Dialog/Dialog';
+import { Button } from '../../components/Button';
 
 interface ReportData {
   summary: { totalRevenue: number; totalRefunded: number; totalOrders: number; totalTickets: number };
@@ -19,6 +29,18 @@ export const AdminReports: React.FC = () => {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [eventId, setEventId] = useState('');
+  const [exportOpen, setExportOpen] = useState(false);
+  const [selectedColumns, setSelectedColumns] = useState<string[]>([
+    'eventId',
+    'title',
+    'revenue',
+    'netRevenue',
+    'orders',
+    'tickets',
+    'capacity',
+    'sold',
+    'checkedIn',
+  ]);
   // Guards against out-of-order responses: only the most recent request may
   // write report/loading state (rapid event switches otherwise race).
   const requestSeqRef = useRef(0);
@@ -51,22 +73,40 @@ export const AdminReports: React.FC = () => {
 
   const selectedEvent = events.find((e) => e.id === eventId);
 
-  const exportCsv = () => {
+  const exportCsv = (columns?: string[], format: ExportFormat = 'csv') => {
     if (!report) return;
-    const lines = [
-      'event,title,revenue,netRevenue,orders,tickets,capacity,sold,checkedIn',
-      ...report.revenueByEvent.map((e) => {
-        const a = report.attendanceVsCapacity.find((x) => x.eventId === e.eventId);
-        return [e.eventId, `"${e.title}"`, e.revenue, e.netRevenue, e.orders, e.tickets, a?.capacity ?? 0, a?.sold ?? 0, a?.checkedIn ?? 0].join(',');
-      }),
-    ].join('\n');
-    const blob = new Blob([lines], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `revenue-report-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    const selected = columns && columns.length ? columns : [
+      'eventId',
+      'title',
+      'revenue',
+      'netRevenue',
+      'orders',
+      'tickets',
+      'capacity',
+      'sold',
+      'checkedIn',
+    ];
+    const rows = report.revenueByEvent.map((e) => {
+      const a = report.attendanceVsCapacity.find((x) => x.eventId === e.eventId);
+      const row: Record<string, string | number> = {
+        eventId: e.eventId,
+        title: e.title,
+        revenue: e.revenue,
+        netRevenue: e.netRevenue,
+        orders: e.orders,
+        tickets: e.tickets,
+        capacity: a?.capacity ?? 0,
+        sold: a?.sold ?? 0,
+        checkedIn: a?.checkedIn ?? 0,
+      };
+      return selected.map((c) => row[c] ?? '');
+    });
+    downloadTable(
+      selected,
+      rows,
+      format,
+      `revenue-report-${new Date().toISOString().slice(0, 10)}`
+    );
   };
 
   const channelTotal = Object.values<number>(report?.channels || {}).reduce((s, n) => s + Number(n), 0);
@@ -124,13 +164,38 @@ export const AdminReports: React.FC = () => {
           >
             {loading ? 'Loading…' : 'Refresh'}
           </button>
-          <button
-            onClick={exportCsv}
+          <Button
+            onClick={() => setExportOpen(true)}
             disabled={!report}
-            className="px-4 py-2 rounded-lg border border-white/15 text-sm font-medium hover:bg-white/5 disabled:opacity-40 flex items-center gap-2 transition-colors"
+            className="gap-2"
           >
-            <Download className="w-4 h-4" /> Export CSV
-          </button>
+            <Download className="w-4 h-4" />
+            Export CSV
+          </Button>
+          <ExportSetupDialog
+            open={exportOpen}
+            onOpenChange={setExportOpen}
+            setup={{
+              title: 'Export Revenue Report',
+              format: 'csv',
+              columns: selectedColumns,
+              defaultColumns: [
+                'eventId',
+                'title',
+                'revenue',
+                'netRevenue',
+                'orders',
+                'tickets',
+                'capacity',
+                'sold',
+                'checkedIn',
+              ],
+            }}
+            onConfirm={(columns, format) => {
+              setSelectedColumns(columns);
+              exportCsv(columns, format);
+            }}
+          />
         </div>
       </div>
 

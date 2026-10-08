@@ -3,6 +3,16 @@ import {
   Search, Filter, Calendar, Edit3, Trash2, Send, CheckCircle, XCircle, 
   Download, RefreshCw, AlertCircle, ChevronLeft, ChevronRight, X, Printer 
 } from 'lucide-react';
+import { Button } from '../../components/Button';
+import { ExportSetupDialog } from '../../components/admin/ExportSetupDialog';
+import { downloadTable, type ExportFormat } from '../../lib/exportFile';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '../../components/Dialog/Dialog';
 import { RowActions } from '../../components/admin/RowActions';
 import { useAuth } from '../../contexts/AuthContext';
 import { useBooking } from '../../contexts/BookingContext';
@@ -80,6 +90,27 @@ export const MySalesPage: React.FC = () => {
   const [voidReason, setVoidReason] = useState('');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [exportOpen, setExportOpen] = useState(false);
+
+  // Single source of truth for the export column checklist: the dialog shows
+  // these ids and the CSV builder below writes them in the same order.
+  const defaultColumnDefs = [
+    { id: 'Ticket Number', label: 'Ticket Number', value: (t: any) => t.ticketNumber ?? '' },
+    { id: 'Event', label: 'Event', value: (t: any) => t.eventTitle ?? '' },
+    { id: 'Tier', label: 'Tier', value: (t: any) => t.tierName ?? '' },
+    { id: 'Seats', label: 'Seats', value: (t: any) => t.seatNumber || 'General Admission' },
+    { id: 'Attendee', label: 'Attendee', value: (t: any) => t.attendeeName ?? '' },
+    { id: 'Phone', label: 'Phone', value: (t: any) => t.attendeePhone ?? '' },
+    { id: 'Email', label: 'Email', value: (t: any) => t.attendeeEmail ?? '' },
+    { id: 'Total Paid', label: 'Total Paid', value: (t: any) => `₹${t.totalPaid ?? 0}` },
+    { id: 'Issued By', label: 'Issued By', value: (t: any) => t.issuedBySubUserName ?? 'Main Staff' },
+    { id: 'Hold At Counter', label: 'Hold At Counter', value: (t: any) => (t as any).holdAtCounter ? 'YES' : '' },
+    { id: 'Status', label: 'Status', value: (t: any) => t.status ?? '' },
+    { id: 'Date', label: 'Date', value: (t: any) => new Date(t.purchasedAt).toLocaleString() },
+  ];
+  const [selectedColumns, setSelectedColumns] = useState<string[]>(
+    defaultColumnDefs.map((c) => c.id)
+  );
 
   // Extracted into a stable callback so it can be re-run by the filter
   // effect, the manual refresh button, and the auto-refresh interval below.
@@ -297,7 +328,7 @@ export const MySalesPage: React.FC = () => {
     }
   };
 
-  const handleExportCSV = async () => {
+  const handleExportCSV = async (columns?: string[], format: ExportFormat = 'csv') => {
     if (tickets.length === 0) {
       alert("No data available to export.");
       return;
@@ -330,35 +361,20 @@ export const MySalesPage: React.FC = () => {
     }
 
     // Standard CSV compiling
-    const headers = ["Ticket Number", "Event", "Tier", "Seats", "Attendee", "Phone", "Email", "Total Paid", "Issued By", "Hold At Counter", "Status", "Date"];
-    const rows = exportRows.map(t => [
-      t.ticketNumber,
-      t.eventTitle,
-      t.tierName,
-      t.seatNumber || 'General Admission',
-      t.attendeeName,
-      t.attendeePhone || '',
-      t.attendeeEmail || '',
-      `₹${t.totalPaid}`,
-      t.issuedBySubUserName || 'Main Staff',
-      (t as any).holdAtCounter ? 'YES' : '',
-      t.status,
-      new Date(t.purchasedAt).toLocaleString()
-    ]);
-
-    const csvContent = [
-      headers.join(","),
-      ...rows.map(r => r.map(val => `"${String(val).replace(/"/g, '""')}"`).join(","))
-    ].join("\n");
-
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", `MySales_Export_${selectedDateRange}_${new Date().toISOString().split('T')[0]}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const selectedDefs = columns && columns.length
+      ? defaultColumnDefs.filter((c) => columns.includes(c.id))
+      : defaultColumnDefs;
+    if (selectedDefs.length === 0) {
+      alert("Select at least one column to export.");
+      return;
+    }
+    const rows = exportRows.map((t) => selectedDefs.map((c) => c.value(t)));
+    downloadTable(
+      selectedDefs.map((c) => c.label),
+      rows,
+      format,
+      `MySales_Export_${selectedDateRange}_${new Date().toISOString().split('T')[0]}`
+    );
   };
 
   return (
@@ -382,13 +398,27 @@ export const MySalesPage: React.FC = () => {
           >
             <RefreshCw className="w-4 h-4" />
           </button>
-          <button
-            onClick={handleExportCSV}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#D4AF37] hover:bg-[#F3E5AB] text-black text-xs font-bold transition-all"
+          <Button
+            onClick={() => setExportOpen(true)}
+            className="gap-2"
           >
             <Download className="w-4 h-4" />
-            <span>Export CSV</span>
-          </button>
+            Export CSV
+          </Button>
+          <ExportSetupDialog
+            open={exportOpen}
+            onOpenChange={setExportOpen}
+            setup={{
+              title: 'Export Sales CSV',
+              format: 'csv',
+              columns: selectedColumns,
+              defaultColumns: defaultColumnDefs.map((c) => c.id),
+            }}
+            onConfirm={(columns, format) => {
+              setSelectedColumns(columns);
+              handleExportCSV(columns, format);
+            }}
+          />
         </div>
       </div>
 

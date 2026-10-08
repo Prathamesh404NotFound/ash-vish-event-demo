@@ -22,6 +22,62 @@ import {
 const SERVER_HMAC_SECRET = process.env.SERVER_HMAC_SECRET?.trim();
 
 /**
+ * Infrastructure/metadata files that must never be served from the static
+ * dist/ fallback (they leak source maps, config, or database artifacts).
+ */
+function isSensitiveFile(reqPath: string): boolean {
+  const p = reqPath.toLowerCase();
+  return (
+    p.includes("/node_modules/") ||
+    p.includes("/firebase/") ||
+    p.includes("/server/") ||
+    p.includes("/convex/") ||
+    p.includes("/.git/") ||
+    p.endsWith(".map") ||
+    p.endsWith(".sql") ||
+    p.endsWith(".db") ||
+    p.endsWith(".sqlite") ||
+    p.endsWith(".log")
+  );
+}
+
+function looksSensitiveBasename(base: string): boolean {
+  const b = base.toLowerCase();
+  return (
+    b === ".env" ||
+    b.startsWith(".env.") ||
+    b === ".gitignore" ||
+    b === ".npmrc" ||
+    b === "dockerfile" ||
+    b === "package-lock.json" ||
+    b === "yarn.lock" ||
+    b.endsWith(".pem") ||
+    b.endsWith(".key") ||
+    b.endsWith(".p12") ||
+    b.endsWith("serviceaccount.json")
+  );
+}
+
+/**
+ * Pick export columns from a client-requested label list. Order follows the
+ * client's checklist; an empty/unknown request falls back to every column so
+ * older callers keep getting the full export.
+ */
+function selectExportColumns<T extends { label: string }>(all: T[], requested: unknown): T[] {
+  const list = Array.isArray(requested)
+    ? requested
+    : typeof requested === "string" && requested.trim()
+      ? requested.split(",")
+      : [];
+  if (!list.length) return all;
+  const norm = (s: string) => String(s).trim().toLowerCase().replace(/\s+/g, "");
+  const picked = list
+    .map((r) => all.find((c) => norm(c.label) === norm(String(r))))
+    .filter(Boolean) as T[];
+  return picked.length ? picked : all;
+}
+
+/**
  * Derive a stable per-deployment HMAC secret from always-present Firebase
  * service-account credentials when SERVER_HMAC_SECRET is not configured.
  *
@@ -6498,17 +6554,26 @@ export async function createApp() {
           }
           exportRows = allOrders;
         }
-        const rows = exportRows;
+        const rows = exportRows.filter(Boolean);
         const csvCell = (v: any) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-        const csv = ["orderId,event,customer,email,phone,tier,quantity,amount,discount,amountPaid,status,channel,counter,createdAt"]
-          .concat(
-            rows.filter(Boolean).map((o: any) =>
-              [o.orderId, o.eventTitle || "", o.customerDetails?.name || "", o.customerDetails?.email || "",
-               o.customerDetails?.phone || "", o.tierName || "", Number(o.quantity) || 1,
-               o.amount ?? "", o.discount || 0, o.amountPaid ?? ((Number(o.amount) || 0) - (Number(o.discount) || 0)) ?? "", o.status, o.channel || "",
-               o.counterName || "", o.createdAt || ""].map(csvCell).join(",")
-            )
-          )
+        const columns = selectExportColumns([
+          { label: "Order ID", value: (o: any) => o.orderId ?? "" },
+          { label: "Event", value: (o: any) => o.eventTitle || "" },
+          { label: "Customer", value: (o: any) => o.customerDetails?.name || "" },
+          { label: "Email", value: (o: any) => o.customerDetails?.email || "" },
+          { label: "Phone", value: (o: any) => o.customerDetails?.phone || "" },
+          { label: "Tier", value: (o: any) => o.tierName || "" },
+          { label: "Quantity", value: (o: any) => Number(o.quantity) || 1 },
+          { label: "Amount", value: (o: any) => o.amount ?? "" },
+          { label: "Discount", value: (o: any) => o.discount || 0 },
+          { label: "Amount Paid", value: (o: any) => o.amountPaid ?? ((Number(o.amount) || 0) - (Number(o.discount) || 0)) ?? "" },
+          { label: "Status", value: (o: any) => o.status || "" },
+          { label: "Channel", value: (o: any) => o.channel || "" },
+          { label: "Counter", value: (o: any) => o.counterName || "" },
+          { label: "Created", value: (o: any) => o.createdAt || "" },
+        ], (req.body || {}).columns);
+        const csv = [columns.map((c) => csvCell(c.label)).join(",")]
+          .concat(rows.map((o: any) => columns.map((c) => csvCell(c.value(o))).join(",")))
           .join("\n");
         return res.setHeader("content-type", "text/csv").send(csv);
       }
@@ -7716,11 +7781,26 @@ export async function createApp() {
       if (to) filtered = filtered.filter((r) => r.lastScanAt <= to);
 
       if (format === 'csv') {
-        const headers = ['Event','Ticket ID','Ticket #','Customer','Phone','Ticket Type','Ticket Quantity','Guests Admitted','Guests Remaining','Entry Status','Last Scan Time','Staff','Counter','Notes'];
+        const columns = selectExportColumns([
+          { label: 'Event', value: (r: any) => r.event },
+          { label: 'Ticket ID', value: (r: any) => r.ticketId },
+          { label: 'Ticket #', value: (r: any) => r.ticketNumber },
+          { label: 'Customer', value: (r: any) => r.customer },
+          { label: 'Phone', value: (r: any) => r.phone },
+          { label: 'Ticket Type', value: (r: any) => r.ticketType },
+          { label: 'Ticket Quantity', value: (r: any) => r.ticketQuantity },
+          { label: 'Guests Admitted', value: (r: any) => r.guestsAdmitted },
+          { label: 'Guests Remaining', value: (r: any) => r.guestsRemaining },
+          { label: 'Entry Status', value: (r: any) => r.entryStatus },
+          { label: 'Last Scan Time', value: (r: any) => r.lastScanAt },
+          { label: 'Staff', value: (r: any) => r.lastStaff },
+          { label: 'Counter', value: (r: any) => r.lastCounter },
+          { label: 'Notes', value: (r: any) => r.note },
+        ], (req.query as any).columns);
         const esc = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-        const lines = [headers.join(',')];
+        const lines = [columns.map((c) => esc(c.label)).join(',')];
         for (const r of filtered) {
-          lines.push([r.event, r.ticketId, r.ticketNumber, r.customer, r.phone, r.ticketType, r.ticketQuantity, r.guestsAdmitted, r.guestsRemaining, r.entryStatus, r.lastScanAt, r.lastStaff, r.lastCounter, r.note].map(esc).join(','));
+          lines.push(columns.map((c) => esc(c.value(r))).join(','));
         }
         res.setHeader('Content-Type', 'text/csv; charset=utf-8');
         res.setHeader('Content-Disposition', `attachment; filename="entry-report-${Date.now()}.csv"`);
@@ -9469,21 +9549,22 @@ app.get("/api/admin/events/:eventId/gate-checklist", requireRole(["super_admin",
     const eventTitle = (eventSnap.data as any)?.title || eventId;
 
     const csvCell = (v: any) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-    const headers = ["S.No", "Ticket No", "Attendee", "Phone", "Category", "Qty", "Seats", "Checked In", "Hold At Counter", "Payment", "Status"];
-    const csv = [headers.join(",")]
-      .concat(rows.map((t, i) => [
-        i + 1,
-        t.ticketNumber || t.id,
-        t.attendeeName || "",
-        t.attendeePhone || "",
-        t.tierName || "",
-        Number(t.quantity) || 1,
-        t.seatNumber || (Array.isArray(t.selectedSeats) && t.selectedSeats.length ? t.selectedSeats.join(" ") : "General"),
-        t.status === "redeemed" ? "YES" : "",
-        t.holdAtCounter ? "YES" : "",
-        t.paymentStatus === "paid" || t.status === "redeemed" ? "PAID" : (t.amountDue ? `DUE ₹${t.amountDue}` : "PAID"),
-        String(t.status || ""),
-      ].map(csvCell).join(",")))
+    const columns = selectExportColumns([
+      { label: "S.No", value: (_t: any, i: number) => i + 1 },
+      { label: "Ticket No", value: (t: any) => t.ticketNumber || t.id },
+      { label: "Attendee", value: (t: any) => t.attendeeName || "" },
+      { label: "Email", value: (t: any) => t.attendeeEmail || "" },
+      { label: "Phone", value: (t: any) => t.attendeePhone || "" },
+      { label: "Category", value: (t: any) => t.tierName || "" },
+      { label: "Qty", value: (t: any) => Number(t.quantity) || 1 },
+      { label: "Seats", value: (t: any) => t.seatNumber || (Array.isArray(t.selectedSeats) && t.selectedSeats.length ? t.selectedSeats.join(" ") : "General") },
+      { label: "Checked In", value: (t: any) => t.status === "redeemed" ? "YES" : "" },
+      { label: "Hold At Counter", value: (t: any) => t.holdAtCounter ? "YES" : "" },
+      { label: "Payment", value: (t: any) => t.paymentStatus === "paid" || t.status === "redeemed" ? "PAID" : (t.amountDue ? `DUE ₹${t.amountDue}` : "PAID") },
+      { label: "Status", value: (t: any) => String(t.status || "") },
+    ], (req.query as any).columns);
+    const csv = [columns.map((c) => csvCell(c.label)).join(",")]
+      .concat(rows.map((t, i) => columns.map((c) => csvCell(c.value(t, i))).join(",")))
       .join("\n");
 
     return res.setHeader("content-type", "text/csv")
@@ -10856,9 +10937,6 @@ app.delete("/api/admin/counters/:counterId", requireRole(["super_admin"]), async
   });
 
   if (process.env.NODE_ENV !== "production") {
-    // Lazy import: the `vite` package must NOT be resolved in the Vercel
-    // serverless module graph (it fails under @vercel/node and crashes the
-    // function with FUNCTION_INVOCATION_FAILED on every route).
     const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -10866,9 +10944,17 @@ app.delete("/api/admin/counters/:counterId", requireRole(["super_admin"]), async
     });
     app.use(vite.middlewares);
   } else {
+    const publicPath = path.join(process.cwd(), "public");
     const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
-    app.get("*", (req, res) => {
+
+    // Serve the production static build, but never serve infrastructure/
+    // metadata files that leak the source tree or database.
+      app.get("*", (req, res) => {
+      if (isSensitiveFile(req.path) || looksSensitiveBasename(
+        path.basename(req.path)
+      )) {
+        return res.status(404).send("Not found");
+      }
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
