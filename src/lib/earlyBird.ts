@@ -79,11 +79,23 @@ export function getEarlyBirdView(event: EventItem | null | undefined, now: numbe
  */
 export function earlyBirdTicketPrice(tier: TicketTier, eb: EarlyBirdView | null): number {
   const base = Number(tier.price) || 0;
-  if (!eb || !eb.active || base <= 0) return base;
+  if (!eb || !eb.active || base <= 0) return Math.trunc(base);
   const off = eb.config.discountType === 'flat'
     ? Math.min(eb.flatOff, base)
     : (base * eb.percentOff) / 100;
-  return Math.max(0, Math.round((base - off) * 100) / 100);
+  return Math.max(0, Math.trunc(base - off));
+}
+
+/**
+ * Utility function to compute discounted amount formatted as integer string.
+ */
+export function formatDiscountedAmount(originalPrice: number | string, discountPercent: number, currencySymbol = ''): string {
+  const price = typeof originalPrice === 'string' ? parseFloat(originalPrice.replace(/[^0-9.]/g, '')) || 0 : originalPrice;
+  const symbolMatch = typeof originalPrice === 'string' ? originalPrice.match(/^[^\d\s]+/) : null;
+  const symbol = currencySymbol || (symbolMatch ? symbolMatch[0] : '');
+  const discounted = price * (1 - Math.min(100, Math.max(0, discountPercent)) / 100);
+  const truncated = Math.max(0, Math.trunc(discounted));
+  return `Discounted amount: ${symbol}${truncated}`;
 }
 
 /** Compact countdown label until the promotion window closes. */
