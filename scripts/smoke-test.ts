@@ -27,8 +27,6 @@ const ENDPOINTS_TO_TEST: TestEndpoint[] = [
   { name: 'Organizer Status (GET)', path: '/api/organizers/status', method: 'GET', expectedStatus: [200, 401, 403] },
   { name: 'Organizer Status (POST)', path: '/api/organizers/status', method: 'POST', body: { organizerId: 'org_demo_1', status: 'approved' }, expectedStatus: [200, 401, 403] },
   { name: 'Auth Verify Endpoint', path: '/api/auth/verify', method: 'POST', body: {}, expectedStatus: [401, 403, 200] },
-  { name: 'Fetch Ticket Compliance Report', path: '/api/admin/compliance/report', method: 'GET', expectedStatus: [200, 401, 403] },
-  { name: 'Remediate Ticket Compliance', path: '/api/admin/compliance/remediate', method: 'POST', body: {}, expectedStatus: [200, 401, 403] },
 ];
 
 async function makeRequest(test: TestEndpoint): Promise<{ status: number; ok: boolean; body: string }> {

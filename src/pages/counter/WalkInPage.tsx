@@ -27,6 +27,8 @@ import {
   Settings2,
   KeyRound,
   MessageSquareCode,
+  Sparkles,
+  Tag,
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { useNavigate } from 'react-router-dom';
@@ -40,6 +42,7 @@ import { passUrl } from '../../utils/passLink';
 import { safeFetch } from '../../lib/api';
 import { isSeatBasedEvent } from '../../lib/seatMap';
 import { authenticatedApiHeaders } from '../../lib/authHeaders';
+import { getEarlyBirdView, earlyBirdTicketPrice, earlyBirdCountdown } from '../../lib/earlyBird';
 import {
   QueuedWalkInSale,
   enqueueOfflineSale,
@@ -236,6 +239,7 @@ export const WalkInPage: React.FC = () => {
   }, [events, searchQuery]);
 
   const selectedEvent = useMemo(() => events.find((e) => e.id === selectedEventId) || events[0], [events, selectedEventId]);
+  const earlyBird = useMemo(() => getEarlyBirdView(selectedEvent), [selectedEvent]);
   const selectedEventTiers = useMemo(() => normalizeTiers(selectedEvent?.ticketTiers), [selectedEvent?.ticketTiers]);
   const selectedTier = useMemo(() => selectedEventTiers.find((t) => t.id === selectedTierId) || selectedEventTiers[0], [selectedEventTiers, selectedTierId]);
 
@@ -484,17 +488,46 @@ export const WalkInPage: React.FC = () => {
     const multiLines = multiMode
       ? selectedEventTiers
           .filter((t) => (multiQuantities[t.id] || 0) > 0)
-          .map((t) => ({ tierId: t.id, tierName: t.name, price: t.price, quantity: multiQuantities[t.id] }))
+          .map((t) => {
+            const effectivePrice = earlyBird?.active ? earlyBirdTicketPrice(t, earlyBird) : t.price;
+            return {
+              tierId: t.id,
+              tierName: t.name,
+              price: effectivePrice,
+              originalPrice: t.price,
+              quantity: multiQuantities[t.id],
+            };
+          })
       : [];
     const multiTotal = multiLines.reduce((sum, l) => sum + l.price * l.quantity, 0);
     const multiCount = multiLines.reduce((sum, l) => sum + l.quantity, 0);
     const unitCount = multiMode ? multiCount : isSeatBasedEvent(selectedEvent) ? seatCount : quantity;
-    const grossTotal = multiMode ? multiTotal : (selectedTier?.price || 0) * unitCount;
-    const netTotal = Math.max(0, grossTotal - discountAmount);
-    return { seatCount, unitCount, grossTotal, netTotal, multiLines };
-  }, [selectedSeats.length, selectedEvent, quantity, selectedTier?.price, discountAmount, multiMode, multiQuantities, selectedEventTiers]);
 
-  const { seatCount, unitCount, grossTotal, netTotal, multiLines } = totals;
+    const baseUnitPrice = selectedTier?.price || 0;
+    const effectiveUnitPrice = earlyBird?.active && selectedTier ? earlyBirdTicketPrice(selectedTier, earlyBird) : baseUnitPrice;
+
+    const grossTotal = multiMode ? multiTotal : effectiveUnitPrice * unitCount;
+    const originalGrossTotal = multiMode
+      ? multiLines.reduce((sum, l) => sum + l.originalPrice * l.quantity, 0)
+      : baseUnitPrice * unitCount;
+
+    const earlyBirdSavings = earlyBird?.active ? Math.max(0, originalGrossTotal - grossTotal) : 0;
+    const netTotal = Math.max(0, grossTotal - discountAmount);
+
+    return {
+      seatCount,
+      unitCount,
+      grossTotal,
+      originalGrossTotal,
+      earlyBirdSavings,
+      netTotal,
+      multiLines,
+      effectiveUnitPrice,
+      baseUnitPrice,
+    };
+  }, [selectedSeats.length, selectedEvent, quantity, selectedTier, discountAmount, multiMode, multiQuantities, selectedEventTiers, earlyBird]);
+
+  const { seatCount, unitCount, grossTotal, originalGrossTotal, earlyBirdSavings, netTotal, multiLines, effectiveUnitPrice, baseUnitPrice } = totals;
   // A mixed sale is valid once at least one line has a positive quantity.
   const hasMultiSelection = multiLines.length > 0;
   const paymentsSum = payments.reduce((acc, p) => acc + p.amount, 0);
@@ -1167,6 +1200,27 @@ export const WalkInPage: React.FC = () => {
             {/* 2. Ticket category cards (single-select, or multi-select in multi-mode) */}
             {selectedEvent && (
               <div className="p-4 rounded-3xl bg-[#141414] border border-white/10 space-y-2.5">
+                {earlyBird?.active && (
+                  <div className="p-3 rounded-2xl bg-gradient-to-r from-amber-500/20 via-[#D4AF37]/15 to-amber-500/20 border border-[#D4AF37]/40 flex items-center justify-between text-xs animate-in fade-in mb-2">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-[#D4AF37] shrink-0" />
+                      <div>
+                        <span className="font-extrabold text-[#D4AF37]">Early Bird Active: </span>
+                        <span className="text-gray-200">
+                          {earlyBird.config.discountType === 'flat'
+                            ? `₹${earlyBird.flatOff} OFF per ticket`
+                            : `${earlyBird.percentOff}% OFF per ticket`}
+                        </span>
+                      </div>
+                    </div>
+                    {earlyBirdCountdown(earlyBird) && (
+                      <span className="px-2.5 py-1 rounded-lg bg-[#D4AF37]/20 border border-[#D4AF37]/40 text-[#D4AF37] font-bold text-[11px] flex items-center gap-1">
+                        <Clock className="w-3 h-3" />
+                        {earlyBirdCountdown(earlyBird)}
+                      </span>
+                    )}
+                  </div>
+                )}
                 <div className="flex items-center justify-between gap-2">
                   <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest">Category</label>
                   {!isSeatBasedEvent(selectedEvent) && (
@@ -1192,6 +1246,8 @@ export const WalkInPage: React.FC = () => {
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                   {selectedEventTiers.map((tier) => {
                     const multiQty = multiQuantities[tier.id] || 0;
+                    const effectivePrice = earlyBird?.active ? earlyBirdTicketPrice(tier, earlyBird) : tier.price;
+                    const isDiscounted = earlyBird?.active && effectivePrice < tier.price;
                     return (
                       <button
                         type="button"
@@ -1216,10 +1272,24 @@ export const WalkInPage: React.FC = () => {
                               : 'bg-[#1C1C1C] border-white/5 text-gray-400 hover:border-white/20'
                         }`}
                       >
-                        <span className="block font-bold text-sm text-white">{tier.name}</span>
-                        <span className="font-heading font-extrabold text-base text-[#D4AF37] mt-0.5 block">
-                          ₹{tier.price}
-                        </span>
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="block font-bold text-sm text-white truncate">{tier.name}</span>
+                          {isDiscounted && (
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/30 shrink-0">
+                              Early Bird
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-baseline gap-2 mt-0.5">
+                          <span className="font-heading font-extrabold text-base text-[#D4AF37]">
+                            ₹{effectivePrice}
+                          </span>
+                          {isDiscounted && (
+                            <span className="text-xs text-gray-500 line-through font-semibold">
+                              ₹{tier.price}
+                            </span>
+                          )}
+                        </div>
                         <span className={`text-[10px] block mt-0.5 ${tier.remainingInventory > 0 ? 'text-gray-400' : 'text-red-400'}`}>
                           {tier.remainingInventory > 0 ? `${tier.remainingInventory} passes left` : 'Sold out'}
                         </span>
@@ -1237,11 +1307,17 @@ export const WalkInPage: React.FC = () => {
                     {selectedEventTiers.filter((t) => (multiQuantities[t.id] || 0) > 0).map((tier) => {
                       const multiQty = multiQuantities[tier.id] || 0;
                       const tierInventory = tier.remainingInventory || 0;
+                      const effectivePrice = earlyBird?.active ? earlyBirdTicketPrice(tier, earlyBird) : tier.price;
                       return (
                         <div key={tier.id} className="flex items-center justify-between gap-3 p-2.5 rounded-xl bg-[#1C1C1C] border border-white/5">
                           <div className="min-w-0">
                             <span className="block text-xs font-bold text-white truncate">{tier.name}</span>
-                            <span className="text-[10px] text-gray-400">₹{tier.price} × {multiQty} = ₹{tier.price * multiQty}</span>
+                            <span className="text-[10px] text-gray-400">
+                              ₹{effectivePrice} × {multiQty} = ₹{effectivePrice * multiQty}
+                              {earlyBird?.active && effectivePrice < tier.price && (
+                                <span className="text-amber-300 font-semibold ml-1.5">(Early Bird)</span>
+                              )}
+                            </span>
                           </div>
                           <div className="flex items-center gap-2 shrink-0">
                             <button
@@ -1561,7 +1637,7 @@ export const WalkInPage: React.FC = () => {
               )}
               <div className="flex items-center justify-between">
                 <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-                  {discountAmount > 0 ? 'Total Due (after discount)' : 'Total Due'}
+                  {earlyBirdSavings > 0 || discountAmount > 0 ? 'Total Due (after discounts)' : 'Total Due'}
                 </span>
                 {activeShiftId && (
                   <span className="text-[10px] text-[#F3E5AB]/70 flex items-center gap-1">
@@ -1572,12 +1648,34 @@ export const WalkInPage: React.FC = () => {
               <div className="font-heading font-extrabold text-4xl text-[#D4AF37] mt-2">
                 {formatRupee(netTotal)}
               </div>
-              {grossTotal > netTotal && (
-                <div className="text-[10px] text-gray-400 mt-1">
-                  {formatRupee(grossTotal)} − {formatRupee(discountAmount)} discount
-                  {isSeatBasedEvent(selectedEvent) ? ` • ${selectedSeats.length} seat${selectedSeats.length === 1 ? '' : 's'}` : ` • ${quantity} pass${quantity === 1 ? '' : 'es'} × ${formatRupee(selectedTier?.price || 0)}`}
-                </div>
-              )}
+
+              {/* Discount & Early Bird breakdown */}
+              <div className="space-y-1 mt-2.5 pt-2.5 border-t border-white/10">
+                {earlyBirdSavings > 0 && (
+                  <div className="flex items-center justify-between text-xs text-amber-300 font-semibold">
+                    <span className="flex items-center gap-1">
+                      <Sparkles className="w-3.5 h-3.5 text-[#D4AF37]" />
+                      Early Bird Discount ({earlyBird?.config.discountType === 'flat' ? `₹${earlyBird?.flatOff}/ticket` : `${earlyBird?.percentOff}%`})
+                    </span>
+                    <span>− {formatRupee(earlyBirdSavings)}</span>
+                  </div>
+                )}
+                {discountAmount > 0 && (
+                  <div className="flex items-center justify-between text-xs text-emerald-400 font-semibold">
+                    <span className="flex items-center gap-1">
+                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                      Manager Discount Override
+                    </span>
+                    <span>− {formatRupee(discountAmount)}</span>
+                  </div>
+                )}
+                {(earlyBirdSavings > 0 || discountAmount > 0) && (
+                  <div className="text-[10px] text-gray-400 pt-1 flex justify-between items-center border-t border-white/5">
+                    <span>Original Subtotal ({unitCount} pass{unitCount === 1 ? '' : 'es'})</span>
+                    <span className="line-through">{formatRupee(originalGrossTotal)}</span>
+                  </div>
+                )}
+              </div>
 
               {/* Method selector */}
               <div className="grid grid-cols-3 gap-2 mt-4">

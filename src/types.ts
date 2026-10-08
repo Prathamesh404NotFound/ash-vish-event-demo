@@ -299,38 +299,6 @@ export interface Ticket {
   lastScanCounter?: string;
 }
 
-export interface ComplianceCheckResult {
-  status: 'Compliant' | 'Non-compliant';
-  violationsCount: number;
-  details: string[];
-}
-
-export interface EventComplianceReport {
-  eventId: string;
-  eventTitle: string;
-  eventDate: string;
-  eventVenue: string;
-  eventCity: string;
-  eventStatus: string;
-  totalTickets: number;
-  checks: {
-    manualEntry: ComplianceCheckResult;
-    counterPlacement: ComplianceCheckResult;
-    unnecessaryPlacement: ComplianceCheckResult;
-  };
-  overallStatus: 'Compliant' | 'Non-compliant';
-  lastAuditedAt: string;
-}
-
-export interface ComplianceSummary {
-  totalCompletedEvents: number;
-  compliantEventsCount: number;
-  nonCompliantEventsCount: number;
-  manualEntryViolationsCount: number;
-  counterPlacementViolationsCount: number;
-  unnecessaryPlacementViolationsCount: number;
-}
-
 export type EntryOutcome = 'UNUSED' | 'PARTIALLY_CHECKED_IN' | 'FULLY_CHECKED_IN' | 'INVALID' | 'CANCELLED' | 'EXPIRED';
 
 export interface EntryRecord {

@@ -25,7 +25,6 @@ export const AdminLayoutPage: React.FC = () => {
     { title: 'Reviews', path: '/admin/reviews', icon: MessageSquare },
     { title: 'Scanner', path: '/admin/scan', icon: QrCode },
     { title: 'Check-in Dashboard', path: '/admin/checkin', icon: Activity },
-    { title: 'Ticket Compliance', path: '/admin/compliance', icon: ShieldCheck },
     { title: 'Counters', path: '/admin/counters', icon: Armchair, superAdminOnly: true },
     { title: 'Settings', path: '/admin/settings', icon: Settings },
   ].filter((item) => !item.superAdminOnly || isSuperAdmin);
