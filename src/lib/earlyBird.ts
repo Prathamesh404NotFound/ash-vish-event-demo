@@ -27,7 +27,18 @@ export interface EarlyBirdView {
 
 function parseMs(v: unknown): number | null {
   if (v === undefined || v === null || v === '') return null;
-  const t = Date.parse(String(v));
+  if (typeof v === 'number' && Number.isFinite(v)) {
+    return v < 1e11 ? v * 1000 : v;
+  }
+  const str = String(v).trim();
+  if (!str) return null;
+  if (/^\d+$/.test(str)) {
+    const num = Number(str);
+    if (Number.isFinite(num)) {
+      return num < 1e11 ? num * 1000 : num;
+    }
+  }
+  const t = Date.parse(str);
   return Number.isNaN(t) ? null : t;
 }
 
@@ -36,17 +47,22 @@ export function getEarlyBirdView(event: EventItem | null | undefined, now: numbe
   const config = event?.earlyBird as EarlyBirdConfig | null | undefined;
   if (!config || typeof config !== 'object') return null;
 
+  const enabled =
+    config.enabled === true ||
+    String((config as any).enabled).toLowerCase() === 'true' ||
+    Number((config as any).enabled) === 1;
+
   const discountType = config.discountType === 'flat' ? 'flat' : 'percent';
   const discountValue = Number(config.discountValue) || 0;
   const startsMs = parseMs(config.startsAt);
   const endsMs = parseMs(config.endsAt);
   const started = startsMs === null || now >= startsMs;
   const ended = endsMs !== null && now >= endsMs;
-  const active = config.enabled === true && discountValue > 0 && started && !ended;
-  const upcoming = config.enabled === true && discountValue > 0 && !started && !ended;
+  const active = enabled && discountValue > 0 && started && !ended;
+  const upcoming = enabled && discountValue > 0 && !started && !ended;
 
   return {
-    config: { ...config, discountType, discountValue },
+    config: { ...config, enabled, discountType, discountValue },
     active,
     upcoming,
     percentOff: discountType === 'percent' ? Math.min(100, Math.max(0, discountValue)) : 0,
@@ -73,8 +89,8 @@ export function earlyBirdTicketPrice(tier: TicketTier, eb: EarlyBirdView | null)
 /** Compact countdown label until the promotion window closes. */
 export function earlyBirdCountdown(eb: EarlyBirdView, now: number = Date.now()): string | null {
   if (!eb.endsAt) return null;
-  const endMs = Date.parse(eb.endsAt);
-  if (Number.isNaN(endMs) || endMs <= now) return null;
+  const endMs = parseMs(eb.endsAt);
+  if (endMs === null || endMs <= now) return null;
   const ms = endMs - now;
   const mins = Math.floor(ms / 60000);
   if (mins < 1) return 'less than a minute left';

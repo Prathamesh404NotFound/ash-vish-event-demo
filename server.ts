@@ -587,6 +587,23 @@ function normalizeEarlyBirdInput(raw: any, out: { value: any }): string | null {
   return null;
 }
 
+function parseMsServer(v: unknown): number | null {
+  if (v === undefined || v === null || v === "") return null;
+  if (typeof v === "number" && Number.isFinite(v)) {
+    return v < 1e11 ? v * 1000 : v;
+  }
+  const str = String(v).trim();
+  if (!str) return null;
+  if (/^\d+$/.test(str)) {
+    const num = Number(str);
+    if (Number.isFinite(num)) {
+      return num < 1e11 ? num * 1000 : num;
+    }
+  }
+  const t = Date.parse(str);
+  return Number.isNaN(t) ? null : t;
+}
+
 /**
  * True when the event's early-bird promotion exists, is enabled, and `now`
  * falls inside its [startsAt, endsAt) window. Open boundaries: a missing
@@ -595,16 +612,21 @@ function normalizeEarlyBirdInput(raw: any, out: { value: any }): string | null {
  */
 function isEarlyBirdActive(eventData: any, now: number = Date.now()): boolean {
   const eb = eventData?.earlyBird;
-  if (!eb || typeof eb !== "object" || eb.enabled !== true) return false;
+  if (!eb || typeof eb !== "object") return false;
+  const enabled =
+    eb.enabled === true ||
+    String(eb.enabled).toLowerCase() === "true" ||
+    Number(eb.enabled) === 1;
+  if (!enabled) return false;
   const v = Number(eb.discountValue);
   if (!Number.isFinite(v) || v <= 0) return false;
   if (eb.startsAt) {
-    const s = Date.parse(String(eb.startsAt));
-    if (!Number.isNaN(s) && now < s) return false;
+    const s = parseMsServer(eb.startsAt);
+    if (s !== null && now < s) return false;
   }
   if (eb.endsAt) {
-    const e = Date.parse(String(eb.endsAt));
-    if (!Number.isNaN(e) && now >= e) return false;
+    const e = parseMsServer(eb.endsAt);
+    if (e !== null && now >= e) return false;
   }
   return true;
 }
@@ -10336,6 +10358,10 @@ app.get("/api/counter/events", requireRole(["counter_staff", "event_manager", "s
         isEventPublic: e.isEventPublic !== false,
         isFeatured: e.isFeatured === true,
         isTrending: e.isTrending === true,
+        earlyBird: e.earlyBird || null,
+        sponsors: Array.isArray(e.sponsors)
+          ? e.sponsors
+          : (typeof e.sponsors === "object" && e.sponsors ? Object.values(e.sponsors) : []),
       }))
       .filter((e) => (e.status === "published" || e.status === "sold_out") && e.isEventPublic !== false);
     return res.status(200).json({ success: true, events });
