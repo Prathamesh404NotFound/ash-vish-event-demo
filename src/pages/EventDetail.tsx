@@ -1152,31 +1152,15 @@ export const EventDetail: React.FC<EventDetailProps> = ({
               {event.title}
             </p>
             {(() => {
-              const bookableTiers = ticketTiers.filter(
-                (t) => !t.counterOnly && (t.remainingInventory ?? 0) > 0
-              );
-              if (bookableTiers.length === 0) return null;
-              const lowestTier = bookableTiers.reduce((min, t) =>
-                (t.price ?? 0) < (min.price ?? 0) ? t : min
-              );
-              const displayPrice = earlyBird?.active
-                ? earlyBirdTicketPrice(lowestTier, earlyBird)
-                : lowestTier.price;
-              const originalPriceBar = lowestTier.price;
-              const hasBarDiscount =
-                earlyBird?.active && displayPrice < originalPriceBar;
+              const currentTier = selectedTier || bookableTiers[0];
+              if (!currentTier) return null;
+              const priceToDisplay = earlyBird?.active
+                ? earlyBirdTicketPrice(currentTier, earlyBird)
+                : currentTier.price;
               return (
                 <div className="flex items-baseline gap-2 mt-0.5">
                   <span className="font-heading font-black text-lg sm:text-xl text-[#D4AF37] leading-none">
-                    {formatINR(displayPrice)}
-                  </span>
-                  {hasBarDiscount && (
-                    <span className="text-xs text-gray-500 line-through leading-none">
-                      {formatINR(originalPriceBar)}
-                    </span>
-                  )}
-                  <span className="text-[10px] text-gray-400 font-medium">
-                    per ticket
+                    {formatINR(priceToDisplay)} per ticket
                   </span>
                 </div>
               );
