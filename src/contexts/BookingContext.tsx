@@ -97,7 +97,7 @@ export function getSessionId(): string {
   }
   sid ||= inMemorySessionId;
   if (!sid) {
-    sid = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    sid = `sess_${Date.now()}_${crypto.randomUUID()}`;
     inMemorySessionId = sid;
     try {
       localStorage.setItem(SESSION_ID_STORAGE_KEY, sid);
@@ -1124,7 +1124,7 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // Idempotency key: unique per confirmation attempt. If the same request
     // is retried (double click, network retry, scanner re-fire), the server
     // detects the key and replays the original result instead of re-admitting.
-    const idempotencyKey = `etx_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    const idempotencyKey = `etx_${Date.now()}_${crypto.randomUUID()}`;
     const response = await safeFetch<any>('/api/tickets/confirm-entry', {
       method: 'POST',
       headers: await authenticatedApiHeaders(),

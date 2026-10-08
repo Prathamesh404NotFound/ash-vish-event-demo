@@ -61,7 +61,7 @@ export async function enqueueOfflineSale(sale: Omit<QueuedWalkInSale, 'id' | 'ti
   const db = await openDatabase();
   const queueEntry: QueuedWalkInSale = {
     ...sale,
-    id: `qsale_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    id: `qsale_${Date.now()}_${crypto.randomUUID()}`,
     timestamp: Date.now(),
     status: 'pending',
     retryCount: 0,

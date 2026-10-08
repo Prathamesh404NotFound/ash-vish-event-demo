@@ -303,7 +303,7 @@ export async function refundPhonePeOrder(params: {
   amountPaise: number;
   reason?: string;
 }): Promise<PhonePeRefundResult> {
-  const merchantRefundId = `ref_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`.slice(0, 63);
+  const merchantRefundId = `ref_${Date.now()}_${crypto.randomUUID()}`.slice(0, 63);
 
   const payload = {
     merchantRefundId,

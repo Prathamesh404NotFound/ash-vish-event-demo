@@ -39,7 +39,12 @@ export interface ScanLinkEntry {
 }
 
 export function generateLinkCode(): string {
-  return String(Math.floor(100000 + Math.random() * 900000));
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    const array = new Uint32Array(1);
+    crypto.getRandomValues(array);
+    return String(100000 + (array[0] % 900000));
+  }
+  return String(100000 + (Date.now() % 900000));
 }
 
 export function scanLinkRef(code: string) {

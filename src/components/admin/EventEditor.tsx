@@ -56,7 +56,7 @@ const DEFAULT_DRAFT: Omit<EventItem, 'id' | 'rating' | 'reviewsCount'> = {
   isTrending: false,
 };
 
-const uid = () => Math.random().toString(36).slice(2, 9);
+const uid = () => crypto.randomUUID();
 
 const inputCls =
   'w-full bg-[#1C1C1C] border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder:text-gray-500 focus:outline-none focus:border-[#D4AF37] transition-colors';

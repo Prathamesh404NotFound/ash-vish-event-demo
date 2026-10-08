@@ -28,6 +28,7 @@
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
     "firebase": "^12.17.0",
+    "helmet": "^8.3.0",
     "html5-qrcode": "^2.3.8",
     "jose": "^6.2.8",
     "jspdf": "^4.2.1",

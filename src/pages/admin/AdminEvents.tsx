@@ -432,7 +432,7 @@ export const AdminEvents: React.FC = () => {
 
   const handleAddSponsor = () => {
     const newSponsor: Sponsor = {
-      id: `sponsor_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      id: `sponsor_${Date.now()}_${crypto.randomUUID()}`,
       name: '',
       type: 'title',
       logoUrl: '',
@@ -648,7 +648,7 @@ export const AdminEvents: React.FC = () => {
       const rawRemaining = t.remainingInventory !== undefined ? Number(t.remainingInventory) : parsedTotal;
       const parsedRemaining = Math.min(parsedTotal, Math.max(0, rawRemaining));
       return {
-        id: t.id || `tier_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        id: t.id || `tier_${Date.now()}_${crypto.randomUUID()}`,
         name: t.name.trim() || 'General Entry',
         price: Math.max(0, Number(t.price) || 0),
         description: t.description.trim() || 'Standard Access Pass',

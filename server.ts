@@ -2,6 +2,7 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
+import helmet from "helmet";
 import dotenv from "dotenv";
 dotenv.config();
 
@@ -20,6 +21,9 @@ import {
 } from "./src/lib/payment/phonepe.js";
 
 const SERVER_HMAC_SECRET = process.env.SERVER_HMAC_SECRET?.trim();
+if (!SERVER_HMAC_SECRET && process.env.NODE_ENV === "production") {
+  throw new Error("SERVER_HMAC_SECRET required in production environment");
+}
 
 /**
  * Infrastructure/metadata files that must never be served from the static
@@ -33,11 +37,20 @@ function isSensitiveFile(reqPath: string): boolean {
     p.includes("/server/") ||
     p.includes("/convex/") ||
     p.includes("/.git/") ||
+    p.includes("/.svn/") ||
+    p.includes("/.idea/") ||
+    p.endsWith("/.ds_store") ||
+    p.endsWith(".ds_store") ||
     p.endsWith(".map") ||
     p.endsWith(".sql") ||
     p.endsWith(".db") ||
     p.endsWith(".sqlite") ||
-    p.endsWith(".log")
+    p.endsWith(".log") ||
+    p.endsWith(".zip") ||
+    p.endsWith(".tar.gz") ||
+    p.endsWith(".tar") ||
+    p.endsWith(".gz") ||
+    p.endsWith(".tgz")
   );
 }
 
@@ -47,6 +60,7 @@ function looksSensitiveBasename(base: string): boolean {
     b === ".env" ||
     b.startsWith(".env.") ||
     b === ".gitignore" ||
+    b === ".ds_store" ||
     b === ".npmrc" ||
     b === "dockerfile" ||
     b === "package-lock.json" ||
@@ -54,6 +68,10 @@ function looksSensitiveBasename(base: string): boolean {
     b.endsWith(".pem") ||
     b.endsWith(".key") ||
     b.endsWith(".p12") ||
+    b.endsWith(".sql") ||
+    b.endsWith(".zip") ||
+    b.endsWith(".tar.gz") ||
+    b.endsWith(".gz") ||
     b.endsWith("serviceaccount.json")
   );
 }
@@ -348,7 +366,7 @@ async function recordNotification(params: {
   try {
     const adminToken = await getAdminAuthToken();
     if (!adminToken) return;
-    const id = `ntf_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const id = `ntf_${Date.now()}_${secureRandomHex(4)}`;
     await rtdbPush("notifications", {
       id,
       eventId: params.eventId || null,
@@ -1739,8 +1757,8 @@ async function finalizeBookingServerSide(
         const lineShare = subtotalTotal > 0 ? lineSubtotal / subtotalTotal : 1 / tierLines.length;
         const tId = 'tkt_' + Date.now() + '_' + secureRandomHex(8) + '_' + li;
         const tNum = isDeferred
-          ? `ASH-RES-${Math.floor(1000 + Math.random() * 9000)}`
-          : `ASH-${Math.floor(1000 + Math.random() * 9000)}-SRV`;
+          ? `ASH-RES-${crypto.randomInt(1000, 10000)}`
+          : `ASH-${crypto.randomInt(1000, 10000)}-SRV`;
         const tSeatLabel = `${line.tierName}, General Floor`;
         const tIssuedAt = new Date().toISOString();
         const tPayload = `${bookingId}|${eventId}|${tSeatLabel}|${tId}|${tIssuedAt}`;
@@ -1862,8 +1880,8 @@ async function finalizeBookingServerSide(
     ticketId = 'tkt_' + Date.now() + '_' + secureRandomHex(8);
     bookingId = 'bkg_' + Date.now() + '_' + secureRandomHex(4);
     ticketNum = isDeferred
-      ? `ASH-RES-${Math.floor(1000 + Math.random() * 9000)}`
-      : `ASH-${Math.floor(1000 + Math.random() * 9000)}-SRV`;
+      ? `ASH-RES-${crypto.randomInt(1000, 10000)}`
+      : `ASH-${crypto.randomInt(1000, 10000)}-SRV`;
 
     const eventRes = await rtdbGet(`events/${eventId}`, authToken);
     const eventData = eventRes.data || {};
@@ -2298,6 +2316,7 @@ async function sweepExpiredHolds() {
 // standalone server (node/tsi) or as a Vercel serverless function.
 export async function createApp() {
   const app = express();
+  app.use(helmet({ contentSecurityPolicy: false }));
   const PORT = 3000;
 
   // Raw body capture for the PhonePe webhook route.
@@ -2480,7 +2499,7 @@ export async function createApp() {
       const authToken = await getAdminAuthToken();
       if (!authToken) return;
       const entry = {
-        id: `aud_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        id: `aud_${Date.now()}_${secureRandomHex(4)}`,
         actor_id: params.actorId,
         actor_role: params.actorRole,
         action: params.action,
@@ -2686,8 +2705,8 @@ export async function createApp() {
     const adminToken = await getAdminAuthToken();
     if (!adminToken) return res.status(500).json({ success: false, error: "Server authentication failed" });
 
-    // Generate 6-digit OTP
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    // Generate 6-digit OTP using CSPRNG
+    const otp = crypto.randomInt(100000, 1000000).toString();
     const expiry = Date.now() + 10 * 60 * 1000; // 10 minutes
 
     try {
@@ -3100,7 +3119,7 @@ export async function createApp() {
         return res.status(400).json({ success: false, error: "Template name and body are required." });
       }
       const authToken = await getAdminAuthToken();
-      const id = 'wamt_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8);
+      const id = 'wamt_' + Date.now() + '_' + secureRandomHex(4);
       const template = {
         id,
         name: String(name).slice(0, 100),
@@ -3235,7 +3254,7 @@ export async function createApp() {
       }
 
       // Idempotency: same key returns the same completed result
-      const idKey = String(idempotencyKey || `${Date.now()}_${Math.random().toString(36).slice(2)}`);
+      const idKey = String(idempotencyKey || `${Date.now()}_${crypto.randomUUID()}`);
       const idHash = hashIdempotencyKey(idKey);
       const existing = idempotencyResults.get(idHash);
       if (existing) {
@@ -6000,8 +6019,8 @@ export async function createApp() {
       const counter = counterSnap.data as any;
       if (!counter) return res.status(404).json({ success: false, error: "Counter not found." });
 
-      const subUserId = `sub_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      const pin = Math.floor(1000 + Math.random() * 9000).toString();
+      const subUserId = `sub_${Date.now()}_${secureRandomHex(4)}`;
+      const pin = crypto.randomInt(1000, 10000).toString();
       const pinHash = hashCounterPin(pin);
 
       const subUser = {
@@ -6059,7 +6078,7 @@ export async function createApp() {
       const counterName = (counterSnap.data as any)?.name || "Counter";
 
       // Since we don't store plain PIN, we regenerate a new one and update the hash
-      const pin = Math.floor(1000 + Math.random() * 9000).toString();
+      const pin = crypto.randomInt(1000, 10000).toString();
       const pinHash = hashCounterPin(pin);
       await rtdbUpdate(`counters/${counterId}/subUsers/${subUserId}`, { pinHash }, adminToken);
 
@@ -8338,7 +8357,7 @@ export async function createApp() {
    * Public Secure Digital Pass Endpoint (:slug/:signature).
    */
   app.get('/api/passes/:slug/:signature', async (req: any, res) => {
-    const reqId = `req_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const reqId = `req_${Date.now()}_${secureRandomHex(4)}`;
     res.setHeader('X-Pass-Request-Id', reqId);
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
@@ -8482,7 +8501,7 @@ export async function createApp() {
    * Public Secure Digital Pass Endpoint.
    */
   app.get("/api/passes/:passId", async (req: any, res) => {
-    const reqId = `req_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const reqId = `req_${Date.now()}_${secureRandomHex(4)}`;
     res.setHeader('X-Pass-Request-Id', reqId);
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
@@ -8966,7 +8985,7 @@ async function computeShiftCashTotals(
         return res.status(409).json({ success: false, error: "This sub-user already has an open shift. End it before starting a new one." });
       }
 
-      const shiftId = `shf_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const shiftId = `shf_${Date.now()}_${secureRandomHex(4)}`;
       const shiftRecord = {
         shiftId,
         staffId: staffUid,
@@ -9450,7 +9469,7 @@ app.post("/api/counter/discount-override", requireRole(["event_manager", "super_
     }
     const staffSnap = await rtdbGet(`staff/${actorUid}`, req.user.idToken);
     const staffName = (staffSnap?.data as any)?.name || req.user.email || actorUid;
-    const overrideId = `dov_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const overrideId = `dov_${Date.now()}_${secureRandomHex(4)}`;
     await writeAuditEntry({
       actorId: actorUid,
       actorRole: rbacRole,

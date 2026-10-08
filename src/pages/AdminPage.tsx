@@ -100,7 +100,7 @@ export const AdminPage: React.FC = () => {
   const handleDuplicateEvent = (evt: EventItem) => {
     setEditorEvent({
       ...JSON.parse(JSON.stringify({ ...evt, id: undefined })),
-      id: `evt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      id: `evt_${Date.now()}_${crypto.randomUUID()}`,
       title: `${evt.title} (Copy)`,
       status: 'draft',
       isFeatured: false,

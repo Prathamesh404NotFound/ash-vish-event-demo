@@ -179,7 +179,7 @@ export const WalkInPage: React.FC = () => {
   const [isSavingVpa, setIsSavingVpa] = useState(false);
 
   // Client-side idempotency key generated once per sale attempt
-  const [idempotencyKey, setIdempotencyKey] = useState<string>(() => `idemp_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`);
+  const [idempotencyKey, setIdempotencyKey] = useState<string>(() => `idemp_${Date.now()}_${crypto.randomUUID()}`);
 
   // Offline queue state
   const [queuedSales, setQueuedSales] = useState<QueuedWalkInSale[]>([]);
@@ -918,7 +918,7 @@ export const WalkInPage: React.FC = () => {
     setErrorBanner('');
     setFormError('');
     // Fresh idempotencyKey for the new transaction
-    setIdempotencyKey(`idemp_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`);
+    setIdempotencyKey(`idemp_${Date.now()}_${crypto.randomUUID()}`);
     refreshSeats();
     // Keep the event/tier memory; focus the name field for the next guest.
     setTimeout(() => nameInputRef.current?.focus(), 50);
