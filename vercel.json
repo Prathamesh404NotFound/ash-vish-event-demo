@@ -54,7 +54,7 @@
       "destination": "/api/[[...route]]"
     },
     {
-      "source": "/((?!api/).*)",
+      "source": "/((?!api/|\\..*|.*\\.(?:sql|zip|tar\\.gz|gz|tgz|db|sqlite|log|bak|xml)$).*)",
       "destination": "/index.html"
     }
   ]

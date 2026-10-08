@@ -24,3 +24,13 @@ _debug_eval.cjs
 _t2.cjs
 .vercel/
 .firebase/
+*.sql
+*.db
+*.sqlite
+*.zip
+*.tar.gz
+*.tgz
+*.gz
+*.bak
+.idea/
+.svn/

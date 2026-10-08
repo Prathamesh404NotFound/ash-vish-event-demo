@@ -50,7 +50,9 @@ function isSensitiveFile(reqPath: string): boolean {
     p.endsWith(".tar.gz") ||
     p.endsWith(".tar") ||
     p.endsWith(".gz") ||
-    p.endsWith(".tgz")
+    p.endsWith(".tgz") ||
+    p.endsWith(".bak") ||
+    (p.endsWith(".xml") && !p.endsWith("sitemap.xml"))
   );
 }
 
@@ -2331,6 +2333,14 @@ export async function createApp() {
   });
 
   app.use(express.json());
+
+  // Block any requests attempting to fetch infrastructure, database dumps, backup archives, or hidden metadata.
+  app.use((req, res, next) => {
+    if (isSensitiveFile(req.path) || looksSensitiveBasename(path.basename(req.path))) {
+      return res.status(404).send("Not found");
+    }
+    next();
+  });
 
   // CORS Middleware for cross-origin production clients (e.g. Netlify)
   app.use((req, res, next) => {
