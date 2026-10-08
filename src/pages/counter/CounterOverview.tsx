@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Ticket, QrCode, UserPlus, CheckCircle2, Clock, Users, ShieldCheck, RefreshCw } from 'lucide-react';
+import { Ticket, QrCode, UserPlus, CheckCircle2, Clock, Users, ShieldCheck, RefreshCw, Filter } from 'lucide-react';
 import { useBooking } from '../../contexts/BookingContext';
 import { safeFetch } from '../../lib/api';
 import { authenticatedApiHeaders } from '../../lib/authHeaders';
@@ -11,6 +11,8 @@ export const CounterOverview: React.FC = () => {
   const navigate = useNavigate();
   const { events: contextEvents, allTickets } = useBooking();
   const [serverEvents, setServerEvents] = useState<any[]>([]);
+  const [selectedEventFilter, setSelectedEventFilter] = useState<string>('all');
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -28,9 +30,18 @@ export const CounterOverview: React.FC = () => {
   }, []);
   const events = serverEvents.length > 0 ? serverEvents : contextEvents;
 
-  // Re-fetch events (tier/inventory data) from the server on demand. Ticket
-  // records arrive via the real-time RTDB listener, so refreshing here pulls
-  // the latest DB state for the inventory card without a full page reload.
+  // Active events (excluding completed, cancelled, or draft events)
+  const activeEvents = useMemo(() => {
+    return events.filter(
+      (evt) => evt.status !== 'completed' && evt.status !== 'cancelled' && evt.status !== 'draft'
+    );
+  }, [events]);
+
+  const activeEventIds = useMemo(() => {
+    return new Set(activeEvents.map((evt) => evt.id));
+  }, [activeEvents]);
+
+  // Re-fetch events (tier/inventory data) from the server on demand.
   const [refreshing, setRefreshing] = useState(false);
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -46,13 +57,19 @@ export const CounterOverview: React.FC = () => {
     finally { setRefreshing(false); }
   };
 
-  // Memoize all ticket statistics to avoid recalculating on every render.
-  // The headline "Total Issued Passes" counts only active (non-deleted,
-  // non-cancelled, non-refunded, non-void) tickets, matching the admin panel.
+  // Memoize ticket statistics for active (non-completed) events only.
   const stats = useMemo(() => {
     const activeTickets = allTickets.filter((t) => {
       const s = String((t as any)?.status || '').toLowerCase();
-      return s !== 'deleted' && s !== 'cancelled' && s !== 'refunded' && s !== 'void';
+      if (s === 'deleted' || s === 'cancelled' || s === 'refunded' || s === 'void') return false;
+
+      // Exclude tickets belonging to completed, cancelled, or draft events
+      if (!t.eventId || !activeEventIds.has(t.eventId)) return false;
+
+      // Filter by selected event if specified
+      if (selectedEventFilter !== 'all' && t.eventId !== selectedEventFilter) return false;
+
+      return true;
     });
     const total = activeTickets.reduce((sum, t) => sum + (Number((t as any).quantity) || 1), 0);
     const scanned = activeTickets.filter((t) => t.status === 'redeemed' || t.status === 'used').length;
@@ -60,30 +77,27 @@ export const CounterOverview: React.FC = () => {
     const valid = activeTickets.filter((t) => t.status === 'valid').length;
     const progress = total > 0 ? Math.round((scanned / total) * 100) : 0;
     return { total, scanned, walkIn, valid, progress };
-  }, [allTickets]);
+  }, [allTickets, activeEventIds, selectedEventFilter]);
 
-  // Memoize per-event stats — only show active (published/sold_out) events.
-  // Sold counts are derived from the live tickets collection (same source of
-  // truth as the admin/booking panels) instead of capacity-minus-remaining
-  // inventory math, which drifts when voids/refunds don't restore inventory.
+  // Memoize per-event stats — only show active (non-completed) events matching filter.
   const eventStats = useMemo(() => {
     const activeTickets = allTickets.filter((t) => {
       const s = String((t as any)?.status || '').toLowerCase();
       return s !== 'deleted' && s !== 'cancelled' && s !== 'refunded' && s !== 'void';
     });
-    return events
-      .filter((evt) => evt.status !== 'draft' && evt.status !== 'cancelled' && evt.status !== 'completed')
-      .map((evt) => {
-        const tiers = normalizeTiers(evt.ticketTiers);
-        const eventTickets = activeTickets.filter((t) => t.eventId === evt.id);
-        const eventScanned = eventTickets.filter((t) => t.status === 'redeemed' || t.status === 'used').length;
-        // True sold count: sum each ticket record's quantity (bulk counter
-        // orders store N passes on one record), matching the admin report.
-        const sold = eventTickets.reduce((sum, t) => sum + (Number((t as any).quantity) || 1), 0);
-        const remaining = tiers.reduce((sum, t) => sum + (t.remainingInventory ?? (t.totalInventory || 0)), 0);
-        return { ...evt, eventTickets, eventScanned, sold, remaining, tierCount: tiers.length };
-      });
-  }, [events, allTickets]);
+    const list = selectedEventFilter === 'all'
+      ? activeEvents
+      : activeEvents.filter((e) => e.id === selectedEventFilter);
+
+    return list.map((evt) => {
+      const tiers = normalizeTiers(evt.ticketTiers);
+      const eventTickets = activeTickets.filter((t) => t.eventId === evt.id);
+      const eventScanned = eventTickets.filter((t) => t.status === 'redeemed' || t.status === 'used').length;
+      const sold = eventTickets.reduce((sum, t) => sum + (Number((t as any).quantity) || 1), 0);
+      const remaining = tiers.reduce((sum, t) => sum + (t.remainingInventory ?? (t.totalInventory || 0)), 0);
+      return { ...evt, eventTickets, eventScanned, sold, remaining, tierCount: tiers.length };
+    });
+  }, [activeEvents, allTickets, selectedEventFilter]);
 
   // Loading state: show skeleton while context is populating
   if (!events && allTickets.length === 0) {
@@ -122,6 +136,26 @@ export const CounterOverview: React.FC = () => {
             <span>Issue Walk-In</span>
           </button>
         </div>
+      </div>
+
+      {/* Event Filter Selector */}
+      <div className="p-4 rounded-2xl bg-[#141414] border border-white/10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-md">
+        <div className="flex items-center gap-2">
+          <Filter className="w-4 h-4 text-[#D4AF37]" />
+          <span className="text-xs font-bold text-white">Filter Ticket Data by Event:</span>
+        </div>
+        <select
+          value={selectedEventFilter}
+          onChange={(e) => setSelectedEventFilter(e.target.value)}
+          className="w-full sm:w-auto px-4 py-2 rounded-xl bg-[#1C1C1C] border border-white/10 text-white text-xs font-medium focus:outline-none focus:border-[#D4AF37] transition-colors cursor-pointer"
+        >
+          <option value="all">All Active Events ({activeEvents.length})</option>
+          {activeEvents.map((evt) => (
+            <option key={evt.id} value={evt.id}>
+              {evt.title} ({evt.city})
+            </option>
+          ))}
+        </select>
       </div>
 
       {/* Counter Key Metrics */}

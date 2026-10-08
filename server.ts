@@ -7499,18 +7499,30 @@ export async function createApp() {
         eventMismatch = true;
       }
 
+      // EVENT COMPLETED — reject passes belonging to a completed or cancelled event.
+      let eventCompleted = false;
+      if (ticket.eventId) {
+        const evtSnap = await rtdbGet(`events/${ticket.eventId}`, adminToken);
+        const evtData = evtSnap?.data as any;
+        if (evtData && (evtData.status === 'completed' || evtData.status === 'cancelled')) {
+          eventCompleted = true;
+        }
+      }
+
       // PAYMENT GATING — unpaid reservation passes are not valid at the gate.
       const paymentPending = ticket.passType === "reservation" && ticket.paymentStatus !== "paid";
       const amountDue = Number(ticket.amountDue ?? (Number(ticket.price) * (Number(ticket.quantity) || 1))) || 0;
 
       const allowPartialEntry = await getAllowPartialEntrySetting(adminToken);
-      const canEnter = !eventMismatch && !paymentPending
+      const canEnter = !eventMismatch && !paymentPending && !eventCompleted
         && state.remainingQuantity > 0
         && !['CANCELLED', 'EXPIRED'].includes(state.entryStatus);
 
       let reason: string | undefined;
       if (eventMismatch) {
         reason = "WRONG EVENT — this pass belongs to a different event and cannot be admitted here.";
+      } else if (eventCompleted) {
+        reason = "EVENT COMPLETED — this pass belongs to a completed/finished event and cannot be admitted.";
       } else if (paymentPending) {
         reason = `UNPAID RESERVATION PASS — payment of \u20b9${amountDue} is pending. Direct this guest to the Pay-at-Counter station before gate admission.`;
       } else if (state.remainingQuantity === 0) {

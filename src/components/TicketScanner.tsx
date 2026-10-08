@@ -25,7 +25,9 @@ import {
   Loader2,
   ZoomIn,
   Vibrate,
-} from 'lucide-react';import { useBooking } from '../contexts/BookingContext';
+  Filter,
+} from 'lucide-react';
+import { useBooking } from '../contexts/BookingContext';
 import { useAuth } from '../contexts/AuthContext';
 import { Ticket } from '../types';
 
@@ -156,8 +158,20 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
   subtitle = 'Scan digital/printed ticket QR codes or perform manual attendee lookups.',
   onDecoded,
 }) => {
-  const { scanTicketQR, allTickets, undoTicketRedemption, validateTicketEntry, confirmTicketEntry, fetchEntryHistory } = useBooking();
+  const { scanTicketQR, allTickets, events, undoTicketRedemption, validateTicketEntry, confirmTicketEntry, fetchEntryHistory } = useBooking();
   const { user } = useAuth();
+  const [selectedEventFilter, setSelectedEventFilter] = useState<string>('all');
+
+  // Active events (excluding completed, cancelled, or draft events)
+  const activeEvents = useMemo(() => {
+    return (events || []).filter(
+      (evt) => evt.status !== 'completed' && evt.status !== 'cancelled' && evt.status !== 'draft'
+    );
+  }, [events]);
+
+  const activeEventIds = useMemo(() => {
+    return new Set(activeEvents.map((evt) => evt.id));
+  }, [activeEvents]);
 
   const [undoingTicketId, setUndoingTicketId] = useState<string | null>(null);
   const [undoError, setUndoError] = useState<string | null>(null);
@@ -1264,16 +1278,29 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
     }
   };
 
-  // Filtered tickets with debouncing and max 10 result cap
+  // Filtered tickets excluding completed/cancelled/draft events, deleted/void tickets, with debouncing and max 10 result cap
   const { filteredManualTickets, totalMatches } = useMemo(() => {
+    const baseTickets = allTickets.filter((t) => {
+      const s = String((t as any)?.status || '').toLowerCase();
+      if (s === 'deleted' || s === 'cancelled' || s === 'refunded' || s === 'void') return false;
+
+      // Exclude tickets for completed, cancelled, or draft events
+      if (!t.eventId || !activeEventIds.has(t.eventId)) return false;
+
+      // Filter by selected event if a specific event is chosen
+      if (selectedEventFilter !== 'all' && t.eventId !== selectedEventFilter) return false;
+
+      return true;
+    });
+
     const q = debouncedSearchQuery.trim().toLowerCase();
     if (!q) {
       return {
-        filteredManualTickets: allTickets.slice(0, 10),
-        totalMatches: allTickets.length,
+        filteredManualTickets: baseTickets.slice(0, 10),
+        totalMatches: baseTickets.length,
       };
     }
-    const matches = allTickets.filter(
+    const matches = baseTickets.filter(
       (t) =>
         (t.attendeeName || '').toLowerCase().includes(q) ||
         (t.attendeePhone || '').toLowerCase().includes(q) ||
@@ -1286,7 +1313,7 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
       filteredManualTickets: matches.slice(0, 10),
       totalMatches: matches.length,
     };
-  }, [allTickets, debouncedSearchQuery]);
+  }, [allTickets, activeEventIds, selectedEventFilter, debouncedSearchQuery]);
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto animate-in fade-in">
@@ -1635,14 +1662,33 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
           ) : (
             /* Fallback Manual Guest Lookup */
             <div className="p-6 rounded-3xl bg-[#141414] border border-white/10 space-y-4 shadow-xl">
-              <div>
-                <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                  <Search className="w-4 h-4 text-[#D4AF37]" />
-                  Look up guest
-                </h3>
-                <p className="text-xs text-gray-300 mt-0.5">
-                  Search by name, phone, or ticket number when the QR can't be scanned.
-                </p>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-3">
+                <div>
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <Search className="w-4 h-4 text-[#D4AF37]" />
+                    Look up guest
+                  </h3>
+                  <p className="text-xs text-gray-300 mt-0.5">
+                    Search by name, phone, or ticket number when the QR can't be scanned.
+                  </p>
+                </div>
+                {activeEvents.length > 0 && (
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Filter className="w-3.5 h-3.5 text-[#D4AF37]" />
+                    <select
+                      value={selectedEventFilter}
+                      onChange={(e) => setSelectedEventFilter(e.target.value)}
+                      className="bg-[#1C1C1C] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-[#D4AF37] cursor-pointer"
+                    >
+                      <option value="all">All Active Events ({activeEvents.length})</option>
+                      {activeEvents.map((evt) => (
+                        <option key={evt.id} value={evt.id}>
+                          {evt.title} ({evt.city})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
 
               <div className="relative">
