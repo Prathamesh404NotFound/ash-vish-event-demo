@@ -43,6 +43,8 @@ interface TierInput {
   totalInventory: number;
   remainingInventory: number;
   perksText: string;
+  /** If true, this tier is only sold at a physical ticket counter. */
+  counterOnly: boolean;
 }
 
 export const AdminEvents: React.FC = () => {
@@ -83,6 +85,7 @@ export const AdminEvents: React.FC = () => {
       totalInventory: 0,
       remainingInventory: 0,
       perksText: '',
+      counterOnly: false,
     },
   ]);
 
@@ -251,6 +254,7 @@ export const AdminEvents: React.FC = () => {
         totalInventory: 0,
         remainingInventory: 0,
         perksText: '',
+        counterOnly: false,
       },
     ]);
     setScheduleText('');
@@ -359,6 +363,7 @@ export const AdminEvents: React.FC = () => {
           totalInventory: t.totalInventory || 200,
           remainingInventory: t.remainingInventory ?? t.totalInventory ?? 200,
           perksText: (t.perks || []).join(', '),
+          counterOnly: Boolean(t.counterOnly),
         }))
       );
     } else {
@@ -452,6 +457,7 @@ export const AdminEvents: React.FC = () => {
         totalInventory: 0,
         remainingInventory: 0,
         perksText: '',
+        counterOnly: false,
       },
     ]);
   };
@@ -585,6 +591,7 @@ export const AdminEvents: React.FC = () => {
         totalInventory: parsedTotal,
         remainingInventory: parsedRemaining,
         perks: t.perksText.split(',').map((p) => p.trim()).filter(Boolean),
+        counterOnly: Boolean(t.counterOnly),
       };
     });
 
@@ -2021,6 +2028,37 @@ export const AdminEvents: React.FC = () => {
                             className="w-full bg-[#121212] border border-white/10 rounded-lg px-2.5 py-1.5 text-gray-300 text-[11px]"
                           />
                         </div>
+                      </div>
+
+                      {/* Counter-Only toggle */}
+                      <div className="flex items-center justify-between gap-3 pt-2 border-t border-white/5">
+                        <div>
+                          <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                            <Building2 className="w-3.5 h-3.5 text-amber-400" />
+                            Counter Only Booking
+                          </span>
+                          <p className="text-[11px] text-gray-500 mt-0.5">
+                            {t.counterOnly
+                              ? 'This tier is only sold at a physical ticket counter — hidden from the website checkout.'
+                              : 'This tier is bookable on the website. Toggle on to restrict to counter sales only.'}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={t.counterOnly}
+                          aria-label={`${t.name} counter-only toggle`}
+                          onClick={() => handleUpdateTier(t.id, 'counterOnly', !t.counterOnly)}
+                          className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors cursor-pointer ${
+                            t.counterOnly ? 'bg-amber-500' : 'bg-gray-600'
+                          }`}
+                        >
+                          <span
+                            className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                              t.counterOnly ? 'translate-x-6' : 'translate-x-1'
+                            }`}
+                          />
+                        </button>
                       </div>
                     </div>
                     ))

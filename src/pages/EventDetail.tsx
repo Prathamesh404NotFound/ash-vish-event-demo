@@ -68,6 +68,10 @@ export const EventDetail: React.FC<EventDetailProps> = ({
     !['null', 'undefined'].includes(normalizedExternalBookingUrl.toLowerCase());
   const showPublicTicketInfo = !hasExternalBooking || event.externalBookingShowTicketInfo !== false;
   const ticketTiers = Array.isArray(event.ticketTiers) ? event.ticketTiers : [];
+  /** Tiers bookable on the website (not restricted to physical counter). */
+  const bookableTiers = ticketTiers.filter((t) => !t.counterOnly);
+  /** Tiers that can only be purchased at a physical ticket counter. */
+  const counterOnlyTiers = ticketTiers.filter((t) => t.counterOnly);
 
   const eventSchema = generateEventSchema(event);
   useSEO({
@@ -82,15 +86,15 @@ export const EventDetail: React.FC<EventDetailProps> = ({
 
   // Flat single-price ticket: same price for every seat.
   const [flatPrice] = useState<number>(() => {
-    // Use the most popular tier's price as the single flat price, falling back
-    // to the first tier when no tier is marked popular.
-    const flat = ticketTiers.find((t) => t.popular) || ticketTiers[0];
+    // Use the most popular bookable tier's price as the single flat price,
+    // falling back to the first bookable tier (counter-only tiers excluded).
+    const flat = bookableTiers.find((t) => t.popular) || bookableTiers[0];
     return typeof flat?.price === 'number' && flat.price > 0 ? flat.price : 0;
   });
   const [selectedTierId, setSelectedTierId] = useState<string | null>(
-    ticketTiers[0]?.id || null
+    bookableTiers[0]?.id || null
   );
-  const selectedTier = ticketTiers.find((t) => t.id === selectedTierId);
+  const selectedTier = bookableTiers.find((t) => t.id === selectedTierId);
   const [quantity, setQuantity] = useState(1);
   // Multi-type selection (general-admission events only): tierId -> quantity.
   // Lets one transaction mix ticket types, e.g. 2 VIP + 3 Kids.
@@ -137,10 +141,10 @@ export const EventDetail: React.FC<EventDetailProps> = ({
       : heroBasePrice;
 
   // Mixed bookings are reserved for general-admission events (no seat map) with
-  // more than one ticket type; seat-based and single-type events keep the
-  // classic single-tier flow below.
+  // more than one bookable (website) ticket type; seat-based and single-type
+  // events keep the classic single-tier flow below.
   const multiMode =
-    ticketTiers.length > 1 && !isSeatBasedEvent(event);
+    bookableTiers.length > 1 && !isSeatBasedEvent(event);
 
   // Reset the mixed selection whenever the event changes.
   React.useEffect(() => {
@@ -171,7 +175,7 @@ export const EventDetail: React.FC<EventDetailProps> = ({
   };
 
   // Derived mixed selection: one line per tier with a quantity above zero.
-  const selectedLines: TicketLineItem[] = ticketTiers
+  const selectedLines: TicketLineItem[] = bookableTiers
     .filter((t) => (quantities[t.id] ?? 0) > 0)
     .map((t) => ({
       tierId: t.id,
@@ -219,14 +223,14 @@ export const EventDetail: React.FC<EventDetailProps> = ({
     if (multiMode) {
       if (selectedLines.length === 0) return;
       // Primary tier = first selected line; items carries the full mixed set.
-      const primaryTier = ticketTiers.find((t) => t.id === selectedLines[0].tierId) || ticketTiers[0];
+      const primaryTier = bookableTiers.find((t) => t.id === selectedLines[0].tierId) || bookableTiers[0];
       if (!primaryTier) return;
       // General admission: seat selection is skipped entirely.
       onProceedToCheckout(event, primaryTier, totalSelectedTickets, [], selectedLines);
       return;
     }
-    // Use the selected tier, or fall back to the first tier
-    const tierToBook = selectedTier || ticketTiers[0];
+    // Use the selected tier, or fall back to the first bookable tier
+    const tierToBook = selectedTier || bookableTiers[0];
     if (!tierToBook) {
       alert('No ticket tiers available for this event');
       return;
@@ -243,7 +247,7 @@ export const EventDetail: React.FC<EventDetailProps> = ({
   };
 
   return (
-    <div className="pb-16 pt-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8 animate-in fade-in">
+    <div className="pb-28 pt-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8 animate-in fade-in">
       
       {/* Navigation Header */}
       <div className="flex items-center justify-between">
@@ -435,7 +439,7 @@ export const EventDetail: React.FC<EventDetailProps> = ({
                     </h3>
                     {ticketTiers.length > 1 && (
                       <span className="text-xs text-gray-400 font-medium">
-                        {ticketTiers.length} options available
+                        {bookableTiers.length} option{bookableTiers.length !== 1 ? 's' : ''} available online
                       </span>
                     )}
                   </div>
@@ -445,7 +449,8 @@ export const EventDetail: React.FC<EventDetailProps> = ({
                     ticketTiers.length === 2 ? 'grid-cols-1 sm:grid-cols-2' :
                     'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3'
                   }`}>
-                    {ticketTiers.map((tier) => {
+                    {/* Bookable-online tiers */}
+                    {bookableTiers.map((tier) => {
                       const isVip = tier.name.toLowerCase().includes('vip');
                       if (multiMode) {
                         // Multi-type mode: each card carries an add-to-booking
@@ -480,6 +485,34 @@ export const EventDetail: React.FC<EventDetailProps> = ({
                         />
                       );
                     })}
+
+                    {/* Counter-only tiers — displayed but not bookable online */}
+                    {counterOnlyTiers.map((tier) => (
+                      <div
+                        key={tier.id}
+                        className="relative p-4 rounded-2xl bg-[#141414] border border-amber-500/30 space-y-3 opacity-90"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="font-heading font-bold text-base text-white truncate">{tier.name}</p>
+                            {tier.description && (
+                              <p className="text-xs text-gray-400 mt-0.5">{tier.description}</p>
+                            )}
+                          </div>
+                          <span className="shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                            <Building2 className="w-3 h-3" />
+                            Counter Only
+                          </span>
+                        </div>
+                        <div className="text-lg font-extrabold text-[#D4AF37] font-heading">
+                          {formatINR(tier.price)}
+                          <span className="text-xs text-gray-400 font-normal ml-1">/ ticket</span>
+                        </div>
+                        <p className="text-[11px] text-amber-300/80 leading-snug">
+                          This ticket category is available <span className="font-bold">only at the venue ticket counter</span> — not bookable online.
+                        </p>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
@@ -1074,6 +1107,101 @@ export const EventDetail: React.FC<EventDetailProps> = ({
           }),
         }}
       />
+      {/* Sticky Booking Bar — visible while the ticket section is above the
+          fold; hides for external-booking and counter-only listings.          */}
+      {showPublicTicketInfo && !hasExternalBooking && (
+        <div
+          id="sticky-booking-bar"
+          className="
+            fixed bottom-0 left-0 right-0 z-50
+            flex items-center justify-between gap-4
+            px-4 sm:px-8 py-3 sm:py-4
+            bg-[#0F0F0F]/95 backdrop-blur-xl
+            border-t border-white/10
+            shadow-[0_-8px_32px_-4px_rgba(0,0,0,0.6)]
+            animate-in slide-in-from-bottom duration-300
+          "
+        >
+          {/* Left: event name + pricing summary */}
+          <div className="min-w-0 flex-1">
+            <p className="font-heading font-extrabold text-sm sm:text-base text-white truncate leading-tight">
+              {event.title}
+            </p>
+            {(() => {
+              const bookableTiers = ticketTiers.filter(
+                (t) => !t.counterOnly && (t.remainingInventory ?? 0) > 0
+              );
+              if (bookableTiers.length === 0) return null;
+              const lowestTier = bookableTiers.reduce((min, t) =>
+                (t.price ?? 0) < (min.price ?? 0) ? t : min
+              );
+              const displayPrice = earlyBird?.active
+                ? earlyBirdTicketPrice(lowestTier, earlyBird)
+                : lowestTier.price;
+              const originalPriceBar = lowestTier.price;
+              const hasBarDiscount =
+                earlyBird?.active && displayPrice < originalPriceBar;
+              return (
+                <div className="flex items-baseline gap-2 mt-0.5">
+                  <span className="font-heading font-black text-lg sm:text-xl text-[#D4AF37] leading-none">
+                    {formatINR(displayPrice)}
+                  </span>
+                  {hasBarDiscount && (
+                    <span className="text-xs text-gray-500 line-through leading-none">
+                      {formatINR(originalPriceBar)}
+                    </span>
+                  )}
+                  <span className="text-[10px] text-gray-400 font-medium">
+                    per ticket
+                  </span>
+                </div>
+              );
+            })()}
+          </div>
+
+          {/* Right: action buttons */}
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={scrollToTickets}
+              className="hidden sm:inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-white/15 bg-white/5 text-white text-xs font-bold hover:bg-white/10 transition-colors"
+            >
+              View Tickets
+            </button>
+            <button
+              type="button"
+              onClick={handleBookNow}
+              disabled={
+                isLoadingTickets ||
+                (multiMode
+                  ? totalSelectedTickets === 0
+                  : !selectedTier || (selectedTier?.remainingInventory ?? 0) <= 0)
+              }
+              className={`
+                flex items-center gap-2 px-5 sm:px-7 py-2.5 rounded-xl font-extrabold text-sm transition-all
+                ${
+                  isLoadingTickets ||
+                  (multiMode
+                    ? totalSelectedTickets === 0
+                    : !selectedTier || (selectedTier?.remainingInventory ?? 0) <= 0)
+                    ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
+                    : 'bg-gradient-to-r from-[#F3E5AB] via-[#D4AF37] to-[#C5A059] text-black hover:brightness-110 hover:scale-[1.02] active:scale-[0.98] shadow-[0_4px_20px_-4px_rgba(212,175,55,0.6)]'
+                }
+              `}
+            >
+              <Ticket className="w-4 h-4 stroke-[2.5]" />
+              <span>
+                {isLoadingTickets
+                  ? 'Loading…'
+                  : multiMode && totalSelectedTickets > 0
+                  ? `Book ${totalSelectedTickets} ${totalSelectedTickets === 1 ? 'Ticket' : 'Tickets'}`
+                  : 'Book Now'}
+              </span>
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
+

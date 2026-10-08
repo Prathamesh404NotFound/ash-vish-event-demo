@@ -17,6 +17,12 @@ export interface TicketTier {
   remainingInventory: number;
   perks: string[];
   popular?: boolean;
+  /**
+   * When true, this tier is sold only at a physical ticket counter.
+   * It will be hidden from the public website checkout and shown as
+   * "Counter Only" on the event detail page.
+   */
+  counterOnly?: boolean;
 }
 
 export interface FAQ {

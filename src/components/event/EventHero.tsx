@@ -223,19 +223,9 @@ export const EventHero: React.FC<EventHeroProps> = ({
 
           {/* Price + CTA cluster. */}
           <div className="space-y-4">
-            {showPrice && (
-              <div className="flex flex-wrap items-end gap-3">
-                <span className="font-heading text-4xl font-extrabold leading-none text-[#D4AF37]">
-                  {formatINR(price)}
-                </span>
-                {hasDiscount && (
-                  <span className="pb-0.5 text-base font-semibold leading-none text-gray-500 line-through">
-                    {formatINR(originalPrice)}
-                  </span>
-                )}
-                <span className="pb-0.5 text-xs font-medium text-gray-400">per ticket</span>
-              </div>
-            )}
+          {/* Price display is intentionally omitted — the detailed ticket
+              cards in the body carry the authoritative per-tier pricing. */}
+
 
             <div className="flex flex-wrap items-center gap-3">
               {showPrimaryCta &&
