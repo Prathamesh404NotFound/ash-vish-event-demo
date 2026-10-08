@@ -78,6 +78,7 @@ const AdminCounters = lazyWithRetry(() => import('./pages/admin/AdminCounters').
 const AdminShiftPage = lazyWithRetry(() => import('./pages/admin/AdminShiftPage').then(m => ({ default: m.AdminShiftPage })));
 const OrganizerDashboard = lazyWithRetry(() => import('./pages/OrganizerDashboard').then(m => ({ default: m.OrganizerDashboard })));
 const AdminUsers = lazyWithRetry(() => import('./pages/admin/AdminUsers').then(m => ({ default: m.AdminUsers })));
+const AdminCompliance = lazyWithRetry(() => import('./pages/admin/AdminCompliance').then(m => ({ default: m.AdminCompliance })));
 
 // Ticket Counter Dashboard Shell & Pages (lazy-loaded for code splitting)
 const CounterLayout = lazyWithRetry(() => import('./components/CounterLayout').then(m => ({ default: m.CounterLayout })));
@@ -430,6 +431,7 @@ export default function App() {
               <Route path="shifts" element={<AdminShiftPage />} />
               <Route path="scan" element={<QRScanner />} />
               <Route path="checkin" element={<AdminCheckinDashboard />} />
+              <Route path="compliance" element={<AdminCompliance />} />
               <Route path="settings" element={<AdminSettings />} />
               <Route path="*" element={<Navigate to="/admin" replace />} />
             </Route>

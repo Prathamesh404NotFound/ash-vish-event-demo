@@ -5056,6 +5056,10 @@ export async function createApp() {
       const adminToken = await getAdminAuthToken();
       const eventSnap = await rtdbGet(`events/${eventId}`, adminToken);
       const event = eventSnap.data as any;
+      if (!event) return res.status(404).json({ success: false, error: "Event not found." });
+      if (event.status === "completed") {
+        return res.status(400).json({ success: false, error: "Compliance Error: Manual ticket entry is strictly prohibited for completed events." });
+      }
       const dbTiers = normalizeTiers(event?.ticketTiers);
       const tier = dbTiers.find((candidate: any) => candidate.id === tierId);
       if (!event || !tier) {
@@ -5824,6 +5828,238 @@ export async function createApp() {
     }
   });
 
+  // ─── TICKET COMPLIANCE POLICY & REPORTING ───
+  // Policy Enforcement & Compliance Auditing for Completed Event Tickets
+  // 1. Manual Entry Check: Completed event tickets must never be entered manually.
+  // 2. Counter Placement Check: Completed event tickets must never appear on counters.
+  // 3. Unnecessary Placement Check: Completed event tickets must never be placed in unrequired locations.
+
+  app.get("/api/admin/compliance/report", requireRole(["super_admin", "event_manager", "counter_staff"]), async (req: any, res) => {
+    try {
+      const adminToken = await getAdminAuthToken();
+      const [eventsSnap, ticketsSnap, ordersSnap] = await Promise.all([
+        rtdbGet("events", adminToken),
+        rtdbGet("tickets", adminToken),
+        rtdbGet("orders", adminToken),
+      ]);
+
+      const eventsMap = (eventsSnap.data || {}) as Record<string, any>;
+      const ticketsMap = (ticketsSnap.data || {}) as Record<string, any>;
+      const ordersMap = (ordersSnap.data || {}) as Record<string, any>;
+
+      const now = Date.now();
+      const allEvents = Object.values(eventsMap).map((e: any) => applyScheduledTransitions(e, now));
+      const completedEvents = allEvents.filter((e: any) => e.status === "completed");
+      const allTickets = Object.values(ticketsMap).filter((t: any) => t && String(t.status || "").toLowerCase() !== "deleted");
+      const allOrders = Object.values(ordersMap);
+
+      let totalCompletedEvents = completedEvents.length;
+      let compliantEventsCount = 0;
+      let nonCompliantEventsCount = 0;
+      let manualEntryViolationsCount = 0;
+      let counterPlacementViolationsCount = 0;
+      let unnecessaryPlacementViolationsCount = 0;
+
+      const reports = completedEvents.map((evt: any) => {
+        const evtTickets = allTickets.filter((t: any) => t.eventId === evt.id);
+        const evtOrders = allOrders.filter((o: any) => o.eventId === evt.id);
+
+        // Check 1: Manual Entry Verification
+        // None of the tickets for completed events were entered manually
+        const manualTickets = evtTickets.filter((t: any) => {
+          const linkedOrder = evtOrders.find((o: any) => o.ticketId === t.id || o.orderId === t.orderId);
+          const isManualOrder = linkedOrder && (linkedOrder.channel === "counter" || String(linkedOrder.paymentMethod || "").startsWith("manual") || String(linkedOrder.paymentMethod || "").startsWith("walkin"));
+          return t.isWalkIn === true || t.entryMethod === "manual" || String(t.paymentMethod || "").startsWith("walkin") || String(t.paymentMethod || "").startsWith("manual") || isManualOrder;
+        });
+
+        const manualCheck = {
+          status: manualTickets.length === 0 ? ("Compliant" as const) : ("Non-compliant" as const),
+          violationsCount: manualTickets.length,
+          details: manualTickets.length === 0
+            ? ["No manually entered tickets detected for this completed event."]
+            : manualTickets.map((t: any) => `Ticket #${t.ticketNumber || t.id} (${t.attendeeName || 'Guest'}) was entered manually.`),
+        };
+        if (manualCheck.violationsCount > 0) manualEntryViolationsCount++;
+
+        // Check 2: Counter Placement Verification
+        // None of their tickets appear on counters (counterId, counterName, holdAtCounter)
+        const counterTickets = evtTickets.filter((t: any) => Boolean(t.counterId) || Boolean(t.holdAtCounter) || (t.counterName && t.counterName.trim() !== ""));
+        const eventHasCounterAssigned = Array.isArray(evt.assignedCounterIds) && evt.assignedCounterIds.length > 0;
+        const counterDetails: string[] = [];
+        if (counterTickets.length > 0) {
+          counterTickets.forEach((t: any) => {
+            counterDetails.push(`Ticket #${t.ticketNumber || t.id} is placed on counter: ${t.counterName || t.counterId || 'Physical Counter'}.`);
+          });
+        }
+        if (eventHasCounterAssigned) {
+          counterDetails.push(`Event retained assigned physical counters after completion.`);
+        }
+        if (counterDetails.length === 0) {
+          counterDetails.push("No tickets or counter assignments appear on physical counters.");
+        }
+
+        const counterCheck = {
+          status: (counterTickets.length === 0 && !eventHasCounterAssigned) ? ("Compliant" as const) : ("Non-compliant" as const),
+          violationsCount: counterTickets.length + (eventHasCounterAssigned ? 1 : 0),
+          details: counterDetails,
+        };
+        if (counterCheck.violationsCount > 0) counterPlacementViolationsCount++;
+
+        // Check 3: Unnecessary Location Placement Verification
+        // None of their tickets are placed in unnecessary locations (unrequired physical locations or obsolete counter locations)
+        const unnecessaryTickets = evtTickets.filter((t: any) => t.isUnnecessaryLocation === true || (t.locationPlacement && t.locationPlacement !== "none" && t.locationPlacement !== "archived"));
+        const unnecessaryEventLocation = Boolean(evt.counterLocation || evt.counterTimingText);
+        const unnecessaryDetails: string[] = [];
+        if (unnecessaryTickets.length > 0) {
+          unnecessaryTickets.forEach((t: any) => {
+            unnecessaryDetails.push(`Ticket #${t.ticketNumber || t.id} is in unrequired location: '${t.locationPlacement}'.`);
+          });
+        }
+        if (unnecessaryEventLocation) {
+          unnecessaryDetails.push(`Completed event retains unrequired counter location data: '${evt.counterLocation || evt.counterTimingText}'.`);
+        }
+        if (unnecessaryDetails.length === 0) {
+          unnecessaryDetails.push("No tickets are placed in unnecessary or unrequired locations.");
+        }
+
+        const unnecessaryCheck = {
+          status: (unnecessaryTickets.length === 0 && !unnecessaryEventLocation) ? ("Compliant" as const) : ("Non-compliant" as const),
+          violationsCount: unnecessaryTickets.length + (unnecessaryEventLocation ? 1 : 0),
+          details: unnecessaryDetails,
+        };
+        if (unnecessaryCheck.violationsCount > 0) unnecessaryPlacementViolationsCount++;
+
+        const isOverallCompliant = manualCheck.status === "Compliant" && counterCheck.status === "Compliant" && unnecessaryCheck.status === "Compliant";
+        if (isOverallCompliant) {
+          compliantEventsCount++;
+        } else {
+          nonCompliantEventsCount++;
+        }
+
+        return {
+          eventId: evt.id,
+          eventTitle: evt.title || "Untitled Event",
+          eventDate: evt.date || "N/A",
+          eventVenue: evt.venue || "N/A",
+          eventCity: evt.city || "N/A",
+          eventStatus: evt.status || "completed",
+          totalTickets: evtTickets.length,
+          checks: {
+            manualEntry: manualCheck,
+            counterPlacement: counterCheck,
+            unnecessaryPlacement: unnecessaryCheck,
+          },
+          overallStatus: isOverallCompliant ? ("Compliant" as const) : ("Non-compliant" as const),
+          lastAuditedAt: new Date().toISOString(),
+        };
+      });
+
+      const summary = {
+        totalCompletedEvents,
+        compliantEventsCount,
+        nonCompliantEventsCount,
+        manualEntryViolationsCount,
+        counterPlacementViolationsCount,
+        unnecessaryPlacementViolationsCount,
+      };
+
+      return res.json({ success: true, summary, reports });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || "Failed to generate compliance report." });
+    }
+  });
+
+  app.post("/api/admin/compliance/remediate", requireRole(["super_admin", "event_manager"]), async (req: any, res) => {
+    try {
+      const adminToken = await getAdminAuthToken();
+      const [eventsSnap, ticketsSnap] = await Promise.all([
+        rtdbGet("events", adminToken),
+        rtdbGet("tickets", adminToken),
+      ]);
+
+      const eventsMap = (eventsSnap.data || {}) as Record<string, any>;
+      const ticketsMap = (ticketsSnap.data || {}) as Record<string, any>;
+
+      const completedEvents = Object.values(eventsMap).filter((e: any) => e.status === "completed");
+      const completedEventIds = new Set(completedEvents.map((e: any) => e.id));
+
+      let remediatedTicketsCount = 0;
+      let remediatedEventsCount = 0;
+      const logs: string[] = [];
+
+      for (const [ticketId, ticket] of Object.entries(ticketsMap)) {
+        const t = ticket as any;
+        if (!t || !t.eventId || !completedEventIds.has(t.eventId)) continue;
+
+        let needsUpdate = false;
+        const updates: Record<string, any> = {};
+
+        if (t.counterId || t.counterName || t.holdAtCounter) {
+          updates.counterId = null;
+          updates.counterName = null;
+          updates.holdAtCounter = null;
+          needsUpdate = true;
+          logs.push(`Removed counter placement for Ticket #${t.ticketNumber || ticketId}`);
+        }
+
+        if (t.isUnnecessaryLocation || (t.locationPlacement && t.locationPlacement !== "none")) {
+          updates.isUnnecessaryLocation = null;
+          updates.locationPlacement = "none";
+          needsUpdate = true;
+          logs.push(`Cleared unnecessary location placement for Ticket #${t.ticketNumber || ticketId}`);
+        }
+
+        if (needsUpdate) {
+          await rtdbUpdate(`tickets/${ticketId}`, updates, adminToken);
+          remediatedTicketsCount++;
+        }
+      }
+
+      for (const evt of completedEvents) {
+        let needsEventUpdate = false;
+        const eventUpdates: Record<string, any> = {};
+
+        if (Array.isArray(evt.assignedCounterIds) && evt.assignedCounterIds.length > 0) {
+          eventUpdates.assignedCounterIds = null;
+          needsEventUpdate = true;
+        }
+        if (evt.counterLocation) {
+          eventUpdates.counterLocation = null;
+          needsEventUpdate = true;
+        }
+        if (evt.counterTimingText) {
+          eventUpdates.counterTimingText = null;
+          needsEventUpdate = true;
+        }
+
+        if (needsEventUpdate) {
+          await rtdbUpdate(`events/${evt.id}`, eventUpdates, adminToken);
+          remediatedEventsCount++;
+          logs.push(`Unassigned physical counters and cleared location details for completed event '${evt.title}'`);
+        }
+      }
+
+      await writeAuditEntry({
+        actorId: req.user.uid,
+        actorRole: req.user.rbacRole,
+        action: "compliance.remediated",
+        entityType: "compliance",
+        entityId: "system",
+        afterState: { remediatedTicketsCount, remediatedEventsCount, logsCount: logs.length },
+      });
+
+      return res.json({
+        success: true,
+        remediatedTicketsCount,
+        remediatedEventsCount,
+        logs,
+        message: `Successfully remediated ${remediatedTicketsCount} ticket records and ${remediatedEventsCount} completed event records.`,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || "Failed to auto-remediate compliance issues." });
+    }
+  });
+
   // -- Item 4: orders dashboard (list, filters, pagination) -----------------
   app.get("/api/admin/orders", requireRole(["super_admin", "event_manager", "counter_staff"]), async (req: any, res) => {
     try {
@@ -6065,6 +6301,9 @@ export async function createApp() {
       const adminToken = await getAdminAuthToken();
       const event = (await rtdbGet(`events/${eventId}`, adminToken)).data as any;
       if (!event) return res.status(404).json({ success: false, error: "Event not found." });
+      if (event.status === "completed") {
+        return res.status(400).json({ success: false, error: "Compliance Error: Manual ticket entry is strictly prohibited for completed events." });
+      }
       const tier = normalizeTiers(event.ticketTiers).find((t: any) => t.id === tierId);
       if (!tier) return res.status(400).json({ success: false, error: "Invalid ticket tier." });
       // Admin toggle: usesSeatMap=false forces general admission — no seats.

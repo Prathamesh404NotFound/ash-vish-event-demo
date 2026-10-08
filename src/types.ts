@@ -235,6 +235,12 @@ export interface Ticket {
   scannedBy?: string;
   scannedAt?: string;
   isWalkIn?: boolean;
+  entryMethod?: 'manual' | 'automatic';
+  counterId?: string;
+  counterName?: string;
+  holdAtCounter?: boolean;
+  locationPlacement?: string;
+  isUnnecessaryLocation?: boolean;
   /** 'entry' = normal, gate-valid ticket. 'reservation' = Cash-on-Counter-Only
    *  event's unpaid pass; not valid at the gate until paymentStatus is 'paid'. */
   passType?: 'entry' | 'reservation';
@@ -255,6 +261,38 @@ export interface Ticket {
   lastScanAt?: string;
   lastScannedBy?: string;
   lastScanCounter?: string;
+}
+
+export interface ComplianceCheckResult {
+  status: 'Compliant' | 'Non-compliant';
+  violationsCount: number;
+  details: string[];
+}
+
+export interface EventComplianceReport {
+  eventId: string;
+  eventTitle: string;
+  eventDate: string;
+  eventVenue: string;
+  eventCity: string;
+  eventStatus: string;
+  totalTickets: number;
+  checks: {
+    manualEntry: ComplianceCheckResult;
+    counterPlacement: ComplianceCheckResult;
+    unnecessaryPlacement: ComplianceCheckResult;
+  };
+  overallStatus: 'Compliant' | 'Non-compliant';
+  lastAuditedAt: string;
+}
+
+export interface ComplianceSummary {
+  totalCompletedEvents: number;
+  compliantEventsCount: number;
+  nonCompliantEventsCount: number;
+  manualEntryViolationsCount: number;
+  counterPlacementViolationsCount: number;
+  unnecessaryPlacementViolationsCount: number;
 }
 
 export type EntryOutcome = 'UNUSED' | 'PARTIALLY_CHECKED_IN' | 'FULLY_CHECKED_IN' | 'INVALID' | 'CANCELLED' | 'EXPIRED';
