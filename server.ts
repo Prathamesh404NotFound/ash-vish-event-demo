@@ -9,7 +9,7 @@ dotenv.config();
 import { verifyFirebaseIdToken, TokenVerificationError } from "./src/lib/verify-token.js";
 import { rtdbGet, rtdbSet, rtdbUpdate, rtdbDelete, rtdbTransaction, rtdbPush } from "./src/lib/rtdb.js";
 import { getFirebaseAdminIdToken } from "./src/lib/identity-admin.js";
-import { sendTicketWhatsApp, sendTicketWhatsAppWithImage, normalizePhoneNumber } from "./src/lib/enotify.js";
+import { sendTicketWhatsApp, sendTicketWhatsAppWithImage, normalizePhoneNumber, formatDateDDMMMMYYYY, formatTime12h } from "./src/lib/enotify.js";
 import {
   isPhonePeConfigured,
   isTestMode,
@@ -250,7 +250,7 @@ async function sendWhatsAppText(phone: string, message: string): Promise<boolean
     process.env.ENOTIFY_TOKEN ||
     process.env.ENOTIFY_API_KEY ||
     process.env.ENOTIFY_INSTANCE_TOKEN ||
-    ""
+    "6523f2a5758e0a2faf8f8d33"
   ).trim();
   if (!token) {
     console.warn("[ENOTIFY] WhatsApp API token is missing in environment variables.");
@@ -328,6 +328,139 @@ async function sendWhatsAppText(phone: string, message: string): Promise<boolean
   }
   return false;
 }
+
+/**
+ * Robust post-booking WhatsApp notification dispatcher.
+ * Handles custom templates or fallback brand template, marks ticket as sent,
+ * and records notification log.
+ */
+async function dispatchWhatsAppConfirmation(
+  ticket: any,
+  targetPhone: string,
+  eventId: string,
+  bookingId: string,
+  userOrAdminToken?: string
+): Promise<{ success: boolean; waMessageId?: string; error?: any }> {
+  try {
+    const normalizedPhone = normalizePhoneNumber(targetPhone);
+    if (!normalizedPhone) {
+      console.warn(`[WHATSAPP] Skipping confirmation: invalid phone "${targetPhone}"`);
+      return { success: false, error: "INVALID_PHONE" };
+    }
+
+    const ticketId = ticket?.id || ticket?.ticketId;
+    if (!ticketId) return { success: false, error: "MISSING_TICKET_ID" };
+
+    const dbToken = userOrAdminToken || (await getAdminAuthToken());
+
+    // Prevent duplicate confirmation sends
+    if (ticket.whatsappConfirmationSent === true) {
+      console.log(`[WHATSAPP] Confirmation already sent for ticket ${ticketId}. Skipping.`);
+      return { success: true, waMessageId: ticket.whatsappMessageId };
+    }
+
+    let res: { success: boolean; waMessageId?: string; error?: any };
+
+    // Look up custom template
+    try {
+      const templatesSnap = await rtdbGet("whatsapp_templates", dbToken);
+      const allTemplates = templatesSnap.data
+        ? (Array.isArray(templatesSnap.data) ? templatesSnap.data.filter(Boolean) : Object.values(templatesSnap.data))
+        : [];
+      const matchingTemplate = allTemplates.find((t: any) =>
+        t?.isActive && Array.isArray(t.assignedEventIds) && t.assignedEventIds.includes(eventId)
+      ) || allTemplates.find((t: any) =>
+        t?.isActive && (!t.assignedEventIds || t.assignedEventIds.length === 0)
+      );
+
+      if (matchingTemplate && matchingTemplate.body) {
+        const selectedSeats = Array.isArray(ticket.selectedSeats) ? ticket.selectedSeats : [];
+        const seatLabel = selectedSeats.length > 0 ? selectedSeats.join(', ') : (ticket.seatNumber && !/general/i.test(ticket.seatNumber) ? ticket.seatNumber : '');
+        const rawTicketRef = ticket.ticketNumber || ticket.id || '';
+        const ticketRef = String(rawTicketRef).replace(/^ASH-/i, '');
+        const appUrlBase = (process.env.VITE_APP_URL || process.env.APP_URL || 'https://ashvishevents.com').replace(/\/+$/, '');
+        const passSlugObj = ticket?.passSlug;
+        const passPath = passSlugObj?.id && passSlugObj?.sig ? `${passSlugObj.id}/${passSlugObj.sig}` : (ticket as any).passId || ticket.ticketNumber;
+        const passUrl = `${appUrlBase}/pass/${passPath}`;
+        const mapsRaw = ticket.eventGoogleMapsQuery || `${ticket.venue || ''}, ${ticket.city || ''}`;
+        const mapsUrl = /^https?:\/\//i.test(mapsRaw) ? mapsRaw : `https://maps.google.com/?q=${encodeURIComponent(mapsRaw)}`;
+        const formattedDate = formatDateDDMMMMYYYY(ticket.date) || ticket.date || '';
+        const formattedTime = formatTime12h(ticket.time) || ticket.time || '';
+
+        const renderedBody = matchingTemplate.body
+          .replace(/\{\{eventTitle\}\}/g, ticket.eventTitle || 'Event')
+          .replace(/\{\{attendeeName\}\}/g, ticket.attendeeName || 'Guest')
+          .replace(/\{\{quantity\}\}/g, String(ticket.quantity || 1))
+          .replace(/\{\{date\}\}/g, formattedDate)
+          .replace(/\{\{time\}\}/g, formattedTime)
+          .replace(/\{\{venue\}\}/g, ticket.venue || '')
+          .replace(/\{\{city\}\}/g, ticket.city || '')
+          .replace(/\{\{tierName\}\}/g, ticket.tierName || 'Standard')
+          .replace(/\{\{seatLabel\}\}/g, seatLabel)
+          .replace(/\{\{ticketRef\}\}/g, ticketRef)
+          .replace(/\{\{passUrl\}\}/g, passUrl)
+          .replace(/\{\{mapsUrl\}\}/g, mapsUrl)
+          .replace(/\{\{totalPaid\}\}/g, String(ticket.totalPaid || 0))
+          .replace(/\{\{attendeePhone\}\}/g, targetPhone)
+          .replace(/\{\{attendeeEmail\}\}/g, ticket.attendeeEmail || '')
+          .replace(/\{\{bookingId\}\}/g, bookingId || '');
+
+        console.log(`[WHATSAPP] Using custom template "${matchingTemplate.name}" for event ${eventId}`);
+        const sent = await sendWhatsAppText(normalizedPhone, renderedBody);
+        res = sent ? { success: true, waMessageId: `template_${Date.now()}` } : { success: false, error: 'Template send failed' };
+      } else {
+        res = await sendTicketWhatsApp(ticket, normalizedPhone);
+      }
+    } catch (templateErr: any) {
+      console.warn("[WHATSAPP TEMPLATE] Lookup failed, using default:", templateErr?.message);
+      res = await sendTicketWhatsApp(ticket, normalizedPhone);
+    }
+
+    const notificationEntry: any = {
+      channel: 'enotify_whatsapp',
+      createdAt: new Date().toISOString(),
+      recipientPhone: normalizedPhone,
+      attendeeName: ticket.attendeeName || 'Attendee',
+      eventTitle: ticket.eventTitle || 'Event',
+      subject: "WhatsApp Ticket Confirmation",
+      recipientCount: 1,
+      createdBy: "system"
+    };
+
+    if (res.success) {
+      notificationEntry.status = 'sent';
+      notificationEntry.waMessageId = res.waMessageId;
+      ticket.whatsappConfirmationSent = true;
+      ticket.whatsappSentAt = new Date().toISOString();
+      await rtdbUpdate(`tickets/${ticketId}`, {
+        whatsappConfirmationSent: true,
+        whatsappSentAt: notificationEntry.createdAt,
+        whatsappMessageId: res.waMessageId || null,
+      }, dbToken).catch(() => {});
+      if (ticket.ownerId) {
+        await rtdbUpdate(`users/${ticket.ownerId}/tickets/${ticketId}`, {
+          whatsappConfirmationSent: true,
+          whatsappSentAt: notificationEntry.createdAt,
+          whatsappMessageId: res.waMessageId || null,
+        }, dbToken).catch(() => {});
+      }
+    } else {
+      notificationEntry.status = 'failed';
+      notificationEntry.reason = res.error?.message || (typeof res.error === 'object' ? JSON.stringify(res.error) : String(res.error)) || 'Unknown error';
+    }
+
+    await rtdbPush("notifications", {
+      ...notificationEntry,
+      ticketId,
+    }, dbToken).catch(() => {});
+
+    return res;
+  } catch (err: any) {
+    console.error("[WHATSAPP DISPATCH ERROR]", err?.message || err);
+    return { success: false, error: err?.message || "Dispatch error" };
+  }
+}
+
 
 async function sendMail(options: { to: string; subject: string; text: string; html?: string }): Promise<{ ok: boolean; mode: "smtp" | "no-mail"; error?: string }> {
   if (!isSmtpConfigured()) {
@@ -1816,6 +1949,7 @@ async function finalizeBookingServerSide(
           payments: pendingOrder?.payments || null,
           paymentMethod: pendingOrder?.paymentMethod || paymentMethod,
           ...(pendingOrder?.reservationId ? { reservationId: pendingOrder.reservationId } : {}),
+          ...(isMultiItemOrder ? { items: pendingOrder?.items } : {}),
         };
         createdTicketIds.push(tId);
         if (li === 0) {
@@ -2116,154 +2250,19 @@ async function finalizeBookingServerSide(
       time,
     }).catch((e) => console.warn("[MAIL] Confirmation email failed:", e?.message));
 
-    // Fire-and-forget: sendTicketWhatsApp(ticket, ticket.attendeePhone).
-    // Wrap in try/catch; NEVER let a WhatsApp failure affect booking success.
-    // Only send if a valid attendee phone number was provided.
+    // Automated WhatsApp Ticket Delivery
+    // Awaited with a bounded timeout (8s) so Vercel Serverless does not freeze
+    // before the HTTP message is sent, while never blocking the booking if the provider delays.
     const targetPhone = newTicket?.attendeePhone || customerDetails?.phone || pendingOrder?.customerDetails?.phone;
     if (newTicket && targetPhone && targetPhone.replace(/\D/g, '').length >= 10) {
-      (async () => {
-        try {
-          const adminToken = await getAdminAuthToken();
-          
-          // Idempotency Lock: Ensure automatic confirmation is only sent once per ticket.
-          const lockPath = `tickets/${ticketId}/whatsappConfirmationSent`;
-          const lockTx = await rtdbTransaction(lockPath, (curr: any) => {
-            if (curr === true) return undefined; // Already sent, abort.
-            return true; // Mark as sent.
-          }, adminToken);
-
-          if (!lockTx.committed) {
-            console.log(`[WHATSAPP LOCK] Confirmation already sent for ticket ${ticketId}. Skipping.`);
-            return;
-          }
-
-          // Look up a custom WhatsApp template for this event, fall back to default.
-          let res: { success: boolean; waMessageId?: string; error?: any };
-          try {
-            const templatesSnap = await rtdbGet("whatsapp_templates", adminToken);
-            const allTemplates = templatesSnap.data
-              ? (Array.isArray(templatesSnap.data) ? templatesSnap.data.filter(Boolean) : Object.values(templatesSnap.data))
-              : [];
-            const matchingTemplate = allTemplates.find((t: any) =>
-              t?.isActive && Array.isArray(t.assignedEventIds) && t.assignedEventIds.includes(eventId)
-            ) || allTemplates.find((t: any) =>
-              t?.isActive && (!t.assignedEventIds || t.assignedEventIds.length === 0)
-            );
-            if (matchingTemplate && matchingTemplate.body) {
-              const selectedSeats = Array.isArray(newTicket.selectedSeats) ? newTicket.selectedSeats : [];
-              const seatLabel = selectedSeats.length > 0 ? selectedSeats.join(', ') : (newTicket.seatNumber && !/general/i.test(newTicket.seatNumber) ? newTicket.seatNumber : '');
-              const rawTicketRef = newTicket.ticketNumber || newTicket.id || '';
-              const ticketRef = String(rawTicketRef).replace(/^ASH-/i, '');
-              const appUrlBase = (process.env.VITE_APP_URL || process.env.APP_URL || 'https://ashvishevents.com').replace(/\/+$/, '');
-              const passSlugObj = newTicket?.passSlug;
-              const passPath = passSlugObj?.id && passSlugObj?.sig ? `${passSlugObj.id}/${passSlugObj.sig}` : (newTicket as any).passId || newTicket.ticketNumber;
-              const passUrl = `${appUrlBase}/pass/${passPath}`;
-              const mapsRaw = newTicket.eventGoogleMapsQuery || `${newTicket.venue || ''}, ${newTicket.city || ''}`;
-              const mapsUrl = /^https?:\/\//i.test(mapsRaw) ? mapsRaw : `https://maps.google.com/?q=${encodeURIComponent(mapsRaw)}`;
-              const renderedBody = matchingTemplate.body
-                .replace(/\{\{eventTitle\}\}/g, newTicket.eventTitle || 'Event')
-                .replace(/\{\{attendeeName\}\}/g, newTicket.attendeeName || 'Guest')
-                .replace(/\{\{quantity\}\}/g, String(newTicket.quantity || 1))
-                .replace(/\{\{date\}\}/g, newTicket.date || '')
-                .replace(/\{\{time\}\}/g, newTicket.time || '')
-                .replace(/\{\{venue\}\}/g, newTicket.venue || '')
-                .replace(/\{\{city\}\}/g, newTicket.city || '')
-                .replace(/\{\{tierName\}\}/g, newTicket.tierName || 'Standard')
-                .replace(/\{\{seatLabel\}\}/g, seatLabel)
-                .replace(/\{\{ticketRef\}\}/g, ticketRef)
-                .replace(/\{\{passUrl\}\}/g, passUrl)
-                .replace(/\{\{mapsUrl\}\}/g, mapsUrl)
-                .replace(/\{\{totalPaid\}\}/g, String(newTicket.totalPaid || 0))
-                .replace(/\{\{attendeePhone\}\}/g, newTicket.attendeePhone || '')
-                .replace(/\{\{attendeeEmail\}\}/g, newTicket.attendeeEmail || '')
-                .replace(/\{\{bookingId\}\}/g, bookingId || '');
-              console.log(`[WHATSAPP] Using custom template "${matchingTemplate.name}" for event ${eventId}`);
-              const sent = await sendWhatsAppText(targetPhone, renderedBody);
-              res = sent ? { success: true, waMessageId: `template_${Date.now()}` } : { success: false, error: 'Template send failed' };
-            } else {
-              res = await sendTicketWhatsApp(newTicket, targetPhone);
-            }
-          } catch (templateErr) {
-            console.warn("[WHATSAPP TEMPLATE] Lookup failed, using default:", (templateErr as any)?.message);
-            res = await sendTicketWhatsApp(newTicket, targetPhone);
-          }
-          
-          const notificationEntry: any = {
-            channel: 'enotify_whatsapp',
-            createdAt: new Date().toISOString()
-          };
-
-          if (res.success) {
-            notificationEntry.status = 'sent';
-            notificationEntry.waMessageId = res.waMessageId;
-          } else {
-            // Clear the lock so a future manual resend (or the next booking
-            // retry) is not silently skipped. The lock only prevents double
-            // sends on success; a failed send must remain retryable.
-            await rtdbUpdate(`tickets/${ticketId}`, { whatsappConfirmationSent: null }, adminToken).catch(() => {});
-            notificationEntry.status = 'failed';
-            notificationEntry.reason = res.error?.message || JSON.stringify(res.error) || 'Unknown error';
-            // Reliability: schedule one delayed self-retry so a transient
-            // provider outage still delivers the message without staff
-            // intervention — but never for an ambiguous outcome (e.g. a
-            // timeout where the provider may have delivered anyway). The
-            // retry re-takes the idempotency lock so a concurrent resend
-            // cannot double-send.
-            if ((res as any).ambiguous) {
-              console.warn(`[WHATSAPP] Ambiguous outcome for ticket ${ticketId} (possible duplicate) — skipping auto-retry; manual resend remains available.`);
-            } else setTimeout(() => {
-              (async () => {
-                try {
-                  const retryToken = await getAdminAuthToken();
-                  const lockTx = await rtdbTransaction(`tickets/${ticketId}/whatsappConfirmationSent`, (curr: any) => {
-                    if (curr === true) return undefined;
-                    return true;
-                  }, retryToken);
-                  if (!lockTx.committed) return; // Another send already succeeded.
-                  const retryRes = await sendTicketWhatsApp(newTicket, targetPhone);
-                  if (retryRes.success) {
-                    console.log(`[ENOTIFY RETRY] Delayed retry succeeded for ticket ${ticketId}.`);
-                  } else {
-                    // Keep the lock cleared so manual resend still works.
-                    await rtdbUpdate(`tickets/${ticketId}`, { whatsappConfirmationSent: null }, retryToken).catch(() => {});
-                    console.error(`[ENOTIFY RETRY] Delayed retry also failed for ticket ${ticketId}. Manual resend required.`, retryRes.error);
-                  }
-                } catch (retryErr: any) {
-                  console.warn("[ENOTIFY RETRY] Delayed retry error:", retryErr?.message);
-                }
-              })();
-            }, 15000);
-          }
-
-          // Record to the root notifications node in RTDB (for audit log status)
-          await rtdbPush("notifications", {
-            ...notificationEntry,
-            ticketId: ticketId,
-            recipientPhone: targetPhone,
-            attendeeName: newTicket.attendeeName || customerDetails?.name || 'Attendee',
-            eventTitle: newTicket.eventTitle || eventTitle,
-            subject: "WhatsApp Ticket Confirmation",
-            recipientCount: 1,
-            createdBy: "system"
-          }, adminToken).catch(() => {});
-
-          // Also, if the ticket has a notifications array, record it:
-          const ticketSnap = await rtdbGet(`tickets/${ticketId}`, adminToken);
-          if (ticketSnap && ticketSnap.data) {
-            const currentTicket = ticketSnap.data;
-            if (!currentTicket.notifications) {
-              currentTicket.notifications = [];
-            }
-            currentTicket.notifications.push(notificationEntry);
-            
-            // Save back
-            await rtdbSet(`tickets/${ticketId}`, currentTicket, adminToken).catch(() => {});
-            await rtdbSet(`users/${userId}/tickets/${ticketId}`, currentTicket, adminToken).catch(() => {});
-          }
-        } catch (e: any) {
-          console.warn("[ENOTIFY TRIGGER] Async send failed:", e?.message);
-        }
-      })();
+      try {
+        await Promise.race([
+          dispatchWhatsAppConfirmation(newTicket, targetPhone, eventId, bookingId, authToken),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('WhatsApp confirmation timeout')), 8000))
+        ]);
+      } catch (waErr: any) {
+        console.warn("[WHATSAPP] Post-booking dispatch non-blocking error:", waErr?.message || waErr);
+      }
     }
 
     return { success: true, ticket: newTicket, booking: newBookingRecord };
@@ -10149,7 +10148,7 @@ app.post("/api/counter/tickets/:ticketId/resend-whatsapp", requireRole(["counter
     // staff should always go through.
     await rtdbUpdate(`tickets/${ticketId}`, { whatsappConfirmationSent: null }, adminToken).catch(() => {});
 
-    const waRes = await sendTicketWhatsAppWithImage(ticket, ticket.attendeePhone);
+    const waRes = await sendTicketWhatsApp(ticket, ticket.attendeePhone);
     const notificationEntry: any = {
       channel: 'enotify_whatsapp',
       createdAt: new Date().toISOString()
@@ -10209,7 +10208,7 @@ app.post("/api/countertickets/:ticketId/resend-whatsapp", requireRole(["counter_
       return res.status(400).json({ success: false, error: "Ticket does not have an associated attendee phone number." });
     }
     await rtdbUpdate(`tickets/${ticketId}`, { whatsappConfirmationSent: null }, adminToken).catch(() => {});
-    const waRes = await sendTicketWhatsAppWithImage(ticket, ticket.attendeePhone);
+    const waRes = await sendTicketWhatsApp(ticket, ticket.attendeePhone);
     const notificationEntry: any = {
       channel: 'enotify_whatsapp',
       createdAt: new Date().toISOString(),
@@ -10222,6 +10221,54 @@ app.post("/api/countertickets/:ticketId/resend-whatsapp", requireRole(["counter_
     if (ticket.ownerId) await rtdbSet(`users/${ticket.ownerId}/tickets/${ticketId}`, ticket, adminToken).catch(() => {});
     if (waRes.success) return res.json({ success: true, message: "WhatsApp message resent successfully." });
     return res.status(500).json({ success: false, error: waRes.error?.message || "WhatsApp delivery failed." });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Public attendee resend endpoint for confirmation page and digital pass view
+app.post("/api/tickets/:ticketId/resend-whatsapp", async (req: any, res) => {
+  try {
+    const { ticketId } = req.params;
+    if (!ticketId || typeof ticketId !== "string") {
+      return res.status(400).json({ success: false, error: "Invalid ticket ID." });
+    }
+    const adminToken = await getAdminAuthToken();
+    const ticketSnap = await rtdbGet(`tickets/${ticketId}`, adminToken);
+    const ticket = ticketSnap.data as any;
+    if (!ticket) return res.status(404).json({ success: false, error: "Ticket not found." });
+
+    const targetPhone = req.body?.phone || ticket.attendeePhone;
+    if (!targetPhone || String(targetPhone).replace(/\D/g, '').length < 10) {
+      return res.status(400).json({ success: false, error: "Ticket does not have a valid attendee phone number." });
+    }
+
+    const waRes = await sendTicketWhatsApp(ticket, targetPhone);
+    const notificationEntry: any = {
+      channel: 'enotify_whatsapp',
+      createdAt: new Date().toISOString(),
+      ticketId,
+      recipientPhone: targetPhone,
+      attendeeName: ticket.attendeeName || 'Attendee',
+      eventTitle: ticket.eventTitle || 'Event',
+      subject: "WhatsApp Ticket Confirmation (Resend)",
+      recipientCount: 1,
+      createdBy: "attendee_web",
+      status: waRes.success ? 'sent' : 'failed',
+      ...(waRes.success ? { waMessageId: waRes.waMessageId } : { reason: waRes.error?.message || JSON.stringify(waRes.error) || 'Unknown error' }),
+    };
+
+    await rtdbPush("notifications", notificationEntry, adminToken).catch(() => {});
+    if (waRes.success) {
+      await rtdbUpdate(`tickets/${ticketId}`, {
+        whatsappConfirmationSent: true,
+        whatsappSentAt: notificationEntry.createdAt,
+        whatsappMessageId: waRes.waMessageId || null,
+      }, adminToken).catch(() => {});
+      return res.json({ success: true, message: "WhatsApp message resent successfully." });
+    } else {
+      return res.status(500).json({ success: false, error: waRes.error?.message || "WhatsApp delivery failed." });
+    }
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
   }

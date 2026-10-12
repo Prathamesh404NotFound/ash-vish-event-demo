@@ -167,6 +167,35 @@ export const WalkInPage: React.FC = () => {
   // ---------- General ----------
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [issuedTicket, setIssuedTicket] = useState<TicketType | null>(null);
+  const [isSendingWa, setIsSendingWa] = useState(false);
+  const [waSuccessMsg, setWaSuccessMsg] = useState<string | null>(null);
+
+  const handleSendWa = async (ticket: TicketType) => {
+    if (!ticket.attendeePhone) {
+      alert("No attendee phone number recorded for this ticket.");
+      return;
+    }
+    setIsSendingWa(true);
+    setWaSuccessMsg(null);
+    try {
+      const headers = await authenticatedApiHeaders();
+      const res = await safeFetch<any>(`/api/counter/tickets/${ticket.id}/resend-whatsapp`, {
+        method: 'POST',
+        headers: headers || { 'Content-Type': 'application/json' },
+      });
+      if (res.ok && res.data?.success) {
+        setWaSuccessMsg(`WhatsApp pass sent directly to ${ticket.attendeePhone}`);
+      } else {
+        sendTicketToWhatsApp(ticket);
+        setWaSuccessMsg(`Opened WhatsApp for ${ticket.attendeePhone}`);
+      }
+    } catch {
+      sendTicketToWhatsApp(ticket);
+      setWaSuccessMsg(`Opened WhatsApp for ${ticket.attendeePhone}`);
+    } finally {
+      setIsSendingWa(false);
+    }
+  };
   const [seatRefreshKey, setSeatRefreshKey] = useState(0);
   const [connection, setConnection] = useState<ConnectionState>('online');
   const [errorBanner, setErrorBanner] = useState<string>('');
@@ -917,6 +946,8 @@ export const WalkInPage: React.FC = () => {
     setOverrideError('');
     setErrorBanner('');
     setFormError('');
+    setWaSuccessMsg(null);
+    setIsSendingWa(false);
     // Fresh idempotencyKey for the new transaction
     setIdempotencyKey(`idemp_${Date.now()}_${crypto.randomUUID()}`);
     refreshSeats();
@@ -1100,15 +1131,25 @@ export const WalkInPage: React.FC = () => {
             </div>
           </div>
 
+          {waSuccessMsg && (
+            <div className="w-full text-center text-xs text-emerald-400 font-bold bg-emerald-500/10 border border-emerald-500/30 rounded-xl py-2 px-4 animate-in fade-in">
+              ✓ {waSuccessMsg}
+            </div>
+          )}
+
           <div className="flex flex-wrap items-center justify-center gap-3">
-            {/* Manual WhatsApp share button hidden in production to prefer automated enotify dispatch */}
-            {false && (
+            {issuedTicket.attendeePhone && (
               <button
-                onClick={() => sendTicketToWhatsApp(issuedTicket)}
-                className="py-3 px-5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-extrabold text-xs flex items-center gap-2 transition-all shadow-lg shadow-emerald-500/25 cursor-pointer"
+                onClick={() => handleSendWa(issuedTicket)}
+                disabled={isSendingWa}
+                className="py-3 px-5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-extrabold text-xs flex items-center gap-2 transition-all shadow-lg shadow-emerald-500/25 cursor-pointer disabled:opacity-50"
               >
-                <MessageSquareCode className="w-4 h-4 stroke-[2.5]" />
-                <span>Send QR Pass to WhatsApp</span>
+                {isSendingWa ? (
+                  <RefreshCw className="w-4 h-4 stroke-[2.5] animate-spin" />
+                ) : (
+                  <MessageSquareCode className="w-4 h-4 stroke-[2.5]" />
+                )}
+                <span>{isSendingWa ? 'Sending WhatsApp...' : 'Send QR Pass to WhatsApp'}</span>
               </button>
             )}
             {issuedTicket.passSlug && (

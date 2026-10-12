@@ -49,13 +49,19 @@ export function formatWhatsAppTicketMessage(ticket: Ticket): string {
 
   const eventTitle = ticket.eventTitle || 'Event';
   const attendeeName = ticket.attendeeName || 'Valued Guest';
-  const quantity = Number(ticket.quantity) > 0 ? Number(ticket.quantity) : 1;
+  const hasItems = Array.isArray((ticket as any)?.items) && (ticket as any).items.length > 0;
+  const quantity = hasItems
+    ? (ticket as any).items.reduce((acc: number, it: any) => acc + (Number(it.quantity) || 1), 0)
+    : (Number(ticket.quantity) > 0 ? Number(ticket.quantity) : 1);
   const formattedDate = formatDateDDMMMMYYYY(ticket.date) || ticket.date || '';
   const formattedTime = formatTime12h(ticket.time) || ticket.time || '';
   const venue = ticket.venue || '';
   const city = ticket.city || '';
   const venueWithCity = venue && city ? `${venue}, ${city}` : (venue || city || 'Event Venue');
   const tierName = ticket.tierName || 'Standard';
+  const tierSummary = hasItems && (ticket as any).items.length > 1
+    ? (ticket as any).items.map((it: any) => `${it.quantity || 1}× ${it.tierName || it.name || 'Pass'}`).join(', ')
+    : tierName;
 
   const selectedSeats = Array.isArray((ticket as any).selectedSeats) ? (ticket as any).selectedSeats : [];
   const rawSeatNumber = ticket.seatNumber || (selectedSeats.length > 0 ? selectedSeats.join(', ') : '');
@@ -79,7 +85,7 @@ export function formatWhatsAppTicketMessage(ticket: Ticket): string {
     `📅 *Date:* ${formattedDate}`,
     `🕗 *Time:* ${formattedTime}`,
     `📍 *Venue:* ${venueWithCity}`,
-    `🪑 *Tier:* ${tierName}`,
+    `🪑 *Tier:* ${tierSummary}`,
     ...(hasSeats ? [`💺 *Seat:* ${seatLabel}`] : []),
     `🧾 *Ticket Ref:* \`ASH-${ticketRef}\``,
     '',

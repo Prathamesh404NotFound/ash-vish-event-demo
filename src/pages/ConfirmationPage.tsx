@@ -15,6 +15,33 @@ export const ConfirmationPage: React.FC<ConfirmationPageProps> = ({
 }) => {
   const { myTickets } = useBooking();
   const latestTicket = myTickets[0]; // Most recent ticket purchased
+  const [resendingWa, setResendingWa] = React.useState(false);
+  const [waSentNotice, setWaSentNotice] = React.useState<string | null>(null);
+
+  const handleSendWhatsApp = async () => {
+    if (!latestTicket?.id) return;
+    setResendingWa(true);
+    setWaSentNotice(null);
+    try {
+      const res = await fetch(`/api/tickets/${latestTicket.id}/resend-whatsapp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: latestTicket.attendeePhone })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setWaSentNotice('Pass delivered to your WhatsApp!');
+      } else {
+        sendTicketToWhatsApp(latestTicket);
+        setWaSentNotice('Opened WhatsApp');
+      }
+    } catch {
+      sendTicketToWhatsApp(latestTicket);
+      setWaSentNotice('Opened WhatsApp');
+    } finally {
+      setResendingWa(false);
+    }
+  };
 
   useEffect(() => {
     // Launch celebratory confetti burst
@@ -55,7 +82,9 @@ export const ConfirmationPage: React.FC<ConfirmationPageProps> = ({
         </h1>
 
         <p className="text-xs sm:text-sm text-gray-400 max-w-md mx-auto">
-          We’ve dispatched your digital QR pass to <span className="text-white font-semibold">{latestTicket.attendeeEmail}</span>. Show this pass at entry.
+          We’ve dispatched your digital QR pass{latestTicket.attendeePhone ? (
+            <> via WhatsApp to <span className="text-white font-semibold">{latestTicket.attendeePhone}</span> and</>
+          ) : ''} to <span className="text-white font-semibold">{latestTicket.attendeeEmail}</span>. Show this pass at entry.
         </p>
       </div>
 
@@ -145,13 +174,20 @@ export const ConfirmationPage: React.FC<ConfirmationPageProps> = ({
 
 
       {/* Actions */}
+      {waSentNotice && (
+        <div className="text-center text-xs text-emerald-400 font-bold bg-emerald-500/10 border border-emerald-500/30 rounded-xl py-2 px-4 animate-in fade-in">
+          ✓ {waSentNotice}
+        </div>
+      )}
+
       <div className="flex flex-col sm:flex-row items-center gap-4">
         <button
-          onClick={() => sendTicketToWhatsApp(latestTicket)}
-          className="w-full sm:flex-1 py-3.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black font-extrabold text-sm flex items-center justify-center gap-2 transition-all cursor-pointer"
+          onClick={handleSendWhatsApp}
+          disabled={resendingWa}
+          className="w-full sm:flex-1 py-3.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-black font-extrabold text-sm flex items-center justify-center gap-2 transition-all cursor-pointer shadow-lg shadow-emerald-500/20"
         >
           <MessageSquareCode className="w-5 h-5 stroke-[2.5]" />
-          <span>Send QR Pass to WhatsApp</span>
+          <span>{resendingWa ? 'Sending WhatsApp...' : 'Send QR Pass to WhatsApp'}</span>
         </button>
 
         <button
