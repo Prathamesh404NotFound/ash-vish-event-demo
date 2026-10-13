@@ -793,7 +793,11 @@ function earlyBirdDiscountPerTicket(eventData: any, ticketPrice: number, now: nu
   const eb = eventData.earlyBird;
   const v = Number(eb.discountValue) || 0;
   const raw = eb.discountType === "flat" ? Math.min(v, ticketPrice) : (ticketPrice * Math.min(100, v)) / 100;
-  return Math.min(ticketPrice, Math.max(0, raw));
+  // Derive the discount as price − Math.trunc(price − raw), which is exactly
+  // what the client earlyBirdTicketPrice() computes (Math.trunc(base − off)).
+  // This guarantees both sides agree to the rupee on every ticket price.
+  const discountedPrice = Math.max(0, Math.trunc(ticketPrice - Math.min(ticketPrice, Math.max(0, raw))));
+  return ticketPrice - discountedPrice;
 }
 
 /**
@@ -5140,9 +5144,6 @@ export async function createApp() {
       const eventSnap = await rtdbGet(`events/${eventId}`, adminToken);
       const event = eventSnap.data as any;
       if (!event) return res.status(404).json({ success: false, error: "Event not found." });
-      if (event.status === "completed") {
-        return res.status(400).json({ success: false, error: "Compliance Error: Manual ticket entry is strictly prohibited for completed events." });
-      }
       const dbTiers = normalizeTiers(event?.ticketTiers);
       const tier = dbTiers.find((candidate: any) => candidate.id === tierId);
       if (!event || !tier) {
@@ -5267,13 +5268,18 @@ export async function createApp() {
       // applied automatically on top of any counter coupon/override — the same
       // promotion online guests get at quote time.
       const ebNowWalkin = Date.now();
+      // Truncate the per-ticket discount before summing — matches the client's
+      // Math.trunc strategy in earlyBirdTicketPrice() so both sides always
+      // agree to the rupee (e.g. 10% of ₹1,599 → trunc(159.9) = 159 saved per
+      // ticket, not Math.round(879.4)=879 across 5 tickets which differs by ₹1).
       const ebLineTotal = items
         ? items.reduce((sum, line) => {
           const lt = dbTiers.find((t: any, i: number) => t?.id === line.tierId || (!t?.id && String(i) === line.tierId));
-          return sum + earlyBirdDiscountPerTicket(event, Number(lt?.price) || 0, ebNowWalkin) * (line.quantity || 0);
+          const rawDiscount = earlyBirdDiscountPerTicket(event, Number(lt?.price) || 0, ebNowWalkin);
+          return sum + Math.trunc(rawDiscount) * (line.quantity || 0);
         }, 0)
-        : earlyBirdDiscountPerTicket(event, Number(tier.price) || 0, ebNowWalkin) * quantity;
-      const earlyBirdDiscount = Math.min(lineAmount, Math.max(0, Math.round(ebLineTotal)));
+        : Math.trunc(earlyBirdDiscountPerTicket(event, Number(tier.price) || 0, ebNowWalkin)) * quantity;
+      const earlyBirdDiscount = Math.min(lineAmount, Math.max(0, ebLineTotal));
       let earlyBirdApplied = earlyBirdDiscount > 0;
       // The promotion rides the same ledger column as counter coupons
       // (totalPaid = amount - discount), so staff receipts and reports show
@@ -5306,7 +5312,9 @@ export async function createApp() {
       // Combined discount (coupon + early bird + override) can never exceed
       // the order amount — protects totalPaid from going negative.
       discountAmount = Math.min(discountAmount, lineAmount);
-      const netTotal = Math.max(0, lineAmount - discountAmount);
+      // Round to 2 decimal places so the split-payment sum validation never
+      // diverges from the displayed amount due to floating-point arithmetic.
+      const netTotal = Math.round(Math.max(0, lineAmount - discountAmount) * 100) / 100;
       if (splitPayments.length > 0) {
         const sum = splitPayments.reduce((acc, curr) => acc + curr.amount, 0);
         // Use 0.01 tolerance for floating point precision issues

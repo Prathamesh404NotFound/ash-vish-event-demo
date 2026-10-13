@@ -255,9 +255,11 @@ export const WalkInPage: React.FC = () => {
   const confirmButtonRef = useRef<HTMLButtonElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
 
-  // Counter staff only sell for live (published + not scheduled-hidden) events.
+  // Counter staff only sell for live (published) events. sold_out events are
+  // excluded because the server blocks walk-in sales for them — showing them
+  // in the dropdown would only produce a confusing server rejection.
   const isEventVisible = (e: any) =>
-    (e.status === 'published' || e.status === 'sold_out') &&
+    e.status === 'published' &&
     e.isEventPublic !== false;
 
   const filteredEvents = useMemo(() => {
@@ -1585,7 +1587,7 @@ export const WalkInPage: React.FC = () => {
                       disabled={!!overrideApproved}
                       value={discountAmount || ''}
                       onChange={(e) => {
-                        setDiscountAmount(Number(e.target.value) || 0);
+                        setDiscountAmount(Math.round(Number(e.target.value) || 0));
                         setOverrideApproved(null);
                       }}
                       placeholder="0"
