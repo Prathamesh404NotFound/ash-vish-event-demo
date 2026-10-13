@@ -479,16 +479,16 @@ export const WalkInPage: React.FC = () => {
       try {
         const res = await safeFetch<any>('/api/counter/shifts', { headers: await authenticatedApiHeaders() });
         if (cancelled || !res.ok) return;
-        
-                const currentCounterId = selectedCounterId || '';
+
+        const currentCounterId = selectedCounterId || '';
         const localShift = currentCounterId ? readPreferredStoredActiveShift(currentCounterId) : null;
         const openShift = localShift?.shiftId
           ? (res.data?.shifts || []).find((shift: any) =>
-              shift.status === 'open' &&
-              shift.counterId === currentCounterId &&
-              shift.shiftId === localShift.shiftId &&
-              (!localShift.subUserId || shift.subUserId === localShift.subUserId)
-            )
+            shift.status === 'open' &&
+            shift.counterId === currentCounterId &&
+            shift.shiftId === localShift.shiftId &&
+            (!localShift.subUserId || shift.subUserId === localShift.subUserId)
+          )
           : null;
 
         // The local record is the complete counter + sub-user identity for
@@ -508,7 +508,7 @@ export const WalkInPage: React.FC = () => {
     };
     loadShifts();
     return () => { cancelled = true; };
-    }, [user?.uid, user?.id, selectedCounterId]);
+  }, [user?.uid, user?.id, selectedCounterId]);
   // ---------- Totals (memoized to avoid recalculation on every render) ----------
 
   const totals = useMemo(() => {
@@ -516,17 +516,17 @@ export const WalkInPage: React.FC = () => {
     // Multi-mode: price each selected tier separately from live tier data.
     const multiLines = multiMode
       ? selectedEventTiers
-          .filter((t) => (multiQuantities[t.id] || 0) > 0)
-          .map((t) => {
-            const effectivePrice = earlyBird?.active ? earlyBirdTicketPrice(t, earlyBird) : t.price;
-            return {
-              tierId: t.id,
-              tierName: t.name,
-              price: effectivePrice,
-              originalPrice: t.price,
-              quantity: multiQuantities[t.id],
-            };
-          })
+        .filter((t) => (multiQuantities[t.id] || 0) > 0)
+        .map((t) => {
+          const effectivePrice = earlyBird?.active ? earlyBirdTicketPrice(t, earlyBird) : t.price;
+          return {
+            tierId: t.id,
+            tierName: t.name,
+            price: effectivePrice,
+            originalPrice: t.price,
+            quantity: multiQuantities[t.id],
+          };
+        })
       : [];
     const multiTotal = multiLines.reduce((sum, l) => sum + l.price * l.quantity, 0);
     const multiCount = multiLines.reduce((sum, l) => sum + l.quantity, 0);
@@ -541,7 +541,7 @@ export const WalkInPage: React.FC = () => {
       : baseUnitPrice * unitCount;
 
     const earlyBirdSavings = earlyBird?.active ? Math.max(0, originalGrossTotal - grossTotal) : 0;
-    const netTotal = Math.max(0, grossTotal - discountAmount);
+    const netTotal = Math.round(Math.max(0, grossTotal - discountAmount) * 100) / 100;
 
     return {
       seatCount,
@@ -569,11 +569,11 @@ export const WalkInPage: React.FC = () => {
     note: selectedEvent ? `Walk-in pass: ${selectedEvent.title}` : undefined,
   }).valid
     ? buildUpiPayUri({
-        vpa: effectiveUpi!.vpa,
-        name: effectiveUpi?.name,
-        amount: netTotal,
-        note: selectedEvent ? `Walk-in pass: ${selectedEvent.title}` : undefined,
-      })
+      vpa: effectiveUpi!.vpa,
+      name: effectiveUpi?.name,
+      amount: netTotal,
+      note: selectedEvent ? `Walk-in pass: ${selectedEvent.title}` : undefined,
+    })
     : '';
 
   // Whenever the order totals or payment method change, reset the UPI flow so
@@ -586,7 +586,7 @@ export const WalkInPage: React.FC = () => {
   // Auto-sync payments when not in split mode so confirm button is always enabled with correct total
   useEffect(() => {
     if (!showSplit) {
-      setPayments([{ method: paymentMethod, amount: netTotal }]);
+      setPayments([{ method: paymentMethod, amount: Math.round(netTotal * 100) / 100 }]);
     }
   }, [showSplit, paymentMethod, netTotal]);
 
@@ -829,11 +829,11 @@ export const WalkInPage: React.FC = () => {
       payments,
       discountOverride: currentOverride
         ? {
-            overrideId: `${Date.now()}`,
-            discountAmount: currentOverride.amount,
-            actorId: currentOverride.actorId,
-            reason: overrideReason.trim(),
-          }
+          overrideId: `${Date.now()}`,
+          discountAmount: currentOverride.amount,
+          actorId: currentOverride.actorId,
+          reason: overrideReason.trim(),
+        }
         : undefined,
       shiftId: activeShiftId || undefined,
       counterId: selectedCounterId || undefined,
@@ -860,11 +860,11 @@ export const WalkInPage: React.FC = () => {
             payments,
             discountOverride: currentOverride
               ? {
-                  overrideId: `${Date.now()}`,
-                  discountAmount: currentOverride.amount,
-                  actorId: currentOverride.actorId,
-                  reason: overrideReason.trim(),
-                }
+                overrideId: `${Date.now()}`,
+                discountAmount: currentOverride.amount,
+                actorId: currentOverride.actorId,
+                reason: overrideReason.trim(),
+              }
               : undefined,
             shiftId: activeShiftId || undefined,
             idempotencyKey,
@@ -991,11 +991,10 @@ export const WalkInPage: React.FC = () => {
           {queuedSales.length > 0 && (
             <button
               onClick={() => setShowQueueModal(true)}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
-                conflictCount > 0
-                  ? 'bg-red-500/20 text-red-300 border-red-500/40 animate-pulse'
-                  : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-              }`}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${conflictCount > 0
+                ? 'bg-red-500/20 text-red-300 border-red-500/40 animate-pulse'
+                : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                }`}
             >
               <Layers className="w-3.5 h-3.5" />
               <span>
@@ -1005,11 +1004,10 @@ export const WalkInPage: React.FC = () => {
             </button>
           )}
 
-          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-[11px] font-bold uppercase tracking-wider ${
-            connection === 'online'
-              ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-              : 'bg-red-500/10 text-red-400 border-red-500/30'
-          }`}>
+          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-[11px] font-bold uppercase tracking-wider ${connection === 'online'
+            ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+            : 'bg-red-500/10 text-red-400 border-red-500/30'
+            }`}>
             <WifiOff className="w-3.5 h-3.5" />
             {connection === 'online' ? 'Connected' : 'Offline Mode'}
           </span>
@@ -1017,11 +1015,10 @@ export const WalkInPage: React.FC = () => {
       </div>
 
       {/* Active operator identity */}
-      <div className={`p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
-        activeShiftId
-          ? 'bg-emerald-500/10 border-emerald-500/30'
-          : 'bg-amber-500/10 border-amber-500/30'
-      }`}>
+      <div className={`p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${activeShiftId
+        ? 'bg-emerald-500/10 border-emerald-500/30'
+        : 'bg-amber-500/10 border-amber-500/30'
+        }`}>
         <div className="flex items-center gap-3">
           <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${activeShiftId ? 'bg-emerald-500/15 text-emerald-400' : 'bg-amber-500/15 text-amber-300'}`}>
             <User className="w-5 h-5" />
@@ -1032,9 +1029,8 @@ export const WalkInPage: React.FC = () => {
             <p className="text-xs text-gray-400">Counter: <span className="text-[#D4AF37] font-semibold">{selectedCounter?.name || 'Not selected'}</span></p>
           </div>
         </div>
-        <span className={`self-start sm:self-auto px-3 py-1.5 rounded-xl border text-[10px] font-bold uppercase tracking-wider ${
-          activeShiftId ? 'text-emerald-300 border-emerald-500/30 bg-emerald-500/10' : 'text-amber-300 border-amber-500/30 bg-amber-500/10'
-        }`}>
+        <span className={`self-start sm:self-auto px-3 py-1.5 rounded-xl border text-[10px] font-bold uppercase tracking-wider ${activeShiftId ? 'text-emerald-300 border-emerald-500/30 bg-emerald-500/10' : 'text-amber-300 border-amber-500/30 bg-amber-500/10'
+          }`}>
           {activeShiftId ? 'Shift active' : 'Sign-in required'}
         </span>
       </div>
@@ -1272,11 +1268,10 @@ export const WalkInPage: React.FC = () => {
                         setMultiQuantities({});
                         setFormError('');
                       }}
-                      className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border flex items-center gap-1 transition-all cursor-pointer ${
-                        multiMode
-                          ? 'bg-[#D4AF37]/15 border-[#D4AF37] text-[#D4AF37]'
-                          : 'bg-[#1C1C1C] border-white/10 text-gray-400 hover:border-[#D4AF37]/40 hover:text-[#D4AF37]'
-                      }`}
+                      className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border flex items-center gap-1 transition-all cursor-pointer ${multiMode
+                        ? 'bg-[#D4AF37]/15 border-[#D4AF37] text-[#D4AF37]'
+                        : 'bg-[#1C1C1C] border-white/10 text-gray-400 hover:border-[#D4AF37]/40 hover:text-[#D4AF37]'
+                        }`}
                       title="Mix different ticket types in one pass (e.g. 2 VIP + 2 Kids)"
                     >
                       <Layers className="w-3 h-3" />
@@ -1303,15 +1298,14 @@ export const WalkInPage: React.FC = () => {
                             setSeatSearch('');
                           }
                         }}
-                        className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer ${
-                          multiMode
-                            ? multiQty > 0
-                              ? 'bg-[#D4AF37]/10 border-[#D4AF37] text-white'
-                              : 'bg-[#1C1C1C] border-white/5 text-gray-400 hover:border-[#D4AF37]/40'
-                            : selectedTierId === tier.id
-                              ? 'bg-[#D4AF37]/10 border-[#D4AF37] text-white'
-                              : 'bg-[#1C1C1C] border-white/5 text-gray-400 hover:border-white/20'
-                        }`}
+                        className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer ${multiMode
+                          ? multiQty > 0
+                            ? 'bg-[#D4AF37]/10 border-[#D4AF37] text-white'
+                            : 'bg-[#1C1C1C] border-white/5 text-gray-400 hover:border-[#D4AF37]/40'
+                          : selectedTierId === tier.id
+                            ? 'bg-[#D4AF37]/10 border-[#D4AF37] text-white'
+                            : 'bg-[#1C1C1C] border-white/5 text-gray-400 hover:border-white/20'
+                          }`}
                       >
                         <div className="flex items-center justify-between gap-1">
                           <span className="block font-bold text-sm text-white truncate">{tier.name}</span>
@@ -1725,11 +1719,10 @@ export const WalkInPage: React.FC = () => {
                     key={m.key}
                     type="button"
                     onClick={() => setPaymentMethod(m.key)}
-                    className={`py-3 rounded-xl border text-xs font-bold flex flex-col items-center gap-1.5 transition-all cursor-pointer ${
-                      paymentMethod === m.key
-                        ? 'bg-[#D4AF37]/15 border-[#D4AF37] text-white'
-                        : 'bg-[#1C1C1C] border-white/10 text-gray-400 hover:border-white/25'
-                    }`}
+                    className={`py-3 rounded-xl border text-xs font-bold flex flex-col items-center gap-1.5 transition-all cursor-pointer ${paymentMethod === m.key
+                      ? 'bg-[#D4AF37]/15 border-[#D4AF37] text-white'
+                      : 'bg-[#1C1C1C] border-white/10 text-gray-400 hover:border-white/25'
+                      }`}
                   >
                     <m.icon className="w-4 h-4" style={{ color: m.color }} />
                     <span>{m.label}</span>
@@ -1770,11 +1763,10 @@ export const WalkInPage: React.FC = () => {
                               {PAYMENT_METHODS.map((m) => (
                                 <label
                                   key={m.key}
-                                  className={`flex items-center justify-center gap-1 text-[10px] font-bold py-2 px-1 rounded-lg border cursor-pointer transition-all ${
-                                    payment.method === m.key
-                                      ? 'bg-[#D4AF37]/20 border-[#D4AF37] text-white'
-                                      : 'bg-black/30 border-white/5 text-gray-400 hover:border-white/15'
-                                  }`}
+                                  className={`flex items-center justify-center gap-1 text-[10px] font-bold py-2 px-1 rounded-lg border cursor-pointer transition-all ${payment.method === m.key
+                                    ? 'bg-[#D4AF37]/20 border-[#D4AF37] text-white'
+                                    : 'bg-black/30 border-white/5 text-gray-400 hover:border-white/15'
+                                    }`}
                                 >
                                   <input
                                     type="radio"
@@ -1858,11 +1850,10 @@ export const WalkInPage: React.FC = () => {
                                 <button
                                   type="button"
                                   onClick={() => setVerifiedUpiRows(prev => ({ ...prev, [index]: !prev[index] }))}
-                                  className={`w-full py-1.5 px-3 rounded-lg text-[10px] font-extrabold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                                    verifiedUpiRows[index]
-                                      ? 'bg-emerald-500/10 border border-emerald-500/40 text-emerald-400'
-                                      : 'bg-amber-500/10 border border-[#D4AF37]/40 text-[#D4AF37] hover:bg-[#D4AF37]/10'
-                                  }`}
+                                  className={`w-full py-1.5 px-3 rounded-lg text-[10px] font-extrabold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${verifiedUpiRows[index]
+                                    ? 'bg-emerald-500/10 border border-emerald-500/40 text-emerald-400'
+                                    : 'bg-amber-500/10 border border-[#D4AF37]/40 text-[#D4AF37] hover:bg-[#D4AF37]/10'
+                                    }`}
                                 >
                                   <CheckCircle2 className="w-3.5 h-3.5" />
                                   {verifiedUpiRows[index] ? 'UPI Received (Manual Verified)' : 'Verify UPI Received'}
@@ -1880,9 +1871,8 @@ export const WalkInPage: React.FC = () => {
                     >
                       <Plus className="w-3 h-3" /> Add method
                     </button>
-                    <div className={`text-[11px] font-bold flex flex-wrap items-center gap-x-4 gap-y-1 p-2 rounded-xl ${
-                      paymentsValid ? 'bg-emerald-500/5 text-emerald-400' : 'bg-amber-500/5 text-amber-400'
-                    }`}>
+                    <div className={`text-[11px] font-bold flex flex-wrap items-center gap-x-4 gap-y-1 p-2 rounded-xl ${paymentsValid ? 'bg-emerald-500/5 text-emerald-400' : 'bg-amber-500/5 text-amber-400'
+                      }`}>
                       <div className="flex items-center gap-1.5">
                         <span className="text-gray-500 font-medium uppercase tracking-wider text-[9px]">Net Due:</span>
                         <span className="text-white">{formatRupee(netTotal)}</span>
@@ -1993,7 +1983,7 @@ export const WalkInPage: React.FC = () => {
                         onClick={() => {
                           navigator.clipboard?.writeText(effectiveUpi!.vpa).then(
                             () => setOfflineToast('UPI ID copied'),
-                            () => {}
+                            () => { }
                           );
                         }}
                         className="flex-1 py-2.5 rounded-xl bg-[#222] border border-white/10 text-gray-300 text-xs font-bold hover:border-[#D4AF37] hover:text-white transition-all flex items-center justify-center gap-1.5 cursor-pointer"
@@ -2012,11 +2002,10 @@ export const WalkInPage: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => setUpiFlow('received')}
-                          className={`w-full py-3.5 rounded-2xl font-extrabold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                            upiFlow === 'awaiting'
-                              ? 'bg-emerald-500/15 border border-emerald-500/40 text-emerald-300'
-                              : 'bg-[#222] border border-white/10 text-gray-300 hover:border-emerald-500/40 hover:text-emerald-300'
-                          }`}
+                          className={`w-full py-3.5 rounded-2xl font-extrabold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer ${upiFlow === 'awaiting'
+                            ? 'bg-emerald-500/15 border border-emerald-500/40 text-emerald-300'
+                            : 'bg-[#222] border border-white/10 text-gray-300 hover:border-emerald-500/40 hover:text-emerald-300'
+                            }`}
                         >
                           <CheckCircle2 className="w-4 h-4" />
                           {upiFlow === 'awaiting'
@@ -2055,13 +2044,12 @@ export const WalkInPage: React.FC = () => {
             )}
 
             {(errorBanner || connection === 'lost') && (
-              <div className={`p-3.5 rounded-2xl border text-xs flex items-start gap-2.5 ${
-                errorBanner.includes('Saved offline')
-                  ? 'bg-amber-500/10 border-amber-500/40 text-amber-200'
-                  : connection === 'lost'
+              <div className={`p-3.5 rounded-2xl border text-xs flex items-start gap-2.5 ${errorBanner.includes('Saved offline')
+                ? 'bg-amber-500/10 border-amber-500/40 text-amber-200'
+                : connection === 'lost'
                   ? 'bg-red-500/10 border-red-500/40 text-red-300'
                   : 'bg-amber-500/10 border-amber-500/40 text-amber-200'
-              }`}>
+                }`}>
                 <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
                 <div className="flex-1">
                   <span>{errorBanner || 'Connection offline — sales are queued locally and auto-synced on reconnect.'}</span>
@@ -2143,22 +2131,20 @@ export const WalkInPage: React.FC = () => {
                   return (
                     <div
                       key={item.id}
-                      className={`p-4 rounded-2xl border text-xs space-y-2 ${
-                        isConflict
-                          ? 'bg-red-500/10 border-red-500/30 text-red-200'
-                          : 'bg-black/40 border-white/10 text-gray-300'
-                      }`}
+                      className={`p-4 rounded-2xl border text-xs space-y-2 ${isConflict
+                        ? 'bg-red-500/10 border-red-500/30 text-red-200'
+                        : 'bg-black/40 border-white/10 text-gray-300'
+                        }`}
                     >
                       <div className="flex items-center justify-between">
                         <span className="font-bold text-white font-sans text-sm">
                           {item.payload.attendeeName}{item.payload.attendeePhone ? ` (${item.payload.attendeePhone})` : ''}
                         </span>
                         <span
-                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                            isConflict
-                              ? 'bg-red-500/20 text-red-300 border border-red-500/40'
-                              : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                          }`}
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${isConflict
+                            ? 'bg-red-500/20 text-red-300 border border-red-500/40'
+                            : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                            }`}
                         >
                           {item.status}
                         </span>
