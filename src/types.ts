@@ -81,7 +81,9 @@ export type SponsorType =
   | 'silver'
   | 'bronze'
   | 'media_partner'
-  | 'associate';
+  | 'associate'
+  /** Free-text category — the display label is stored in `customCategory`. */
+  | 'custom';
 
 /**
  * A single sponsor entry attached to an event.
@@ -95,6 +97,12 @@ export interface Sponsor {
   logoUrl?: string;
   /** Optional click-through link shown on the event page. */
   website?: string;
+  /**
+   * Free-text category label used when `type === 'custom'`.
+   * Accepts any string (e.g. "Photography Partner", "Dress Partner").
+   * Ignored for all predefined SponsorType values.
+   */
+  customCategory?: string;
 }
 
 /** Time-boxed Early Bird discount configured per event in the admin panel. */

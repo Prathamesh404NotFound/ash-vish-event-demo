@@ -36,6 +36,10 @@ const sponsorMeta: Record<SponsorType, { label: string; classes: string }> = {
     label: 'Associate Sponsor',
     classes: 'bg-purple-500/15 text-purple-300 border-purple-500/30',
   },
+  custom: {
+    label: 'Partner',
+    classes: 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30',
+  },
 };
 
 /**
@@ -62,10 +66,15 @@ export const EventSponsorStrip: React.FC<EventSponsorStripProps> = ({ sponsors }
       {/* Sponsor chips — one per sponsor entry */}
       <div className="flex flex-wrap gap-2.5">
         {sponsors.map((sp) => {
-          const meta = sponsorMeta[sp.type] ?? sponsorMeta.associate;
+          const meta = sponsorMeta[sp.type as SponsorType] ?? sponsorMeta.associate;
+          // For custom type, use the free-text customCategory as the badge label
+          const badgeLabel =
+            sp.type === 'custom'
+              ? (sp.customCategory?.trim() || 'Partner')
+              : meta.label;
+
           const inner = (
             <div
-              key={sp.id}
               className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-opacity hover:opacity-80 ${meta.classes}`}
             >
               {sp.logoUrl ? (
@@ -84,7 +93,7 @@ export const EventSponsorStrip: React.FC<EventSponsorStripProps> = ({ sponsors }
               <span
                 className={`text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-full border ${meta.classes} opacity-75`}
               >
-                {meta.label}
+                {badgeLabel}
               </span>
             </div>
           );

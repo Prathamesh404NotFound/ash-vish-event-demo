@@ -2225,8 +2225,27 @@ export const AdminEvents: React.FC = () => {
                               <option value="bronze">Bronze Sponsor</option>
                               <option value="media_partner">Media Partner</option>
                               <option value="associate">Associate Partner</option>
+                              <option value="custom">Custom / Other</option>
                             </select>
                           </div>
+
+                          {/* Custom Category — shown only when type === 'custom' */}
+                          {sp.type === 'custom' && (
+                            <div>
+                              <label className="text-gray-400 text-[10px] font-bold block mb-1">
+                                Custom Category Label *
+                              </label>
+                              <input
+                                type="text"
+                                value={sp.customCategory || ''}
+                                onChange={(e) =>
+                                  handleUpdateSponsor(sp.id, 'customCategory', e.target.value)
+                                }
+                                placeholder="e.g. Photography Partner, Dress Partner…"
+                                className="w-full bg-[#101010] border border-white/10 rounded-lg px-2.5 py-2 text-white text-xs focus:outline-none focus:border-[#D4AF37] placeholder:text-gray-600"
+                              />
+                            </div>
+                          )}
 
                           {/* Website URL */}
                           <div>

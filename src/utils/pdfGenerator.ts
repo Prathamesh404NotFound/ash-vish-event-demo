@@ -309,8 +309,12 @@ export const generateTicketPDF = async (
 
     const sponsorNames = sponsors
       .map((s) => {
-        const typeLabel = s.type === 'media_partner' ? 'Media Partner' :
-          s.type.charAt(0).toUpperCase() + s.type.slice(1);
+        const typeLabel =
+          s.type === 'custom'
+            ? (s.customCategory?.trim() || 'Partner')
+            : s.type === 'media_partner'
+              ? 'Media Partner'
+              : s.type.charAt(0).toUpperCase() + s.type.slice(1);
         return `${s.name} (${typeLabel})`;
       })
       .join('  \u2022  ');

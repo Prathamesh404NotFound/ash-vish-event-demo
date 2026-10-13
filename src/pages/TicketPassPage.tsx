@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
-import { 
-  Calendar, MapPin, User, CheckCircle2, AlertTriangle, XCircle, 
+import {
+  Calendar, MapPin, User, CheckCircle2, AlertTriangle, XCircle,
   Download, Share2, Copy, Sparkles, ShieldCheck, Clock, RefreshCw
 } from 'lucide-react';
 import { QRPlaceholder } from '../components/QRPlaceholder';
+import type { Sponsor } from '../types';
 
 type TicketPayload = {
   ticketNumber: string;
@@ -27,6 +28,8 @@ type TicketPayload = {
   redeemedAt: string | null;
   eventGoogleMapsQuery?: string;
   passed?: boolean;
+  /** Sponsors for this event — populated dynamically from the event record. */
+  sponsors?: Sponsor[];
 };
 
 export function TicketPassPage() {
@@ -50,7 +53,7 @@ export function TicketPassPage() {
       return;
     }
 
-    const passEndpoint = activeSig 
+    const passEndpoint = activeSig
       ? `/api/passes/${encodeURIComponent(activeSlug)}?sig=${encodeURIComponent(activeSig)}`
       : `/api/passes/${encodeURIComponent(activeSlug)}`;
 
@@ -123,7 +126,7 @@ export function TicketPassPage() {
         title: `${ticket.eventTitle} - Secure Pass`,
         text: `My digital pass for ${ticket.eventTitle}`,
         url: window.location.href,
-      }).catch(() => {});
+      }).catch(() => { });
     } else {
       const waUrl = `https://wa.me/?text=${encodeURIComponent(`Check my pass for ${ticket.eventTitle}: ${window.location.href}`)}`;
       window.open(waUrl, '_blank', 'noopener,noreferrer');
@@ -216,10 +219,10 @@ export function TicketPassPage() {
 
   return (
     <div className="fixed inset-0 bg-[#070707] text-gray-100 overflow-y-auto selection:bg-[#D4AF37] selection:text-black"
-         style={{ backgroundImage: 'radial-gradient(ellipse at top, #1a1408 0%, #070707 60%)' }}>
-      
+      style={{ backgroundImage: 'radial-gradient(ellipse at top, #1a1408 0%, #070707 60%)' }}>
+
       <div className="max-w-md mx-auto min-h-screen flex flex-col justify-between p-4 sm:p-6 relative z-10">
-        
+
         {/* Brand Header */}
         <div className="text-center pt-4 pb-2">
           <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-[#D4AF37]/10 border border-[#D4AF37]/30 text-[#D4AF37] text-[10px] font-bold tracking-widest uppercase mb-2">
@@ -231,7 +234,7 @@ export function TicketPassPage() {
         </div>
 
         {/* Ticket Card */}
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, y: 15 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
@@ -255,8 +258,8 @@ export function TicketPassPage() {
           {/* Poster Header */}
           <div className="relative h-44 overflow-hidden bg-gray-900">
             {ticket?.eventPoster && (
-              <img 
-                src={ticket.eventPoster} 
+              <img
+                src={ticket.eventPoster}
                 alt={ticket.eventTitle}
                 className="w-full h-full object-cover"
                 onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
@@ -353,6 +356,34 @@ export function TicketPassPage() {
               Show this QR code at the entrance gate for instant check-in.
             </p>
 
+            {/* Ticket info summary below the QR code */}
+            <div className="w-full rounded-xl bg-white/5 border border-white/10 divide-y divide-white/10 text-xs mt-1">
+              <div className="flex justify-between items-center px-3 py-2">
+                <span className="text-gray-400 font-medium">Name</span>
+                <span className="text-white font-bold">{ticket?.attendeeName}</span>
+              </div>
+              <div className="flex justify-between items-center px-3 py-2">
+                <span className="text-gray-400 font-medium">Event</span>
+                <span className="text-white font-semibold text-right max-w-[180px] truncate">{ticket?.eventTitle}</span>
+              </div>
+              <div className="flex justify-between items-center px-3 py-2">
+                <span className="text-gray-400 font-medium">Ticket</span>
+                <span className="text-[#D4AF37] font-mono font-bold">{ticket?.ticketNumber}</span>
+              </div>
+              <div className="flex justify-between items-center px-3 py-2">
+                <span className="text-gray-400 font-medium">Date &amp; Time</span>
+                <span className="text-white font-semibold">{ticket?.date} · {ticket?.time}</span>
+              </div>
+              <div className="flex justify-between items-center px-3 py-2">
+                <span className="text-gray-400 font-medium">Venue</span>
+                <span className="text-white font-semibold text-right max-w-[180px] truncate">{ticket?.venue}, {ticket?.city}</span>
+              </div>
+              <div className="flex justify-between items-center px-3 py-2">
+                <span className="text-gray-400 font-medium">Pass</span>
+                <span className="text-white font-semibold">{ticket?.quantity ?? 1} × {ticket?.tierName || 'Standard'}</span>
+              </div>
+            </div>
+
             {/* Download & Share Actions */}
             <div className="grid grid-cols-2 gap-3 w-full pt-1">
               <button
@@ -371,6 +402,69 @@ export function TicketPassPage() {
               </button>
             </div>
           </div>
+
+          {/* Sponsor strip — rendered only when this event has sponsors */}
+          {ticket?.sponsors && ticket.sponsors.length > 0 && (
+            <div className="p-5 border-t border-white/10 space-y-3">
+              <p className="text-[10px] font-black uppercase tracking-widest text-gray-500 text-center">
+                Sponsors &amp; Partners
+              </p>
+              <div className="flex flex-wrap gap-2 justify-center">
+                {ticket.sponsors.map((sp) => {
+                  // Derive the human-readable category label
+                  const labelMap: Record<string, string> = {
+                    title: 'Title Sponsor',
+                    presenting: 'Presenting Sponsor',
+                    gold: 'Gold Sponsor',
+                    silver: 'Silver Sponsor',
+                    bronze: 'Bronze Sponsor',
+                    media_partner: 'Media Partner',
+                    associate: 'Associate Partner',
+                  };
+                  const categoryLabel =
+                    sp.type === 'custom'
+                      ? (sp.customCategory?.trim() || 'Partner')
+                      : (labelMap[sp.type] ?? 'Partner');
+
+                  const chip = (
+                    <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition-colors">
+                      {sp.logoUrl ? (
+                        <img
+                          src={sp.logoUrl}
+                          alt={sp.name}
+                          className="h-5 w-auto max-w-[44px] object-contain rounded"
+                          loading="lazy"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                        />
+                      ) : (
+                        <span className="w-5 h-5 rounded bg-[#D4AF37]/20 text-[#D4AF37] text-[10px] font-black flex items-center justify-center uppercase">
+                          {sp.name.slice(0, 1)}
+                        </span>
+                      )}
+                      <div className="flex flex-col leading-tight">
+                        <span className="text-[11px] text-white font-semibold truncate max-w-[100px]">{sp.name}</span>
+                        <span className="text-[9px] text-gray-500 font-medium truncate max-w-[100px]">{categoryLabel}</span>
+                      </div>
+                    </div>
+                  );
+
+                  return sp.website ? (
+                    <a
+                      key={sp.id}
+                      href={sp.website}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label={`${sp.name} — ${categoryLabel}`}
+                    >
+                      {chip}
+                    </a>
+                  ) : (
+                    <div key={sp.id}>{chip}</div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
         </motion.div>
 

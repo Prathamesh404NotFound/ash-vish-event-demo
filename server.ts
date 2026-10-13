@@ -114,7 +114,7 @@ function selectExportColumns<T extends { label: string }>(all: T[], requested: u
  * re-issuing all existing passes.
  */
 function deriveFallbackHmacSecret(): string {
-  const projectId   = process.env.FIREBASE_PROJECT_ID  || process.env.VITE_FIREBASE_PROJECT_ID  || "ash-events";
+  const projectId = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID || "ash-events";
   const clientEmail = process.env.FIREBASE_CLIENT_EMAIL || "firebase-adminsdk@ash-events.iam.gserviceaccount.com";
   const seed = `ash-events-hmac-fallback|${projectId}|${clientEmail}`;
   return crypto.createHash("sha256").update(seed).digest("hex");
@@ -436,13 +436,13 @@ async function dispatchWhatsAppConfirmation(
         whatsappConfirmationSent: true,
         whatsappSentAt: notificationEntry.createdAt,
         whatsappMessageId: res.waMessageId || null,
-      }, dbToken).catch(() => {});
+      }, dbToken).catch(() => { });
       if (ticket.ownerId) {
         await rtdbUpdate(`users/${ticket.ownerId}/tickets/${ticketId}`, {
           whatsappConfirmationSent: true,
           whatsappSentAt: notificationEntry.createdAt,
           whatsappMessageId: res.waMessageId || null,
-        }, dbToken).catch(() => {});
+        }, dbToken).catch(() => { });
       }
     } else {
       notificationEntry.status = 'failed';
@@ -452,7 +452,7 @@ async function dispatchWhatsAppConfirmation(
     await rtdbPush("notifications", {
       ...notificationEntry,
       ticketId,
-    }, dbToken).catch(() => {});
+    }, dbToken).catch(() => { });
 
     return res;
   } catch (err: any) {
@@ -511,7 +511,7 @@ async function recordNotification(params: {
       status: params.status,
       createdBy: params.createdBy || "system",
       sentAt: params.status === "sent" ? new Date().toISOString() : undefined,
-    }, adminToken).catch(() => {});
+    }, adminToken).catch(() => { });
   } catch (err: any) {
     console.warn("[NOTIFY] Notification record failed:", err.message);
   }
@@ -532,31 +532,31 @@ async function sendOrderConfirmationEmail(
   const subject = isRes ? `Reservation Confirmed — ${details.eventTitle}` : `Booking Confirmed — ${details.eventTitle}`;
   const text = isRes
     ? [
-        `Hi ${name},`,
-        ``,
-        `Your reservation for "${details.eventTitle}" is confirmed.`,
-        `Reservation Number: ${details.ticketNumber}`,
-        `Tier: ${details.tierName}`,
-        `Amount Due at Counter: INR ${details.amount}`,
-        `Venue: ${details.venue}, ${details.city}`,
-        `Date: ${details.date} at ${details.time}`,
-        ``,
-        `Show this Reservation Pass at the venue's Pay-at-Counter station to complete payment and validate your entry pass.`,
-        `— Ash-vish Events`,
-      ].join("\n")
+      `Hi ${name},`,
+      ``,
+      `Your reservation for "${details.eventTitle}" is confirmed.`,
+      `Reservation Number: ${details.ticketNumber}`,
+      `Tier: ${details.tierName}`,
+      `Amount Due at Counter: INR ${details.amount}`,
+      `Venue: ${details.venue}, ${details.city}`,
+      `Date: ${details.date} at ${details.time}`,
+      ``,
+      `Show this Reservation Pass at the venue's Pay-at-Counter station to complete payment and validate your entry pass.`,
+      `— Ash-vish Events`,
+    ].join("\n")
     : [
-        `Hi ${name},`,
-        ``,
-        `Your booking for "${details.eventTitle}" is confirmed.`,
-        `Ticket Number: ${details.ticketNumber}`,
-        `Tier: ${details.tierName}`,
-        `Amount Paid: INR ${details.amount}`,
-        `Venue: ${details.venue}, ${details.city}`,
-        `Date: ${details.date} at ${details.time}`,
-        ``,
-        `Show this ticket (or its QR code) at the entrance to check in.`,
-        `— Ash-vish Events`,
-      ].join("\n");
+      `Hi ${name},`,
+      ``,
+      `Your booking for "${details.eventTitle}" is confirmed.`,
+      `Ticket Number: ${details.ticketNumber}`,
+      `Tier: ${details.tierName}`,
+      `Amount Paid: INR ${details.amount}`,
+      `Venue: ${details.venue}, ${details.city}`,
+      `Date: ${details.date} at ${details.time}`,
+      ``,
+      `Show this ticket (or its QR code) at the entrance to check in.`,
+      `— Ash-vish Events`,
+    ].join("\n");
   const result = await sendMail({ to: String(email), subject, text });
   await recordNotification({
     eventId: details.eventId,
@@ -564,7 +564,7 @@ async function sendOrderConfirmationEmail(
     message: `Confirmation email to ${email} for ${details.ticketNumber}${result.mode === "no-mail" ? " (no-mail mode: SMTP not configured)" : ""}`,
     recipientCount: 1,
     status: "sent",
-  }).catch(() => {});
+  }).catch(() => { });
 }
 
 // Server-side admin auth is a plain REST flow (service-account signed custom
@@ -1270,7 +1270,7 @@ async function claimSeatsAtomically(
       // Roll back seats already claimed by this reservation in this batch (all-or-nothing)
       const already = seatIds.slice(0, seatIds.indexOf(seatId));
       for (const rolledId of already) {
-        releaseSeat(authToken, eventId, rolledId, { reservationId }).catch(() => {});
+        releaseSeat(authToken, eventId, rolledId, { reservationId }).catch(() => { });
       }
       // Give the user a precise reason instead of the generic catch-all.
       const label = seatIdLabel(seatId);
@@ -1480,7 +1480,7 @@ async function reconstructOrderFromTickets(orderId: string, authToken: string): 
       createdAt: linkedTicket.purchasedAt || linkedBooking?.createdAt || new Date().toISOString(),
       _reconstructed: true,
     };
-    await rtdbSet(`orders/${orderId}`, order, authToken).catch(() => {});
+    await rtdbSet(`orders/${orderId}`, order, authToken).catch(() => { });
     console.log(`[ORDERS] Reconstructed order ${orderId} from ticket ${linkedTicket.id}`);
     return order;
   } catch (err: any) {
@@ -1648,7 +1648,7 @@ async function finalizeBookingServerSide(
     }
 
     const cleanupLock = async () => {
-      await rtdbDelete(`processed_orders/${orderId}`, authToken).catch(() => {});
+      await rtdbDelete(`processed_orders/${orderId}`, authToken).catch(() => { });
     };
 
     ({ eventId, tierId, quantity } = pendingOrder);
@@ -1692,7 +1692,7 @@ async function finalizeBookingServerSide(
           dbRecheckPrice = t.price;
         }
       }
-    } catch {}
+    } catch { }
     // Only apply single-tier recheck override when this is NOT a multi-item
     // order. For multi-item orders, serverCalculatedRecheck was already built
     // from the sum of all live tier-line prices (line ~1686) and must not be
@@ -2019,174 +2019,174 @@ async function finalizeBookingServerSide(
       await rtdbSet(`bookings/${bookingId}`, newBookingRecord, authToken);
       await rtdbSet(`users/${userId}/bookings/${bookingId}`, newBookingRecord, authToken);
     } else {
-    ticketId = 'tkt_' + Date.now() + '_' + secureRandomHex(8);
-    bookingId = 'bkg_' + Date.now() + '_' + secureRandomHex(4);
-    ticketNum = isDeferred
-      ? `ASH-RES-${crypto.randomInt(1000, 10000)}`
-      : `ASH-${crypto.randomInt(1000, 10000)}-SRV`;
+      ticketId = 'tkt_' + Date.now() + '_' + secureRandomHex(8);
+      bookingId = 'bkg_' + Date.now() + '_' + secureRandomHex(4);
+      ticketNum = isDeferred
+        ? `ASH-RES-${crypto.randomInt(1000, 10000)}`
+        : `ASH-${crypto.randomInt(1000, 10000)}-SRV`;
 
-    const eventRes = await rtdbGet(`events/${eventId}`, authToken);
-    const eventData = eventRes.data || {};
-    eventTitle = eventData.title || "Live Event";
-    eventPoster =
-      eventData.posterUrl ||
-      "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&q=80&w=800";
-    venue = eventData.venue || "Live Venue";
-    city = eventData.city || "Mumbai";
-    date = eventData.date || "Today";
-    time = eventData.time || "07:30 PM";
-    tierName = "General";
-    price = amount / quantity;
+      const eventRes = await rtdbGet(`events/${eventId}`, authToken);
+      const eventData = eventRes.data || {};
+      eventTitle = eventData.title || "Live Event";
+      eventPoster =
+        eventData.posterUrl ||
+        "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&q=80&w=800";
+      venue = eventData.venue || "Live Venue";
+      city = eventData.city || "Mumbai";
+      date = eventData.date || "Today";
+      time = eventData.time || "07:30 PM";
+      tierName = "General";
+      price = amount / quantity;
 
-    const t = normalizeTiers(eventData.ticketTiers).find((tier: any) => tier.id === tierId);
-    if (t) {
-      tierName = t.name;
-      price = t.price;
-    }
-
-    seatLabel = `${tierName} Section`;
-    if (seatIds && seatIds.length > 0) {
-      seatLabel = seatIds
-        .map((s: string) => {
-          const parts = s.split('-');
-          const r = String.fromCharCode(64 + parseInt(parts[0].replace('R', ''), 10));
-          const c = parts[1].replace('C', '');
-          return `${r}-${c}`;
-        })
-        .join(', ');
-    } else {
-      seatLabel = `${tierName}, General Floor`;
-    }
-
-    // Build the signed token server-side (reuse the same HMAC scheme as
-    // /api/tickets/generate-token, with the ASH_RES header for deferred passes).
-    const issuedAt = new Date().toISOString();
-    const tokenPayload = `${bookingId}|${eventId}|${seatLabel}|${ticketId}|${issuedAt}`;
-    const tokenSig = signHmac(tokenPayload).substring(0, 16);
-    const signedQrToken = `${isDeferred ? 'ASH_RES' : 'ASH_PASS'}.${Buffer.from(tokenPayload).toString('base64url')}.${tokenSig}`;
-
-    // Generate secure opaque pass slug
-    const passId = crypto.randomBytes(24).toString('base64url');
-    const passSig = signHmac(`${passId}|${ticketId}`).substring(0, 16);
-    const passSlug = { id: passId, sig: passSig, createdAt: Date.now() };
-
-    newTicket = {
-      id: ticketId,
-      ticketNumber: ticketNum,
-      eventId,
-      orderId,
-      bookingId,
-      eventTitle,
-      eventPoster,
-      venue,
-      city,
-      date,
-      time,
-      tierName,
-      price,
-      quantity,
-      totalPaid: isDeferred ? 0 : (pendingOrder.isPartial ? pendingOrder.amountPaid : (Number(amount) || 0) - (Number(discountAmount) || 0)),
-      discount: discountAmount,
-      seatNumber: seatLabel,
-      selectedSeats: seatIds || [],
-      attendeeName: customerDetails.name,
-      attendeeEmail: customerDetails.email,
-      attendeePhone: customerDetails.phone,
-      qrCodeValue: signedQrToken,
-      passSlug,
-      tierId: tierId || "",
-      eventGoogleMapsQuery: eventData.mapsUrl || (eventData as any).eventGoogleMapsQuery || `${venue}, ${city}`,
-      passType: isDeferred ? 'reservation' : (pendingOrder.isPartial ? 'reservation' : 'entry'),
-      paymentStatus: isDeferred ? 'pending' : (pendingOrder.isPartial ? 'partial' : 'paid'),
-      amountDue: isDeferred ? amount : (pendingOrder.isPartial ? pendingOrder.amountDue : 0),
-      status: 'valid',
-      purchasedAt: new Date().toISOString(),
-      ownerId: userId,
-      scannedByStaffId: pendingOrder?.scannedByStaffId || null,
-      createdByStaffId: pendingOrder?.scannedByStaffId || null,
-      shiftId: pendingOrder?.shiftId || null,
-      counterId: pendingOrder?.counterId || null,
-      counterName: pendingOrder?.counterName || null,
-      issuedBySubUserId: pendingOrder?.issuedBySubUserId || null,
-      issuedBySubUserName: pendingOrder?.issuedBySubUserName || null,
-      ...(pendingOrder?.holdAtCounter ? { holdAtCounter: true } : {}),
-      payments: pendingOrder?.payments || null,
-      paymentMethod: pendingOrder?.paymentMethod || paymentMethod,
-      ...(pendingOrder?.reservationId ? { reservationId: pendingOrder.reservationId } : {}),
-    };
-
-    newBookingRecord = {
-      bookingId,
-      userId,
-      eventId,
-      seatIds: seatIds || [],
-      totalAmount: amount,
-      discount: discountAmount,
-      status: 'confirmed',
-      paymentStatus: isDeferred ? 'pending' : (pendingOrder.isPartial ? 'partial' : 'paid'),
-      amountDue: isDeferred ? amount : (pendingOrder.isPartial ? pendingOrder.amountDue : 0),
-      createdAt: new Date().toISOString(),
-      paymentMethod,
-      attendeeName: customerDetails.name,
-      attendeePhone: customerDetails.phone,
-      attendeeEmail: customerDetails.email,
-      ticketId,
-      isWalkIn: paymentMethod.includes('walkin'),
-      issuedBySubUserId: pendingOrder?.issuedBySubUserId || null,
-      issuedBySubUserName: pendingOrder?.issuedBySubUserName || null,
-      ...(pendingOrder?.reservationId ? { reservationId: pendingOrder.reservationId } : {}),
-    };
-
-    // Save records
-    await rtdbSet(`tickets/${ticketId}`, newTicket, authToken);
-    await rtdbSet(`users/${userId}/tickets/${ticketId}`, newTicket, authToken);
-    await rtdbSet(`bookings/${bookingId}`, newBookingRecord, authToken);
-    await rtdbSet(`users/${userId}/bookings/${bookingId}`, newBookingRecord, authToken);
-    await rtdbSet(`passes/${passId}`, {
-      ticketId,
-      signature: passSig,
-      ticketNumber: ticketNum,
-      eventTitle,
-      eventPoster,
-      venue,
-      city,
-      date,
-      time,
-      tierName,
-      quantity: quantity || 1,
-      seatNumber: seatLabel,
-      attendeeName: customerDetails.name,
-      qrCodeValue: signedQrToken,
-      status: 'valid',
-      passType: isDeferred ? 'reservation' : 'entry',
-      paymentStatus: isDeferred ? 'pending' : 'paid',
-      amountDue: isDeferred ? amount : 0,
-      redeemedAt: null,
-      redeemedBy: null,
-      createdAt: Date.now(),
-      openCount: 0,
-      eventGoogleMapsQuery: eventData.mapsUrl || (eventData as any).eventGoogleMapsQuery || `${venue}, ${city}`,
-    }, authToken);
-
-    // The seats were already transitioned to 'booked' in step 3; persist the
-    // ticket/booking linkage (idempotent: the book transaction sets ticketId/
-    // bookingId when provided). This step never re-attempts payment or moves a
-    // seat out of 'booked' — ticket generation failures must not invalidate a
-    // confirmed payment.
-    if (seatIds && seatIds.length > 0) {
-      for (const seatId of seatIds) {
-        await rtdbTransaction(`seats/${eventId}/${seatId}`, (seat: any) => {
-          if (seat && seat.status === 'booked' && seat.orderId === orderId) {
-            return {
-              ...seat,
-              ticketId: ticketId || seat.ticketId,
-              bookingId: bookingId || seat.bookingId,
-            };
-          }
-          return seat;
-        }, authToken);
+      const t = normalizeTiers(eventData.ticketTiers).find((tier: any) => tier.id === tierId);
+      if (t) {
+        tierName = t.name;
+        price = t.price;
       }
-    }
+
+      seatLabel = `${tierName} Section`;
+      if (seatIds && seatIds.length > 0) {
+        seatLabel = seatIds
+          .map((s: string) => {
+            const parts = s.split('-');
+            const r = String.fromCharCode(64 + parseInt(parts[0].replace('R', ''), 10));
+            const c = parts[1].replace('C', '');
+            return `${r}-${c}`;
+          })
+          .join(', ');
+      } else {
+        seatLabel = `${tierName}, General Floor`;
+      }
+
+      // Build the signed token server-side (reuse the same HMAC scheme as
+      // /api/tickets/generate-token, with the ASH_RES header for deferred passes).
+      const issuedAt = new Date().toISOString();
+      const tokenPayload = `${bookingId}|${eventId}|${seatLabel}|${ticketId}|${issuedAt}`;
+      const tokenSig = signHmac(tokenPayload).substring(0, 16);
+      const signedQrToken = `${isDeferred ? 'ASH_RES' : 'ASH_PASS'}.${Buffer.from(tokenPayload).toString('base64url')}.${tokenSig}`;
+
+      // Generate secure opaque pass slug
+      const passId = crypto.randomBytes(24).toString('base64url');
+      const passSig = signHmac(`${passId}|${ticketId}`).substring(0, 16);
+      const passSlug = { id: passId, sig: passSig, createdAt: Date.now() };
+
+      newTicket = {
+        id: ticketId,
+        ticketNumber: ticketNum,
+        eventId,
+        orderId,
+        bookingId,
+        eventTitle,
+        eventPoster,
+        venue,
+        city,
+        date,
+        time,
+        tierName,
+        price,
+        quantity,
+        totalPaid: isDeferred ? 0 : (pendingOrder.isPartial ? pendingOrder.amountPaid : (Number(amount) || 0) - (Number(discountAmount) || 0)),
+        discount: discountAmount,
+        seatNumber: seatLabel,
+        selectedSeats: seatIds || [],
+        attendeeName: customerDetails.name,
+        attendeeEmail: customerDetails.email,
+        attendeePhone: customerDetails.phone,
+        qrCodeValue: signedQrToken,
+        passSlug,
+        tierId: tierId || "",
+        eventGoogleMapsQuery: eventData.mapsUrl || (eventData as any).eventGoogleMapsQuery || `${venue}, ${city}`,
+        passType: isDeferred ? 'reservation' : (pendingOrder.isPartial ? 'reservation' : 'entry'),
+        paymentStatus: isDeferred ? 'pending' : (pendingOrder.isPartial ? 'partial' : 'paid'),
+        amountDue: isDeferred ? amount : (pendingOrder.isPartial ? pendingOrder.amountDue : 0),
+        status: 'valid',
+        purchasedAt: new Date().toISOString(),
+        ownerId: userId,
+        scannedByStaffId: pendingOrder?.scannedByStaffId || null,
+        createdByStaffId: pendingOrder?.scannedByStaffId || null,
+        shiftId: pendingOrder?.shiftId || null,
+        counterId: pendingOrder?.counterId || null,
+        counterName: pendingOrder?.counterName || null,
+        issuedBySubUserId: pendingOrder?.issuedBySubUserId || null,
+        issuedBySubUserName: pendingOrder?.issuedBySubUserName || null,
+        ...(pendingOrder?.holdAtCounter ? { holdAtCounter: true } : {}),
+        payments: pendingOrder?.payments || null,
+        paymentMethod: pendingOrder?.paymentMethod || paymentMethod,
+        ...(pendingOrder?.reservationId ? { reservationId: pendingOrder.reservationId } : {}),
+      };
+
+      newBookingRecord = {
+        bookingId,
+        userId,
+        eventId,
+        seatIds: seatIds || [],
+        totalAmount: amount,
+        discount: discountAmount,
+        status: 'confirmed',
+        paymentStatus: isDeferred ? 'pending' : (pendingOrder.isPartial ? 'partial' : 'paid'),
+        amountDue: isDeferred ? amount : (pendingOrder.isPartial ? pendingOrder.amountDue : 0),
+        createdAt: new Date().toISOString(),
+        paymentMethod,
+        attendeeName: customerDetails.name,
+        attendeePhone: customerDetails.phone,
+        attendeeEmail: customerDetails.email,
+        ticketId,
+        isWalkIn: paymentMethod.includes('walkin'),
+        issuedBySubUserId: pendingOrder?.issuedBySubUserId || null,
+        issuedBySubUserName: pendingOrder?.issuedBySubUserName || null,
+        ...(pendingOrder?.reservationId ? { reservationId: pendingOrder.reservationId } : {}),
+      };
+
+      // Save records
+      await rtdbSet(`tickets/${ticketId}`, newTicket, authToken);
+      await rtdbSet(`users/${userId}/tickets/${ticketId}`, newTicket, authToken);
+      await rtdbSet(`bookings/${bookingId}`, newBookingRecord, authToken);
+      await rtdbSet(`users/${userId}/bookings/${bookingId}`, newBookingRecord, authToken);
+      await rtdbSet(`passes/${passId}`, {
+        ticketId,
+        signature: passSig,
+        ticketNumber: ticketNum,
+        eventTitle,
+        eventPoster,
+        venue,
+        city,
+        date,
+        time,
+        tierName,
+        quantity: quantity || 1,
+        seatNumber: seatLabel,
+        attendeeName: customerDetails.name,
+        qrCodeValue: signedQrToken,
+        status: 'valid',
+        passType: isDeferred ? 'reservation' : 'entry',
+        paymentStatus: isDeferred ? 'pending' : 'paid',
+        amountDue: isDeferred ? amount : 0,
+        redeemedAt: null,
+        redeemedBy: null,
+        createdAt: Date.now(),
+        openCount: 0,
+        eventGoogleMapsQuery: eventData.mapsUrl || (eventData as any).eventGoogleMapsQuery || `${venue}, ${city}`,
+      }, authToken);
+
+      // The seats were already transitioned to 'booked' in step 3; persist the
+      // ticket/booking linkage (idempotent: the book transaction sets ticketId/
+      // bookingId when provided). This step never re-attempts payment or moves a
+      // seat out of 'booked' — ticket generation failures must not invalidate a
+      // confirmed payment.
+      if (seatIds && seatIds.length > 0) {
+        for (const seatId of seatIds) {
+          await rtdbTransaction(`seats/${eventId}/${seatId}`, (seat: any) => {
+            if (seat && seat.status === 'booked' && seat.orderId === orderId) {
+              return {
+                ...seat,
+                ticketId: ticketId || seat.ticketId,
+                bookingId: bookingId || seat.bookingId,
+              };
+            }
+            return seat;
+          }, authToken);
+        }
+      }
 
     }
     const processedOrder: any = {
@@ -2206,40 +2206,40 @@ async function finalizeBookingServerSide(
     // fulfilled booking regardless of channel, so the orders dashboard has a
     // single filterable source that mirrors the tickets/booking records.
     const isWalkInChannel = String(paymentMethod).startsWith("walkin");
-      await recordOrder({
-        orderId,
-        eventId,
-        tierId: tierId || "",
-        seatIds: seatIds || [],
-        quantity,
-        customerDetails: customerDetails || {},
-        amount,
-        discount: pendingOrder?.discount || 0,
-        couponCode: couponCodeUpper,
-        paymentMethod,
-        paymentStatus: isDeferred ? "pending" : "paid",
-        amountDue: isDeferred ? amount : 0,
+    await recordOrder({
+      orderId,
+      eventId,
+      tierId: tierId || "",
+      seatIds: seatIds || [],
+      quantity,
+      customerDetails: customerDetails || {},
+      amount,
+      discount: pendingOrder?.discount || 0,
+      couponCode: couponCodeUpper,
+      paymentMethod,
+      paymentStatus: isDeferred ? "pending" : "paid",
+      amountDue: isDeferred ? amount : 0,
+      channel: isWalkInChannel ? "counter" : "online",
+      ticketId,
+      bookingId,
+      createdBy: pendingOrder?.issuedBySubUserName || "system",
+      shiftId: pendingOrder?.shiftId || null,
+      counterId: pendingOrder?.counterId || null,
+      counterName: pendingOrder?.counterName || null,
+      issuedBySubUserId: pendingOrder?.issuedBySubUserId || null,
+      issuedBySubUserName: pendingOrder?.issuedBySubUserName || null,
+      scannedByStaffId: pendingOrder?.scannedByStaffId || null,
+    }).catch((recErr: any) => {
+      console.error("[ORDERS] Canonical order record write failed for", orderId, recErr?.message || recErr);
+      rtdbSet(`deferred_orders/${orderId}`, {
+        orderId, eventId, tierId: tierId || "", ticketId, bookingId,
+        amount, quantity, paymentMethod,
         channel: isWalkInChannel ? "counter" : "online",
-        ticketId,
-        bookingId,
-        createdBy: pendingOrder?.issuedBySubUserName || "system",
-        shiftId: pendingOrder?.shiftId || null,
-        counterId: pendingOrder?.counterId || null,
-        counterName: pendingOrder?.counterName || null,
-        issuedBySubUserId: pendingOrder?.issuedBySubUserId || null,
-        issuedBySubUserName: pendingOrder?.issuedBySubUserName || null,
-        scannedByStaffId: pendingOrder?.scannedByStaffId || null,
-      }).catch((recErr: any) => {
-        console.error("[ORDERS] Canonical order record write failed for", orderId, recErr?.message || recErr);
-        rtdbSet(`deferred_orders/${orderId}`, {
-          orderId, eventId, tierId: tierId || "", ticketId, bookingId,
-          amount, quantity, paymentMethod,
-          channel: isWalkInChannel ? "counter" : "online",
-          customerDetails: customerDetails || {}, seatIds: seatIds || [],
-          createdAt: new Date().toISOString(),
-          error: String(recErr?.message || recErr).slice(0, 500),
-        }, authToken).catch(() => {});
-      });
+        customerDetails: customerDetails || {}, seatIds: seatIds || [],
+        createdAt: new Date().toISOString(),
+        error: String(recErr?.message || recErr).slice(0, 500),
+      }, authToken).catch(() => { });
+    });
 
     // Confirmation email (Prompt B Item 6): send on order confirmation. When
     // SMTP is not configured, the mail helper records the send in the
@@ -2278,13 +2278,13 @@ async function finalizeBookingServerSide(
     if (inventoryDeducted) {
       if (isMultiItemOrder) {
         for (const line of tierLines) {
-          await restoreInventoryTier(authToken, eventId, line.tierId, line.quantity).catch(() => {});
+          await restoreInventoryTier(authToken, eventId, line.tierId, line.quantity).catch(() => { });
         }
       } else {
-        await restoreInventoryTier(authToken, eventId, tierId, quantity).catch(() => {});
+        await restoreInventoryTier(authToken, eventId, tierId, quantity).catch(() => { });
       }
     }
-    await rtdbDelete(`processed_orders/${orderId}`, authToken).catch(() => {});
+    await rtdbDelete(`processed_orders/${orderId}`, authToken).catch(() => { });
     console.error("Error finalizing booking server side:", err);
     return { success: false, error: err.message || "Failed to finalize booking server side" };
   }
@@ -2524,7 +2524,7 @@ export async function createApp() {
         after_state: params.afterState ?? null,
         timestamp: new Date().toISOString(),
       };
-      await rtdbPush(`audit_log`, entry, authToken).catch(() => {});
+      await rtdbPush(`audit_log`, entry, authToken).catch(() => { });
     } catch (err: any) {
       // Audit writes must never fail the primary action; log and continue.
       console.error("[AUDIT] Failed to write audit entry:", err.message);
@@ -2780,7 +2780,7 @@ export async function createApp() {
       const usersResponse = await rtdbGet("users", adminToken);
       const users = usersResponse?.data;
       let targetUid = null;
-      
+
       if (users) {
         for (const uid in users) {
           const userPhone = normalizePhoneNumber(users[uid].phone);
@@ -2799,7 +2799,7 @@ export async function createApp() {
       // Since we don't use Admin SDK directly, we call the REST endpoint.
       const apiKey = process.env.VITE_FIREBASE_API_KEY;
       const updateUrl = `https://identitytoolkit.googleapis.com/v1/accounts:update?key=${apiKey}`;
-      
+
       const updateResponse = await fetch(updateUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${adminToken}` },
@@ -3025,7 +3025,7 @@ export async function createApp() {
         beforeState,
         afterState: coupon,
       });
-            return res.json({ success: true, coupon });
+      return res.json({ success: true, coupon });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err.message });
     }
@@ -3483,7 +3483,7 @@ export async function createApp() {
       const update: any = { expiresAt: newExpiresAt };
       if (record.seatIds && record.seatIds.length > 0) {
         for (const seatId of record.seatIds) {
-          rtdbUpdate(`seats/${record.eventId}/${seatId}`, { holdExpiresAt: newExpiresAt, heldBy: record.ownerId, status: "held", heldAt: now }, authToken).catch(() => {});
+          rtdbUpdate(`seats/${record.eventId}/${seatId}`, { holdExpiresAt: newExpiresAt, heldBy: record.ownerId, status: "held", heldAt: now }, authToken).catch(() => { });
         }
       }
       await rtdbUpdate(`reservations/${record.reservationId}`, update, authToken);
@@ -3533,7 +3533,7 @@ export async function createApp() {
       }
       if (record.seatIds && record.seatIds.length > 0) {
         for (const seatId of record.seatIds) {
-          rtdbUpdate(`seats/${record.eventId}/${seatId}`, { holdExpiresAt: newExpiresAt, heldBy: record.ownerId, status: "held", heldAt: record.heldAt || now }, authToken).catch(() => {});
+          rtdbUpdate(`seats/${record.eventId}/${seatId}`, { holdExpiresAt: newExpiresAt, heldBy: record.ownerId, status: "held", heldAt: record.heldAt || now }, authToken).catch(() => { });
         }
       }
       await rtdbUpdate(`reservations/${record.reservationId}`, { expiresAt: newExpiresAt, lastExtensionAt: now }, authToken);
@@ -3562,7 +3562,7 @@ export async function createApp() {
               return { ...seat, status: "available", heldBy: null, reservationId: null, heldAt: null, holdExpiresAt: null };
             }
             return seat;
-          }, authToken).catch(() => {});
+          }, authToken).catch(() => { });
         }
       }
       console.log(`[RESERVATION] Released ${record.reservationId}`);
@@ -3642,7 +3642,7 @@ export async function createApp() {
               return { ...seat, status: "available", heldBy: null, reservationId: null, heldAt: null, holdExpiresAt: null };
             }
             return seat;
-          }, authToken).catch(() => {});
+          }, authToken).catch(() => { });
         }
       }
       // Quotes are always recalculated at quote/payment time, not stored in a hold.
@@ -4179,7 +4179,7 @@ export async function createApp() {
       if (callerUid && pendingUserId !== callerUid) {
         await rtdbUpdate(`pending_orders/${targetOrderId}`,
           { userId: callerUid, previousUserId: pendingUserId }, authToken
-        ).catch(() => {});
+        ).catch(() => { });
         pendingOrder.userId = callerUid;
       }
 
@@ -4244,7 +4244,7 @@ export async function createApp() {
               refundStatus: refundRes.status || "processed",
               refundReason: reason,
               refundedAt: new Date().toISOString(),
-            }, authToken).catch(() => {});
+            }, authToken).catch(() => { });
             return { refunded: true, refundId: refundRes.refundId };
           }
           console.error(`[PHONEPE REFUND FAILED] ${lookupMerchantOrderId}: ${refundRes.error}`);
@@ -4253,7 +4253,7 @@ export async function createApp() {
             refundError: refundRes.error || "Refund initiation failed",
             refundReason: reason,
             refundAttemptedAt: new Date().toISOString(),
-          }, authToken).catch(() => {});
+          }, authToken).catch(() => { });
           return { refunded: false };
         } catch (rErr: any) {
           console.error("[PHONEPE REFUND ERROR]", rErr.message || rErr);
@@ -4493,7 +4493,7 @@ export async function createApp() {
       if (callerUid && pendingUserId !== callerUid) {
         await rtdbUpdate(`pending_orders/${targetOrderId}`,
           { userId: callerUid, previousUserId: pendingUserId }, authToken
-        ).catch(() => {});
+        ).catch(() => { });
         pendingOrder.userId = callerUid;
       }
 
@@ -4824,7 +4824,7 @@ export async function createApp() {
       if (reconciledTiers && existing.ticketTiers) {
         const isNewArray = Array.isArray(reconciledTiers);
         const isOldArray = Array.isArray(existing.ticketTiers);
-        
+
         // Convert existing tiers to a lookup map for stable matching
         const oldTiersList = isOldArray ? existing.ticketTiers : Object.values(existing.ticketTiers);
         const oldTiersMap = new Map();
@@ -4835,7 +4835,7 @@ export async function createApp() {
         const reconcileOne = (newTier: any) => {
           if (!newTier) return newTier;
           const oldTier = oldTiersMap.get(newTier.id) || oldTiersList.find((t: any) => t && t.name === newTier.name && t.price === newTier.price);
-          
+
           if (oldTier) {
             const oldTotal = oldTier.totalInventory ?? oldTier.capacity ?? 0;
             const newTotal = newTier.totalInventory ?? newTier.capacity ?? 0;
@@ -5046,18 +5046,18 @@ export async function createApp() {
         splitPayments = rawPayments
           .map((p: any) => ({ method: String(p?.method || "").slice(0, 32) || "other", amount: Number(p?.amount) }))
           .filter((p: any) => Number.isFinite(p.amount) && p.amount > 0);
-        
+
         if (splitPayments.length !== rawPayments.length) {
           return res.status(400).json({ success: false, error: "Every split payment must carry a positive amount." });
         }
-        
+
         // Re-calculate the primary payment method as the one with the highest amount
         const sortedPayments = [...splitPayments].sort((a, b) => b.amount - a.amount);
         if (sortedPayments.length > 0) {
           req.body.paymentMethod = sortedPayments[0].method;
         }
       }
-            // Seat array validation (basic shape/size) runs early; final GA handling
+      // Seat array validation (basic shape/size) runs early; final GA handling
       // happens after the event is loaded below.
       // Walk-in phone numbers are optional for general admission counters;
       // when supplied, they must still match the supported format.
@@ -5242,9 +5242,9 @@ export async function createApp() {
       const ebNowWalkin = Date.now();
       const ebLineTotal = items
         ? items.reduce((sum, line) => {
-            const lt = dbTiers.find((t: any, i: number) => t?.id === line.tierId || (!t?.id && String(i) === line.tierId));
-            return sum + earlyBirdDiscountPerTicket(event, Number(lt?.price) || 0, ebNowWalkin) * (line.quantity || 0);
-          }, 0)
+          const lt = dbTiers.find((t: any, i: number) => t?.id === line.tierId || (!t?.id && String(i) === line.tierId));
+          return sum + earlyBirdDiscountPerTicket(event, Number(lt?.price) || 0, ebNowWalkin) * (line.quantity || 0);
+        }, 0)
         : earlyBirdDiscountPerTicket(event, Number(tier.price) || 0, ebNowWalkin) * quantity;
       const earlyBirdDiscount = Math.min(lineAmount, Math.max(0, Math.round(ebLineTotal)));
       let earlyBirdApplied = earlyBirdDiscount > 0;
@@ -6180,7 +6180,7 @@ export async function createApp() {
 
       const result = await finalizeBookingServerSide(orderId, `manual_${String(paymentMethod).slice(0, 32)}`, `manual_payment_${orderId}`, adminToken, couponCodeUpper);
       if (!result.success) {
-        for (const rolledId of finalSeats) await releaseSeat(adminToken, eventId, rolledId, { reservationId: orderId }).catch(() => {});
+        for (const rolledId of finalSeats) await releaseSeat(adminToken, eventId, rolledId, { reservationId: orderId }).catch(() => { });
         return res.status(409).json({ success: false, error: result.error || "Manual order could not be completed." });
       }
       await writeAuditEntry({
@@ -6235,7 +6235,7 @@ export async function createApp() {
             ticketNumber: t.ticketNumber, tierName: t.tierName, createdAt: t.purchasedAt,
             _reconstructed: true,
           };
-          await rtdbSet(`orders/${orderId}`, order, adminToken).catch(() => {});
+          await rtdbSet(`orders/${orderId}`, order, adminToken).catch(() => { });
         }
       }
       if (!order) {
@@ -6385,7 +6385,7 @@ export async function createApp() {
       if (oldTierId !== newTierId || oldQty !== newQty) {
         // Restore old tier
         if (oldTierId && oldQty > 0) {
-          await restoreInventoryTier(adminToken, order.eventId, oldTierId, oldQty).catch(() => {});
+          await restoreInventoryTier(adminToken, order.eventId, oldTierId, oldQty).catch(() => { });
         }
         // Deduct new tier (using a simplified version of the logic in finalizeBookingServerSide)
         if (newTierId && newQty > 0) {
@@ -6416,7 +6416,7 @@ export async function createApp() {
             if (!tierFound) return undefined;
             currEvent.ticketTiers = updatedTiers;
             return currEvent;
-          }, adminToken).catch(() => {});
+          }, adminToken).catch(() => { });
         }
       }
 
@@ -6452,7 +6452,7 @@ export async function createApp() {
             updatedAt: updates.updatedAt,
           };
           await rtdbSet(`tickets/${order.ticketId}`, updatedTicket, adminToken);
-          if (ticket.ownerId) await rtdbSet(`users/${ticket.ownerId}/tickets/${order.ticketId}`, updatedTicket, adminToken).catch(() => {});
+          if (ticket.ownerId) await rtdbSet(`users/${ticket.ownerId}/tickets/${order.ticketId}`, updatedTicket, adminToken).catch(() => { });
 
           const passesSnap = await rtdbGet("passes", adminToken);
           for (const [passId, pass] of Object.entries((passesSnap.data || {}) as Record<string, any>)) {
@@ -6465,7 +6465,7 @@ export async function createApp() {
               attendeeName: updatedTicket.attendeeName,
               paymentStatus: updatedTicket.paymentStatus,
               amountDue: updatedTicket.amountDue,
-            }, adminToken).catch(() => {});
+            }, adminToken).catch(() => { });
           }
 
           const processedSnap = await rtdbGet(`processed_orders/${orderId}`, adminToken);
@@ -6479,7 +6479,7 @@ export async function createApp() {
               quantity: updatedTicket.quantity,
               totalAmount: updates.amount ?? processed.booking.totalAmount,
             });
-            await rtdbSet(`processed_orders/${orderId}`, processed, adminToken).catch(() => {});
+            await rtdbSet(`processed_orders/${orderId}`, processed, adminToken).catch(() => { });
           }
         }
       }
@@ -6543,7 +6543,7 @@ export async function createApp() {
       // Restore event tier inventory (Prompt B Item 5 complement)
       if (order.eventId && order.tierId) {
         const restoreQty = refundType === "partial" ? (partialSeats.length || 1) : (Number(order.quantity) || 1);
-        await restoreInventoryTier(adminToken, order.eventId, order.tierId, restoreQty).catch(() => {});
+        await restoreInventoryTier(adminToken, order.eventId, order.tierId, restoreQty).catch(() => { });
       }
 
       const afterState = {
@@ -6648,10 +6648,10 @@ export async function createApp() {
           if (!order || order.status !== "confirmed") continue;
           const before = JSON.parse(JSON.stringify(order));
           for (const seatId of order.seatIds || []) await releaseSeat(adminToken, order.eventId, seatId, {});
-          
+
           // Restore event tier inventory (Prompt B Item 5 complement)
           if (order.eventId && order.tierId) {
-            await restoreInventoryTier(adminToken, order.eventId, order.tierId, Number(order.quantity) || 1).catch(() => {});
+            await restoreInventoryTier(adminToken, order.eventId, order.tierId, Number(order.quantity) || 1).catch(() => { });
           }
 
           await rtdbUpdate(`orders/${id}`, { status: "cancelled", cancelledAt: new Date().toISOString(), cancelledBy: req.user.uid }, adminToken);
@@ -6674,7 +6674,7 @@ export async function createApp() {
         const email = order?.customerDetails?.email;
         if (!email || !String(email).includes("@")) continue;
         const result = await sendMail({ to: String(email), subject, text: `${order?.customerDetails?.name || "Ticket Holder"},\n\n${message}\n\n— Ash-vish Events` });
-        await recordNotification({ eventId: order?.eventId, subject, message: `Bulk email to ${email} for order ${id}${result.mode === "no-mail" ? " (no-mail mode)" : ""}`, recipientCount: 1, status: "sent" }).catch(() => {});
+        await recordNotification({ eventId: order?.eventId, subject, message: `Bulk email to ${email} for order ${id}${result.mode === "no-mail" ? " (no-mail mode)" : ""}`, recipientCount: 1, status: "sent" }).catch(() => { });
         sent.push(id);
       }
       return res.json({ success: true, sent: sent.length });
@@ -6931,7 +6931,7 @@ export async function createApp() {
         return res.status(400).json({ success: false, error: 'bookingId, eventId, and ticketId are required.' });
       }
       const payloadString = `${bookingId}|${eventId}|${seatId || ''}|${ticketId}|${issuedAt}`;
-      
+
       const signature = signHmac(payloadString);
 
       const signedToken = `ASH_PASS.${Buffer.from(payloadString).toString("base64url")}.${signature.substring(0, 16)}`;
@@ -6969,7 +6969,8 @@ export async function createApp() {
         if (pipeParts.length >= 4) {
           const payloadTicketId = pipeParts[3];
           if (payloadTicketId) {
-            try { const snap = await rtdbGet(`tickets/${payloadTicketId}`, adminToken);
+            try {
+              const snap = await rtdbGet(`tickets/${payloadTicketId}`, adminToken);
               if (snap.data && typeof snap.data === "object") return { id: payloadTicketId, ticket: snap.data, matchedBy: "token_payload" };
             } catch { /* fall through */ }
           }
@@ -6977,8 +6978,10 @@ export async function createApp() {
         const colonParts = payloadStr.split(":");
         if (colonParts.length >= 1 && colonParts[0]) {
           const orderId = colonParts[0];
-          try { const orderSnap = await rtdbGet(`processed_orders/${orderId}`, adminToken);
-            if (orderSnap.data?.ticketId) { const tSnap = await rtdbGet(`tickets/${orderSnap.data.ticketId}`, adminToken);
+          try {
+            const orderSnap = await rtdbGet(`processed_orders/${orderId}`, adminToken);
+            if (orderSnap.data?.ticketId) {
+              const tSnap = await rtdbGet(`tickets/${orderSnap.data.ticketId}`, adminToken);
               if (tSnap.data && typeof tSnap.data === "object") return { id: orderSnap.data.ticketId, ticket: tSnap.data, matchedBy: "processed_order" };
             }
           } catch { /* fall through */ }
@@ -7198,7 +7201,7 @@ export async function createApp() {
         scannedBy: redeemedTicket.redeemedBy,
         ticket: redeemedTicket,
         payloadStr,
-        ...(preRedeemStatus && ["voided","void","cancelled","canceled","refunded","deleted","expired"].includes(preRedeemStatus) ? { warning: "This ticket had status '" + preRedeemStatus + "' before scanning. Entry was permitted per DB-authoritative policy." } : {}),
+        ...(preRedeemStatus && ["voided", "void", "cancelled", "canceled", "refunded", "deleted", "expired"].includes(preRedeemStatus) ? { warning: "This ticket had status '" + preRedeemStatus + "' before scanning. Entry was permitted per DB-authoritative policy." } : {}),
       });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err.message });
@@ -7339,7 +7342,7 @@ export async function createApp() {
         const now = Date.now();
         for (const [k, v] of Object.entries<any>(snap.data)) {
           if (v?.createdAt && now - new Date(v.createdAt).getTime() > ENTRY_IDEMPOTENCY_TTL_MS) {
-            await rtdbDelete(`entry_idempotency/${staffUid}/${k}`, adminToken).catch(() => {});
+            await rtdbDelete(`entry_idempotency/${staffUid}/${k}`, adminToken).catch(() => { });
           }
         }
       }
@@ -7454,7 +7457,7 @@ export async function createApp() {
       const newTxId = pushRes.name;
       // Mark the original admission as reversed via metadata pointers only —
       // the original record itself remains untouched.
-      await rtdbUpdate(`entry_transactions/${targetTicketId}/${targetEntryId}`, { reversedBy: adminId, reversedAt, reversalTxId: newTxId }, adminToken).catch(() => {});
+      await rtdbUpdate(`entry_transactions/${targetTicketId}/${targetEntryId}`, { reversedBy: adminId, reversedAt, reversalTxId: newTxId }, adminToken).catch(() => { });
 
       // Mirror to owner copy for customer-facing views.
       if (updatedTicket.ownerId) {
@@ -7462,7 +7465,7 @@ export async function createApp() {
           status: updatedTicket.status,
           checkedInQuantity: updatedTicket.checkedInQuantity,
           entryStatus: updatedTicket.entryStatus,
-        }, adminToken).catch(() => {});
+        }, adminToken).catch(() => { });
       }
 
       const ticketQuantity = Math.max(1, Math.floor(Number(updatedTicket.quantity) || 1));
@@ -7753,12 +7756,12 @@ export async function createApp() {
           entryStatus: updatedTicket.entryStatus,
           lastScanAt: updatedTicket.lastScanAt,
           lastScannedBy: updatedTicket.lastScannedBy,
-        }, adminToken).catch(() => {});
+        }, adminToken).catch(() => { });
       }
 
       const checkedInQuantity = Number(updatedTicket.checkedInQuantity) || 0;
       // Best-effort customer notification for the admission (#14).
-      queueEntryNotification(updatedTicket, qtyAdmitted, ticketQuantityFinal, Math.max(0, ticketQuantityFinal - checkedInQuantity)).catch(() => {});
+      queueEntryNotification(updatedTicket, qtyAdmitted, ticketQuantityFinal, Math.max(0, ticketQuantityFinal - checkedInQuantity)).catch(() => { });
       return res.json({
         success: true,
         entryId: entryTxId || entryTransactionId,
@@ -8244,7 +8247,7 @@ export async function createApp() {
       await rtdbUpdate(`tickets/${targetTicketId}`, updatedTicketUpdates, userToken);
 
       if (ticket.ownerId) {
-        await rtdbUpdate(`users/${ticket.ownerId}/tickets/${targetTicketId}`, updatedTicketUpdates, userToken).catch(() => {});
+        await rtdbUpdate(`users/${ticket.ownerId}/tickets/${targetTicketId}`, updatedTicketUpdates, userToken).catch(() => { });
       }
 
       // Also update linked booking and order if found
@@ -8253,9 +8256,9 @@ export async function createApp() {
       const matchedBooking = Object.values(allBookings).find((b: any) => b.ticketId === targetTicketId || b.reservationId === ticket.reservationId);
       if (matchedBooking && matchedBooking.bookingId) {
         const bookingUpdates = { paymentStatus: "paid", amountDue: 0, collectedAt, collectedBy: staffUid };
-        await rtdbUpdate(`bookings/${matchedBooking.bookingId}`, bookingUpdates, userToken).catch(() => {});
+        await rtdbUpdate(`bookings/${matchedBooking.bookingId}`, bookingUpdates, userToken).catch(() => { });
         if (matchedBooking.userId) {
-          await rtdbUpdate(`users/${matchedBooking.userId}/bookings/${matchedBooking.bookingId}`, bookingUpdates, userToken).catch(() => {});
+          await rtdbUpdate(`users/${matchedBooking.userId}/bookings/${matchedBooking.bookingId}`, bookingUpdates, userToken).catch(() => { });
         }
       }
 
@@ -8263,7 +8266,7 @@ export async function createApp() {
       const allOrders = (ordersSnap.data || {}) as Record<string, any>;
       const matchedOrder = Object.values(allOrders).find((o: any) => o.ticketId === targetTicketId || o.bookingId === matchedBooking?.bookingId);
       if (matchedOrder && matchedOrder.orderId) {
-        await rtdbUpdate(`orders/${matchedOrder.orderId}`, { paymentStatus: "paid", amountDue: 0, collectedAt, collectedBy: staffUid }, userToken).catch(() => {});
+        await rtdbUpdate(`orders/${matchedOrder.orderId}`, { paymentStatus: "paid", amountDue: 0, collectedAt, collectedBy: staffUid }, userToken).catch(() => { });
       }
 
       await writeAuditEntry({
@@ -8273,7 +8276,7 @@ export async function createApp() {
         entityType: "ticket",
         entityId: targetTicketId,
         afterState: { ...ticket, ...updatedTicketUpdates },
-      }).catch(() => {});
+      }).catch(() => { });
 
       return res.json({
         success: true,
@@ -8439,14 +8442,14 @@ export async function createApp() {
       }
 
       if (!verifyHmacSignature(`${slug}|${ticketId}`, signature) &&
-          !matchesStoredCredential(signature, passRecord.signature)) {
+        !matchesStoredCredential(signature, passRecord.signature)) {
         return res.status(403).json({ success: false, error: 'INVALID_LINK' });
       }
 
       let ticketData = passRecord;
       if (!passRecord.ticketNumber) {
         if (!adminToken) {
-          try { adminToken = await getAdminAuthToken(); } catch {}
+          try { adminToken = await getAdminAuthToken(); } catch { }
         }
         if (adminToken) {
           const ticketSnap = await rtdbGet(`tickets/${ticketId}`, adminToken);
@@ -8463,10 +8466,26 @@ export async function createApp() {
       // Count opens (best-effort)
       try {
         const currentOpens = Number(ticketData.openCount || 0);
-        void rtdbSet(`passes/${slug}/openCount`, currentOpens + 1, adminToken).catch(() => {});
-      } catch {}
+        void rtdbSet(`passes/${slug}/openCount`, currentOpens + 1, adminToken).catch(() => { });
+      } catch { }
 
       const passed = isEventPassed(ticketData.date, ticketData.time);
+
+      // Fetch sponsors for this event so the ticket-pass page can render them
+      // dynamically. The fetch is best-effort — a failure never blocks the pass.
+      let passSponsors: any[] = [];
+      if (ticketData.eventId) {
+        try {
+          if (!adminToken) { try { adminToken = await getAdminAuthToken(); } catch { } }
+          if (adminToken) {
+            const evSnap = await rtdbGet(`events/${ticketData.eventId}`, adminToken);
+            const ev = evSnap.data;
+            passSponsors = Array.isArray(ev?.sponsors)
+              ? ev.sponsors
+              : (typeof ev?.sponsors === 'object' && ev?.sponsors ? Object.values(ev.sponsors) : []);
+          }
+        } catch { /* best-effort */ }
+      }
 
       const passPayload = {
         ticketNumber: ticketData.ticketNumber,
@@ -8490,6 +8509,7 @@ export async function createApp() {
         redeemedBy: ticketData.redeemedBy || null,
         eventGoogleMapsQuery: ticketData.eventGoogleMapsQuery || (ticketData as any).mapsUrl || `${ticketData.venue}, ${ticketData.city}`,
         passed,
+        sponsors: passSponsors,
       };
 
       console.log(`[PASS:${reqId}] Served pass for ticket ${ticketData.ticketNumber}`);
@@ -8571,7 +8591,7 @@ export async function createApp() {
           return res.status(403).json({ success: false, error: "Invalid or missing pass signature." });
         }
         if (!verifyHmacSignature(`${passId}|${ticketId}`, sig) &&
-            !matchesStoredCredential(sig, passRecord.signature)) {
+          !matchesStoredCredential(sig, passRecord.signature)) {
           return res.status(403).json({ success: false, error: "Invalid or forged digital pass signature." });
         }
       } else {
@@ -8620,7 +8640,7 @@ export async function createApp() {
       let ticketData = passRecord;
       if (!passRecord?.ticketNumber) {
         if (!adminToken) {
-          try { adminToken = await getAdminAuthToken(); } catch {}
+          try { adminToken = await getAdminAuthToken(); } catch { }
         }
         if (adminToken) {
           const ticketSnap = await rtdbGet(`tickets/${ticketId}`, adminToken);
@@ -8655,6 +8675,22 @@ export async function createApp() {
         return 'UNUSED';
       })();
 
+      // Fetch sponsors for this event so the ticket-pass page can render them
+      // dynamically. The fetch is best-effort — a failure never blocks the pass.
+      let passSponsors: any[] = [];
+      if (ticketData.eventId) {
+        try {
+          if (!adminToken) { try { adminToken = await getAdminAuthToken(); } catch { } }
+          if (adminToken) {
+            const evSnap = await rtdbGet(`events/${ticketData.eventId}`, adminToken);
+            const ev = evSnap.data;
+            passSponsors = Array.isArray(ev?.sponsors)
+              ? ev.sponsors
+              : (typeof ev?.sponsors === 'object' && ev?.sponsors ? Object.values(ev.sponsors) : []);
+          }
+        } catch { /* best-effort */ }
+      }
+
       const passPayload = {
         ticketNumber: ticketData.ticketNumber,
         eventTitle: ticketData.eventTitle,
@@ -8681,6 +8717,7 @@ export async function createApp() {
         passSlug: ticketData.passSlug || { id: passId, sig: sig || '' },
         eventGoogleMapsQuery: ticketData.eventGoogleMapsQuery || (ticketData as any).mapsUrl || `${ticketData.venue}, ${ticketData.city}`,
         passed,
+        sponsors: passSponsors,
       };
 
       console.log(`[PASS:${reqId}] Served legacy pass for ticket ${ticketData.ticketNumber}`);
@@ -8708,7 +8745,7 @@ export async function createApp() {
         return res.status(404).json({ success: false, error: "Ticket not found." });
       }
       if (ticket.passSlug?.id) {
-        await rtdbSet(`passes/${ticket.passSlug.id}`, null, adminToken).catch(() => {});
+        await rtdbSet(`passes/${ticket.passSlug.id}`, null, adminToken).catch(() => { });
       }
       const passId = crypto.randomBytes(24).toString('base64url');
       const passSig = signHmac(`${passId}|${ticketId}`).substring(0, 16);
@@ -8743,7 +8780,7 @@ export async function createApp() {
       await rtdbSet(`passes/${passId}`, passPayload, adminToken);
       await rtdbUpdate(`tickets/${ticketId}`, { passSlug }, adminToken);
       if (ticket.ownerId) {
-        await rtdbUpdate(`users/${ticket.ownerId}/tickets/${ticketId}`, { passSlug }, adminToken).catch(() => {});
+        await rtdbUpdate(`users/${ticket.ownerId}/tickets/${ticketId}`, { passSlug }, adminToken).catch(() => { });
       }
       return res.json({ success: true, passSlug });
     } catch (err: any) {
@@ -8796,7 +8833,7 @@ export async function createApp() {
         recipientCount: 1,
         status: "sent",
         createdBy: req.user.uid,
-      }).catch(() => {});
+      }).catch(() => { });
       return res.json({
         success: true,
         sentTo: String(attendeeEmail).trim(),
@@ -8808,96 +8845,96 @@ export async function createApp() {
       return res.status(500).json({ success: false, error: err.message });
     }
   });
-// ============================================================
-// TICKET COUNTER PANEL (Prompt C) — shifts, reprint, void,
-// exchange, discount override, and seat-availability snapshot.
-// All endpoints are gated by the RBAC guard (requireRole) and
-// attribute every action to the logged-in staff member in the
-// append-only audit log.
-// ============================================================
+  // ============================================================
+  // TICKET COUNTER PANEL (Prompt C) — shifts, reprint, void,
+  // exchange, discount override, and seat-availability snapshot.
+  // All endpoints are gated by the RBAC guard (requireRole) and
+  // attribute every action to the logged-in staff member in the
+  // append-only audit log.
+  // ============================================================
 
-// --- Shift management helpers ---
-async function fetchCounterShifts(authToken: string | undefined, staffUid?: string, allForAdmin?: boolean): Promise<Record<string, any>> {
-  const snap = await rtdbGet("counter_shifts", authToken);
-  const shifts: Record<string, any> = {};
-  const data = snap.data as Record<string, any> | null;
-  if (!data) return shifts;
-  for (const [shiftId, shift] of Object.entries(data)) {
-    const s = (shift || {}) as any;
-    if (allForAdmin || s.staffId === staffUid) {
-      shifts[shiftId] = s;
-    }
-  }
-  return shifts;
-}
-
-// Sum of cash collected by a staff member within a shift's open window.
-// Walk-in sales carry `staffShiftId` on the pending order, so finalized
-// orders inherit it through processed_orders; we attribute via the
-// canonical orders record (channel === 'counter') keyed by createdBy and
-// fall back to the pending_orders carry-over while the order is open.
-async function computeShiftCashTotals(
-  authToken: string | undefined,
-  shift: any
-): Promise<{ expectedCash: number; cashSalesCount: number; totalSales: number; byMethod: Record<string, number>; ticketsSold: number }> {
-  const byMethod: Record<string, number> = {};
-  let expectedCash = 0;
-  let cashSalesCount = 0;
-  let totalSales = 0;
-  let ticketsSold = 0;
-  const startMs = new Date(shift.startTime).getTime();
-  const endMs = shift.endTime ? new Date(shift.endTime).getTime() : Date.now();
-
-  const addSale = (order: any) => {
-    const amount = Number(order.amount) || 0;
-    const discount = Number(order.discount) || 0;
-    const collected = Math.max(0, amount - discount);
-    totalSales += collected;
-    const method = String(order.paymentMethod || "").replace(/^(walkin_|manual_|counter_)/, "") || "other";
-    const cleanMethod = ["cash", "card", "upi", "counter_upi", "other"].includes(method) ? (method === "counter_upi" ? "upi" : method) : "other";
-    byMethod[cleanMethod] = (byMethod[cleanMethod] || 0) + collected;
-    if (cleanMethod === "cash") {
-      expectedCash += collected;
-      cashSalesCount += 1;
-    }
-  };
-
-  // Canonical orders attributed to this staff inside the shift window.
-  const ordersSnap = await rtdbGet("orders", authToken).catch(() => ({ data: null }));
-  if (ordersSnap.data) {
-    for (const order of Object.values(ordersSnap.data as Record<string, any>)) {
-      const o = (order || {}) as any;
-      if (
-        // Explicit shift attribution wins. Only legacy orders without a
-        // shift ID fall back to the shared staff UID.
-        ((o.shiftId || o.staffShiftId)
-          ? (o.shiftId === shift.shiftId || o.staffShiftId === shift.shiftId)
-          : (o.createdBy === shift.staffId || o.scannedByStaffId === shift.staffId)) &&
-        (o.channel === "counter" || String(o.paymentMethod || "").startsWith("walkin")) &&
-        o.createdAt &&
-        new Date(o.createdAt).getTime() >= startMs &&
-        new Date(o.createdAt).getTime() <= endMs &&
-        o.status === "confirmed"
-      ) {
-        addSale(o);
-        ticketsSold += Math.max(1, Number(o.quantity) || 1);
+  // --- Shift management helpers ---
+  async function fetchCounterShifts(authToken: string | undefined, staffUid?: string, allForAdmin?: boolean): Promise<Record<string, any>> {
+    const snap = await rtdbGet("counter_shifts", authToken);
+    const shifts: Record<string, any> = {};
+    const data = snap.data as Record<string, any> | null;
+    if (!data) return shifts;
+    for (const [shiftId, shift] of Object.entries(data)) {
+      const s = (shift || {}) as any;
+      if (allForAdmin || s.staffId === staffUid) {
+        shifts[shiftId] = s;
       }
     }
+    return shifts;
   }
-  // Pending orders carry the shift id while the sale is in flight.
-  const pendingSnap = await rtdbGet("pending_orders", authToken).catch(() => ({ data: null }));
-  if (pendingSnap.data) {
-    for (const order of Object.values(pendingSnap.data as Record<string, any>)) {
-      const o = (order || {}) as any;
-      if (o.shiftId === shift.shiftId) {
-        addSale(o);
+
+  // Sum of cash collected by a staff member within a shift's open window.
+  // Walk-in sales carry `staffShiftId` on the pending order, so finalized
+  // orders inherit it through processed_orders; we attribute via the
+  // canonical orders record (channel === 'counter') keyed by createdBy and
+  // fall back to the pending_orders carry-over while the order is open.
+  async function computeShiftCashTotals(
+    authToken: string | undefined,
+    shift: any
+  ): Promise<{ expectedCash: number; cashSalesCount: number; totalSales: number; byMethod: Record<string, number>; ticketsSold: number }> {
+    const byMethod: Record<string, number> = {};
+    let expectedCash = 0;
+    let cashSalesCount = 0;
+    let totalSales = 0;
+    let ticketsSold = 0;
+    const startMs = new Date(shift.startTime).getTime();
+    const endMs = shift.endTime ? new Date(shift.endTime).getTime() : Date.now();
+
+    const addSale = (order: any) => {
+      const amount = Number(order.amount) || 0;
+      const discount = Number(order.discount) || 0;
+      const collected = Math.max(0, amount - discount);
+      totalSales += collected;
+      const method = String(order.paymentMethod || "").replace(/^(walkin_|manual_|counter_)/, "") || "other";
+      const cleanMethod = ["cash", "card", "upi", "counter_upi", "other"].includes(method) ? (method === "counter_upi" ? "upi" : method) : "other";
+      byMethod[cleanMethod] = (byMethod[cleanMethod] || 0) + collected;
+      if (cleanMethod === "cash") {
+        expectedCash += collected;
+        cashSalesCount += 1;
+      }
+    };
+
+    // Canonical orders attributed to this staff inside the shift window.
+    const ordersSnap = await rtdbGet("orders", authToken).catch(() => ({ data: null }));
+    if (ordersSnap.data) {
+      for (const order of Object.values(ordersSnap.data as Record<string, any>)) {
+        const o = (order || {}) as any;
+        if (
+          // Explicit shift attribution wins. Only legacy orders without a
+          // shift ID fall back to the shared staff UID.
+          ((o.shiftId || o.staffShiftId)
+            ? (o.shiftId === shift.shiftId || o.staffShiftId === shift.shiftId)
+            : (o.createdBy === shift.staffId || o.scannedByStaffId === shift.staffId)) &&
+          (o.channel === "counter" || String(o.paymentMethod || "").startsWith("walkin")) &&
+          o.createdAt &&
+          new Date(o.createdAt).getTime() >= startMs &&
+          new Date(o.createdAt).getTime() <= endMs &&
+          o.status === "confirmed"
+        ) {
+          addSale(o);
+          ticketsSold += Math.max(1, Number(o.quantity) || 1);
+        }
       }
     }
+    // Pending orders carry the shift id while the sale is in flight.
+    const pendingSnap = await rtdbGet("pending_orders", authToken).catch(() => ({ data: null }));
+    if (pendingSnap.data) {
+      for (const order of Object.values(pendingSnap.data as Record<string, any>)) {
+        const o = (order || {}) as any;
+        if (o.shiftId === shift.shiftId) {
+          addSale(o);
+        }
+      }
+    }
+    return { expectedCash, cashSalesCount, totalSales, byMethod, ticketsSold };
   }
-  return { expectedCash, cashSalesCount, totalSales, byMethod, ticketsSold };
-}
 
-// --- Counter endpoints ---
+  // --- Counter endpoints ---
 
   // Start a shift: requires staff (counter_staff and up).
   app.post("/api/counter/shifts/start", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
@@ -8925,23 +8962,23 @@ async function computeShiftCashTotals(
       if (!counterId) {
         const countersSnap = await rtdbGet("counters", adminToken);
         const allCounters = Object.values((countersSnap.data || {}) as Record<string, any>);
-        const assigned = allCounters.find((c: any) => 
-          c.status === 'active' && 
-          Array.isArray(c.assignedStaffIds) && 
+        const assigned = allCounters.find((c: any) =>
+          c.status === 'active' &&
+          Array.isArray(c.assignedStaffIds) &&
           c.assignedStaffIds.includes(staffUid)
         );
-        
+
         if (!assigned) {
           return res.status(403).json({ success: false, error: "You are not assigned to any active counter. Contact admin." });
         }
         counterId = assigned.id;
       }
-      
+
       // Verify sub-user and PIN
       const counterSnap = await rtdbGet(`counters/${counterId}`, adminToken);
       const counter = counterSnap.data as any;
       if (!counter) return res.status(404).json({ success: false, error: "Counter not found." });
-      
+
       if (rbacRole === "counter_staff" && (!Array.isArray(counter.assignedStaffIds) || !counter.assignedStaffIds.includes(staffUid))) {
         return res.status(403).json({ success: false, error: "You are not assigned to this counter." });
       }
@@ -8949,7 +8986,7 @@ async function computeShiftCashTotals(
       const subUser = counter.subUsers ? Object.values(counter.subUsers).find((u: any) => u.id === subUserId) as any : null;
       if (!subUser) return res.status(404).json({ success: false, error: "Sub-user not found on this counter." });
       if (subUser.status === "inactive") return res.status(403).json({ success: false, error: "This counter user is inactive. Contact an administrator." });
-      
+
       if (!verifyCounterPin(String(pin), subUser.pinHash)) {
         return res.status(401).json({ success: false, error: "Invalid PIN." });
       }
@@ -8959,7 +8996,7 @@ async function computeShiftCashTotals(
       // with different sub-user identities.
       const existing = await fetchCounterShifts(adminToken, staffUid);
       const openShifts = Object.values(existing).filter((s: any) => s.status === "open");
-      
+
       // Auto-close any stale open shifts that started before today's midnight.
       // This ensures the new business day always starts fresh, even if the
       // previous shift was never explicitly ended.
@@ -9003,7 +9040,7 @@ async function computeShiftCashTotals(
         const shiftStart = new Date(s.startTime);
         return shiftStart.getTime() >= midnightToday.getTime();
       });
-      
+
       // Several assigned sub-users may work at the same physical counter at
       // the same time. Only the selected sub-user must be unique; a counter
       // itself is not a shift lock.
@@ -9042,1778 +9079,1778 @@ async function computeShiftCashTotals(
     }
   });
 
-// End a shift: owner or admin; the server computes and records all totals automatically.
-app.post("/api/counter/shifts/:shiftId/end", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
-  try {
-    const { shiftId } = req.params;
-          const { countedCash } = req.body || {};
+  // End a shift: owner or admin; the server computes and records all totals automatically.
+  app.post("/api/counter/shifts/:shiftId/end", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
+    try {
+      const { shiftId } = req.params;
+      const { countedCash } = req.body || {};
       const actorUid = req.user.uid;
 
-    const rbacRole = (req.user.rbacRole as string) || "counter_staff";
-    const snap = await rtdbGet(`counter_shifts/${shiftId}`, await getAdminAuthToken());
-    const shift = snap.data as any;
-    if (!shift) return res.status(404).json({ success: false, error: "Shift not found." });
-    // Only admin/manager levels may end someone else's shift.
-    if (shift.staffId !== actorUid && rbacRole !== "super_admin" && rbacRole !== "event_manager") {
-      return res.status(403).json({ success: false, error: "Access Denied: You can only end your own shift." });
-    }
-    if (shift.status !== "open") {
-      return res.status(409).json({ success: false, error: "This shift has already been closed." });
-    }
-    const totals = await computeShiftCashTotals(await getAdminAuthToken(), { ...shift, shiftId });
-    const expectedCash = totals.expectedCash;
-    const systemExpectedDrawer = Number(shift.startingCash || 0) + expectedCash;
-    const hasManualCount = countedCash !== undefined && countedCash !== null && countedCash !== "";
-    const counted = hasManualCount ? Number(countedCash) : systemExpectedDrawer;
-    if (!Number.isFinite(counted) || counted < 0) {
-      return res.status(400).json({ success: false, error: "Counted cash must be a non-negative number." });
-    }
-    const discrepancy = hasManualCount
-      ? Math.round((counted - systemExpectedDrawer) * 100) / 100
-      : 0;
-    const update: Record<string, any> = {
-      status: "closed",
-      endTime: new Date().toISOString(),
-      countedCash: counted,
-      expectedCash,
-      discrepancy,
-      cashSalesCount: totals.cashSalesCount,
-      totalSales: totals.totalSales,
-      byMethod: totals.byMethod,
-      ticketsSold: totals.ticketsSold,
-      closedBy: actorUid,
-      autoReconciled: !hasManualCount,
-    };
-    await rtdbUpdate(`counter_shifts/${shiftId}`, update, await getAdminAuthToken());
-    await writeAuditEntry({
-      actorId: actorUid,
-      actorRole: rbacRole,
-      action: "shift.closed",
-      entityType: "shift",
-      entityId: shiftId,
-      beforeState: { startingCash: shift.startingCash, expectedCash },
-      afterState: { countedCash: counted, discrepancy, totalSales: totals.totalSales, byMethod: totals.byMethod },
-    });
-    return res.status(200).json({
-      success: true,
-      shift: { ...shift, ...update },
-      totals,
-    });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message || "Could not end shift." });
-  }
-});
-
-// List shifts: staff see their own; admins see all.
-app.get("/api/counter/shifts", requireRole(["counter_staff", "auditor", "event_manager", "super_admin"]), async (req: any, res) => {
-  try {
-    const rbacRole = (req.user.rbacRole as string) || "counter_staff";
-    const isAdmin = rbacRole === "super_admin" || rbacRole === "event_manager";
-    const adminToken = (await getAdminAuthToken()) || req.user.idToken;
-    const shifts = await fetchCounterShifts(adminToken, req.user.uid, isAdmin);
-    const shiftList = await Promise.all(
-      Object.values(shifts).map(async (s: any) => {
-        if (s.status === "open") {
-          const liveTotals = await computeShiftCashTotals(adminToken, s).catch(() => null);
-          return { ...s, liveTotals, ticketsSold: liveTotals?.ticketsSold ?? s.ticketsSold ?? 0 };
-        }
-        return s;
-      })
-    );
-    return res.status(200).json({ success: true, shifts: shiftList });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message || "Could not list shifts." });
-  }
-});
-
-// Admin shift edit: correct attribution, timing, cash, or status without
-// deleting the underlying ticket/order history.
-app.put("/api/admin/shifts/:shiftId", requireRole(["event_manager", "super_admin"]), async (req: any, res) => {
-  try {
-    const { shiftId } = req.params;
-    const adminToken = (await getAdminAuthToken()) || req.user.idToken;
-    if (!adminToken) return res.status(503).json({ success: false, error: "Server authentication unavailable." });
-
-    const existingSnap = await rtdbGet(`counter_shifts/${shiftId}`, adminToken);
-    const existing = existingSnap.data as any;
-    if (!existing) return res.status(404).json({ success: false, error: "Shift not found." });
-
-    const body = req.body || {};
-    const updates: Record<string, any> = {};
-    const textFields = ["staffName", "subUserName", "counterName"] as const;
-    for (const field of textFields) {
-      if (body[field] !== undefined) {
-        const value = String(body[field] || "").trim();
-        if (value.length > 120) return res.status(400).json({ success: false, error: `${field} is too long.` });
-        updates[field] = value;
+      const rbacRole = (req.user.rbacRole as string) || "counter_staff";
+      const snap = await rtdbGet(`counter_shifts/${shiftId}`, await getAdminAuthToken());
+      const shift = snap.data as any;
+      if (!shift) return res.status(404).json({ success: false, error: "Shift not found." });
+      // Only admin/manager levels may end someone else's shift.
+      if (shift.staffId !== actorUid && rbacRole !== "super_admin" && rbacRole !== "event_manager") {
+        return res.status(403).json({ success: false, error: "Access Denied: You can only end your own shift." });
       }
-    }
-    for (const field of ["subUserId", "counterId"] as const) {
-      if (body[field] !== undefined) {
-        const value = String(body[field] || "").trim();
-        if (value.length > 120) return res.status(400).json({ success: false, error: `${field} is too long.` });
-        updates[field] = value || null;
+      if (shift.status !== "open") {
+        return res.status(409).json({ success: false, error: "This shift has already been closed." });
       }
-    }
-
-    const startTime = body.startTime !== undefined ? String(body.startTime || "") : existing.startTime;
-    const endTimeInput = body.endTime !== undefined ? body.endTime : existing.endTime;
-    const startMs = new Date(startTime).getTime();
-    if (!Number.isFinite(startMs)) return res.status(400).json({ success: false, error: "Start time is invalid." });
-    updates.startTime = new Date(startTime).toISOString();
-
-    const requestedStatus = body.status !== undefined ? String(body.status) : String(existing.status || "open");
-    if (requestedStatus !== "open" && requestedStatus !== "closed") {
-      return res.status(400).json({ success: false, error: "Status must be open or closed." });
-    }
-    updates.status = requestedStatus;
-
-    const endTime = requestedStatus === "closed"
-      ? (endTimeInput ? new Date(String(endTimeInput)) : new Date())
-      : null;
-    if (endTime && !Number.isFinite(endTime.getTime())) {
-      return res.status(400).json({ success: false, error: "End time is invalid." });
-    }
-    if (endTime && endTime.getTime() < startMs) {
-      return res.status(400).json({ success: false, error: "End time cannot be before start time." });
-    }
-    updates.endTime = endTime ? endTime.toISOString() : null;
-
-    const cashFields = ["startingCash", "countedCash"] as const;
-    for (const field of cashFields) {
-      if (body[field] === undefined || body[field] === "") continue;
-      const value = Number(body[field]);
-      if (!Number.isFinite(value) || value < 0) {
-        return res.status(400).json({ success: false, error: `${field} must be a non-negative number.` });
-      }
-      updates[field] = value;
-    }
-    let manualTicketsSold: number | undefined;
-    if (body.ticketsSold !== undefined && body.ticketsSold !== "") {
-      const value = Number(body.ticketsSold);
-      if (!Number.isInteger(value) || value < 0 || value > 1000000) {
-        return res.status(400).json({ success: false, error: "Tickets sold must be a whole number from 0 to 1,000,000." });
-      }
-      manualTicketsSold = value;
-      updates.ticketsSold = value;
-    }
-    if (requestedStatus === "open" && body.countedCash === undefined) {
-      updates.countedCash = null;
-      updates.expectedCash = null;
-      updates.discrepancy = null;
-      updates.autoReconciled = false;
-    }
-
-    const mergedShift = { ...existing, ...updates, shiftId };
-    if (requestedStatus === "closed") {
-      const totals = await computeShiftCashTotals(adminToken, mergedShift);
-      const expectedDrawer = Number(mergedShift.startingCash || 0) + totals.expectedCash;
-      const hasCountedCash = body.countedCash !== undefined && body.countedCash !== ""
-        ? true
-        : existing.countedCash !== undefined && existing.countedCash !== null;
-      const countedCash = hasCountedCash ? Number(updates.countedCash ?? existing.countedCash) : expectedDrawer;
-      if (!Number.isFinite(countedCash) || countedCash < 0) {
+      const totals = await computeShiftCashTotals(await getAdminAuthToken(), { ...shift, shiftId });
+      const expectedCash = totals.expectedCash;
+      const systemExpectedDrawer = Number(shift.startingCash || 0) + expectedCash;
+      const hasManualCount = countedCash !== undefined && countedCash !== null && countedCash !== "";
+      const counted = hasManualCount ? Number(countedCash) : systemExpectedDrawer;
+      if (!Number.isFinite(counted) || counted < 0) {
         return res.status(400).json({ success: false, error: "Counted cash must be a non-negative number." });
       }
-      updates.expectedCash = totals.expectedCash;
-      updates.cashSalesCount = totals.cashSalesCount;
-      updates.totalSales = totals.totalSales;
-      updates.byMethod = totals.byMethod;
-      updates.ticketsSold = manualTicketsSold ?? totals.ticketsSold;
-      updates.countedCash = countedCash;
-      updates.discrepancy = Math.round((countedCash - expectedDrawer) * 100) / 100;
-      updates.autoReconciled = !hasCountedCash;
-      updates.closedBy = req.user.uid;
-    } else {
-      const totals = await computeShiftCashTotals(adminToken, mergedShift);
-      updates.expectedCash = totals.expectedCash;
-      updates.cashSalesCount = totals.cashSalesCount;
-      updates.totalSales = totals.totalSales;
-      updates.byMethod = totals.byMethod;
-      updates.ticketsSold = manualTicketsSold ?? totals.ticketsSold;
-      updates.discrepancy = null;
-    }
-
-    await rtdbUpdate(`counter_shifts/${shiftId}`, updates, adminToken);
-    const updated = { ...existing, ...updates, shiftId };
-    console.info("[ADMIN_SHIFT_EDIT]", {
-      adminEmail: req.user.email || "unknown",
-      shiftId,
-      before: existing,
-      after: updated,
-    });
-    await writeAuditEntry({
-      actorId: req.user.uid,
-      actorRole: req.user.rbacRole || "super_admin",
-      action: "shift.admin_edited",
-      entityType: "shift",
-      entityId: shiftId,
-      beforeState: existing,
-      afterState: updated,
-    });
-    return res.status(200).json({ success: true, shift: updated });
-  } catch (err: any) {
-    console.error("[ADMIN_SHIFT_EDIT] Failed:", err?.message || err);
-    return res.status(500).json({ success: false, error: err.message || "Could not update shift." });
-  }
-});
-
-// Admin shift delete: remove only the shift record and its shift-specific
-// attribution from related orders. Tickets and order records remain intact.
-app.delete("/api/admin/shifts/:shiftId", requireRole(["event_manager", "super_admin"]), async (req: any, res) => {
-  try {
-    const { shiftId } = req.params;
-    const adminToken = (await getAdminAuthToken()) || req.user.idToken;
-    if (!adminToken) return res.status(503).json({ success: false, error: "Server authentication unavailable." });
-
-    const existingSnap = await rtdbGet(`counter_shifts/${shiftId}`, adminToken);
-    const existing = existingSnap.data as any;
-    if (!existing) return res.status(404).json({ success: false, error: "Shift not found." });
-
-    const stripShiftAttribution = async (collection: string) => {
-      const snap = await rtdbGet(collection, adminToken).catch(() => ({ data: null }));
-      const records = (snap.data || {}) as Record<string, any>;
-      for (const [recordId, record] of Object.entries(records)) {
-        const item = (record || {}) as any;
-        if (item.shiftId !== shiftId && item.staffShiftId !== shiftId) continue;
-        await rtdbUpdate(`${collection}/${recordId}`, {
-          shiftId: null,
-          staffShiftId: null,
-          issuedBySubUserId: null,
-          issuedBySubUserName: null,
-        }, adminToken);
-      }
-    };
-
-    await stripShiftAttribution("orders");
-    await stripShiftAttribution("processed_orders");
-    await stripShiftAttribution("pending_orders");
-    await rtdbDelete(`counter_shifts/${shiftId}`, adminToken);
-
-    console.info("[ADMIN_SHIFT_DELETE]", {
-      adminEmail: req.user.email || "unknown",
-      shiftId,
-      before: existing,
-    });
-    await writeAuditEntry({
-      actorId: req.user.uid,
-      actorRole: req.user.rbacRole || "super_admin",
-      action: "shift.admin_deleted",
-      entityType: "shift",
-      entityId: shiftId,
-      beforeState: existing,
-      afterState: { deleted: true, salesHistoryPreserved: true },
-    });
-    return res.status(200).json({ success: true, deletedShiftId: shiftId, salesHistoryPreserved: true });
-  } catch (err: any) {
-    console.error("[ADMIN_SHIFT_DELETE] Failed:", err?.message || err);
-    return res.status(500).json({ success: false, error: err.message || "Could not delete shift." });
-  }
-});
-
-app.post("/api/counter/tickets/:ticketId/reprint", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res: any) => {
-  try {
-    const { ticketId } = req.params;
-    const { reason } = req.body || {};
-    const actorUid = req.user.uid;
-    const rbacRole = (req.user.rbacRole as string) || "counter_staff";
-    const trimmedReason = String(reason || "").trim();
-    if (!trimmedReason) {
-      return res.status(400).json({ success: false, error: "A reprint reason is required (e.g. 'lost', 'printer jam')." });
-    }
-    const snap = await rtdbGet(`tickets/${ticketId}`, await getAdminAuthToken());
-    const ticket = snap.data as any;
-    if (!ticket) return res.status(404).json({ success: false, error: "Ticket not found." });
-    await writeAuditEntry({
-      actorId: actorUid,
-      actorRole: rbacRole,
-      action: "ticket.reprinted",
-      entityType: "ticket",
-      entityId: ticketId,
-      afterState: { ticketNumber: ticket.ticketNumber, attendee: ticket.attendeeName, reason: trimmedReason },
-    });
-    return res.status(200).json({ success: true, ticket });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message || "Could not reprint ticket." });
-  }
-});
-
-// Void sale — only while the order is still pending (not finalized).
-app.post("/api/counter/sales/:orderId/void", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
-  try {
-    const { orderId } = req.params;
-    const actorUid = req.user.uid;
-    const rbacRole = (req.user.rbacRole as string) || "counter_staff";
-    const pendingSnap = await rtdbGet(`pending_orders/${orderId}`, await getAdminAuthToken());
-    const pending = pendingSnap.data as any;
-    if (!pending) {
-      return res.status(409).json({ success: false, error: "This sale has already been finalized and cannot be voided. Use the refund action instead." });
-    }
-    const beforeState = { orderId, eventId: pending.eventId, tierId: pending.tierId, quantity: pending.quantity, amount: pending.amount, paymentMethod: pending.paymentMethod };
-    // Release any seats claimed for this pending order.
-    if (Array.isArray(pending.seatIds) && pending.seatIds.length > 0 && pending.eventId) {
-      for (const seatId of pending.seatIds) {
-        await releaseSeat(await getAdminAuthToken(), pending.eventId, seatId, { reservationId: pending.reservationId }).catch(() => {});
-      }
-    }
-    await rtdbDelete(`pending_orders/${orderId}`, await getAdminAuthToken());
-    await writeAuditEntry({
-      actorId: actorUid,
-      actorRole: rbacRole,
-      action: "order.voided.counter",
-      entityType: "order",
-      entityId: orderId,
-      beforeState,
-      afterState: { voided: true, voidedBy: actorUid, reason: "Voided before finalization at counter." },
-    });
-    return res.status(200).json({ success: true, message: "Sale voided before finalization." });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message || "Could not void sale." });
-  }
-});
-
-// Exchange seat — release old seat, atomically claim the new one; honors the
-// event-level exchangesAllowedUntil window when set.
-app.post("/api/counter/orders/:orderId/exchange", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
-  try {
-    const { orderId } = req.params;
-    const { oldSeatId, newSeats } = req.body || {};
-    const actorUid = req.user.uid;
-    const rbacRole = (req.user.rbacRole as string) || "counter_staff";
-    const adminToken = await getAdminAuthToken();
-    const processedSnap = await rtdbGet(`processed_orders/${orderId}`, adminToken);
-    const processed = (processedSnap.data as any) || {};
-    const ticket = processed.ticket as any;
-    if (!ticket || !processed.booking) {
-      return res.status(404).json({ success: false, error: "Confirmed order not found." });
-    }
-    if (!oldSeatId || !Array.isArray(newSeats) || newSeats.length === 0) {
-      return res.status(400).json({ success: false, error: "oldSeatId and at least one new seat are required." });
-    }
-    const currentSeats: string[] = processed.booking.seatIds || ticket.selectedSeats || [];
-    if (!currentSeats.includes(oldSeatId)) {
-      return res.status(400).json({ success: false, error: "The old seat is not part of this order." });
-    }
-    // Exchange window check (event-level setting, optional).
-    const eventSnap = await rtdbGet(`events/${ticket.eventId}`, adminToken);
-    const event = (eventSnap.data as any) || {};
-    if (event.exchangesAllowedUntil) {
-      if (new Date(event.exchangesAllowedUntil).getTime() < Date.now()) {
-        return res.status(409).json({ success: false, error: "The exchange window for this event has closed." });
-      }
-    }
-    // Guard against duplicate new seats.
-    const uniqueNew = Array.from(new Set(String(newSeats).split(",").map((s: string) => String(s).trim()).filter(Boolean)));
-    const overlap = uniqueNew.filter((s: string) => currentSeats.includes(s));
-    if (overlap.length > 0) {
-      return res.status(400).json({ success: false, error: `New seat(s) already belong to this order: ${overlap.join(", ")}.` });
-    }
-    const ownerId = String(ticket.ownerId || "walk_in_guest");
-    // Release the old seat (must still be held/booked by this order).
-    const release = await releaseSeat(adminToken, ticket.eventId, oldSeatId, {});
-    if (release.committed) {
-      await rtdbTransaction(`seats/${ticket.eventId}/${oldSeatId}`, (seat: any) => {
-        if (!seat) return undefined;
-        if (seat.status === "booked" && seat.orderId === orderId) {
-          return { ...seat, status: "available", bookedBy: null, bookedAt: null, orderId: null, ticketId: null, bookingId: null, statusChangedAt: Date.now(), statusChangedBy: "exchange" };
-        }
-        if (seat.status === "available" || (seat.status === "held" && seat.heldBy !== ownerId)) {
-          return seat; // someone else took it; let the claim step validate
-        }
-        return undefined;
-      }, adminToken).catch(() => {});
-    }
-    // Claim the new seats atomically under the order identity.
-    const claim = await claimSeatsAtomically(adminToken, ticket.eventId, uniqueNew, orderId, ownerId);
-    if (!claim.committed) {
-      // Best-effort restore of the old seat (already bookable again).
-      return res.status(409).json({ success: false, error: claim.error || "The selected replacement seat is no longer available." });
-    }
-    // Transition new seats to booked (fulfillment) and update ticket/booking linkage.
-    for (const seatId of uniqueNew) {
-      await bookSeat(adminToken, ticket.eventId, seatId, ownerId, orderId, ticket.id, processed.booking.bookingId).catch(() => {});
-    }
-    const exchangeEntry = {
-      oldSeatId,
-      newSeats: uniqueNew,
-      actorId: actorUid,
-      at: new Date().toISOString(),
-    };
-    const exchangeHistory = [...((processed.booking as any).exchangeHistory || []), exchangeEntry];
-    await rtdbUpdate(`bookings/${processed.booking.bookingId}`, { exchangeHistory, seatIds: currentSeats.filter((s: string) => s !== oldSeatId).concat(uniqueNew) }, adminToken).catch(() => {});
-    await writeAuditEntry({
-      actorId: actorUid,
-      actorRole: rbacRole,
-      action: "order.seat_exchanged",
-      entityType: "order",
-      entityId: orderId,
-      beforeState: { seats: currentSeats },
-      afterState: { seats: currentSeats.filter((s: string) => s !== oldSeatId).concat(uniqueNew), oldSeatId, newSeats: uniqueNew },
-    });
-    const seatLabel = [...currentSeats.filter((s: string) => s !== oldSeatId), ...uniqueNew]
-      .map((s: string) => {
-        const parts = s.split("-");
-        const r = String.fromCharCode(64 + parseInt(parts[0].replace("R", ""), 10));
-        const c = parts[1].replace("C", "");
-        return `${r}-${c}`;
-      })
-      .join(", ");
-    const updatedTicket = { ...ticket, seatNumber: seatLabel, selectedSeats: currentSeats.filter((s: string) => s !== oldSeatId).concat(uniqueNew) };
-    await rtdbSet(`tickets/${ticket.id}`, updatedTicket, adminToken).catch(() => {});
-    await rtdbSet(`users/${ownerId}/tickets/${ticket.id}`, updatedTicket, adminToken).catch(() => {});
-    return res.status(200).json({ success: true, ticket: updatedTicket });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message || "Could not exchange seat." });
-  }
-});
-
-// Discount override approval: managers/admins and counter staff may approve.
-app.post("/api/counter/discount-override", requireRole(["event_manager", "super_admin", "counter_staff"]), async (req: any, res) => {
-  try {
-    const actorUid = req.user.uid;
-    const rbacRole = (req.user.rbacRole as string) || "event_manager";
-    const { eventId, orderAmount, discountPercent, discountAmount: rawDiscountAmount, reason } = req.body || {};
-    if (!eventId || !orderAmount) {
-      return res.status(400).json({ success: false, error: "eventId and orderAmount are required." });
-    }
-    const amount = Number(orderAmount);
-    if (!Number.isFinite(amount) || amount <= 0) {
-      return res.status(400).json({ success: false, error: "orderAmount must be a positive number." });
-    }
-    let discountAmount = 0;
-    if (discountPercent !== undefined && discountPercent !== null && Number(discountPercent) > 0) {
-      const pct = Number(discountPercent);
-      if (!Number.isFinite(pct) || pct < 0 || pct > 100) {
-        return res.status(400).json({ success: false, error: "Discount percent must be between 0 and 100." });
-      }
-      discountAmount = Math.round((amount * pct) / 100);
-    } else {
-      const d = Number(rawDiscountAmount);
-      if (!Number.isFinite(d) || d < 0 || d > amount) {
-        return res.status(400).json({ success: false, error: "Discount amount must be between 0 and the order total." });
-      }
-      discountAmount = Math.round(d);
-    }
-    const staffSnap = await rtdbGet(`staff/${actorUid}`, req.user.idToken);
-    const staffName = (staffSnap?.data as any)?.name || req.user.email || actorUid;
-    const overrideId = `dov_${Date.now()}_${secureRandomHex(4)}`;
-    await writeAuditEntry({
-      actorId: actorUid,
-      actorRole: rbacRole,
-      action: "discount.override",
-      entityType: "event",
-      entityId: String(eventId),
-      afterState: {
-        overrideId,
-        eventId,
-        orderAmount: amount,
-        discountAmount,
-        approvedBy: actorUid,
-        approvedByName: staffName,
-        reason: String(reason || "").trim() || "Manager discount override",
-      },
-    });
-    return res.status(200).json({
-      success: true,
-      discountOverride: { overrideId, discountAmount, actorId: actorUid, actorName: staffName, amount },
-    });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message || "Could not approve discount override." });
-  }
-});
-
-// Seat-availability snapshot for the counter seat map (real-time refresh).
-app.get("/api/counter/events/:eventId/seats", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
-  try {
-    const { eventId } = req.params;
-    const adminToken = await getAdminAuthToken();
-    const eventSnap = await rtdbGet(`events/${eventId}`, adminToken);
-    const event = (eventSnap.data as any) || {};
-    const seatsSnap = await rtdbGet(`seats/${eventId}`, adminToken).catch(() => ({ data: null }));
-    const seats = (seatsSnap.data as Record<string, any>) || {};
-    const now = Date.now();
-    const seatsSnapshot: Record<string, { status: string; heldBy?: string; expiresAt?: number; bookedAt?: number }> = {};
-    for (const [seatId, node] of Object.entries(seats)) {
-      const n = (node || {}) as any;
-      const expiresAt = n.holdExpiresAt || (n.heldAt ? n.heldAt + 10 * 60 * 1000 : 0);
-      let status = n.status || "available";
-      if (status === "held" && expiresAt && now > expiresAt) status = "available";
-      seatsSnapshot[seatId] = {
-        status,
-        heldBy: status === "held" ? n.heldBy : undefined,
-        expiresAt: status === "held" ? expiresAt : undefined,
-        bookedAt: status === "booked" ? n.bookedAt : undefined,
+      const discrepancy = hasManualCount
+        ? Math.round((counted - systemExpectedDrawer) * 100) / 100
+        : 0;
+      const update: Record<string, any> = {
+        status: "closed",
+        endTime: new Date().toISOString(),
+        countedCash: counted,
+        expectedCash,
+        discrepancy,
+        cashSalesCount: totals.cashSalesCount,
+        totalSales: totals.totalSales,
+        byMethod: totals.byMethod,
+        ticketsSold: totals.ticketsSold,
+        closedBy: actorUid,
+        autoReconciled: !hasManualCount,
       };
+      await rtdbUpdate(`counter_shifts/${shiftId}`, update, await getAdminAuthToken());
+      await writeAuditEntry({
+        actorId: actorUid,
+        actorRole: rbacRole,
+        action: "shift.closed",
+        entityType: "shift",
+        entityId: shiftId,
+        beforeState: { startingCash: shift.startingCash, expectedCash },
+        afterState: { countedCash: counted, discrepancy, totalSales: totals.totalSales, byMethod: totals.byMethod },
+      });
+      return res.status(200).json({
+        success: true,
+        shift: { ...shift, ...update },
+        totals,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || "Could not end shift." });
     }
-    return res.status(200).json({
-      success: true,
-      event: { id: eventId, title: event.title, seatMap: event.seatMap || null, ticketTiers: event.ticketTiers || [], exchangesAllowedUntil: event.exchangesAllowedUntil || null },
-      seats: seatsSnapshot,
-    });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message || "Could not load seat availability." });
-  }
-});
+  });
 
-// Merchant UPI configuration for the counter's dynamic payment QR.
-// The counter embeds the final order total into the QR URI, so the customer's
-// UPI app always receives an exact-amount payment request. Stored at
-// app_config/merchant_upi with shape { vpa, name }.
-app.get("/api/merchant-upi", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
-  try {
-    const configSnap = await rtdbGet("app_config/merchant_upi", await getAdminAuthToken());
-    const config = (configSnap.data || {}) as { vpa?: string; name?: string };
-    return res.status(200).json({ success: true, vpa: config.vpa || "", name: config.name || "" });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message || "Could not load merchant UPI config." });
-  }
-});
-
-app.put("/api/merchant-upi", requireRole(["super_admin"]), async (req: any, res) => {
-  try {
-    const rawVpa = String(req.body?.vpa || "").trim();
-    const rawName = String(req.body?.name || "").trim();
-    if (!rawVpa) {
-      return res.status(400).json({ success: false, error: "A merchant UPI ID (VPA) is required." });
-    }
-    if (!/^[A-Za-z0-9.\-_]{2,64}@[A-Za-z0-9.\-_]{2,64}$/.test(rawVpa) || rawVpa.length > 129) {
-      return res.status(400).json({ success: false, error: "The UPI ID must look like 'merchant@upi' (letters, digits, . _ - only)." });
-    }
-    const name = rawName.slice(0, 25) || undefined;
-    await rtdbSet("app_config/merchant_upi", { vpa: rawVpa, ...(name ? { name } : {}) }, await getAdminAuthToken());
-    await writeAuditEntry({
-      actorId: req.user.uid,
-      actorRole: req.user.rbacRole,
-      action: "config.merchant_upi.updated",
-      entityType: "config",
-      entityId: "merchant_upi",
-      afterState: { vpa: rawVpa, name },
-    });
-    return res.status(200).json({ success: true, vpa: rawVpa, name: name || "" });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message || "Could not save merchant UPI config." });
-  }
-});
-
-// ──────────────────────────────────────────────────────────────────────
-// "My Sales" counter-facing operations
-// ──────────────────────────────────────────────────────────────────────
-
-// Printable gate checklist: one row per ticket for a specific event, with the
-// important gate data. Opens directly in Excel; designed to be printed and
-// ticked off at the gate.
-app.get("/api/admin/events/:eventId/gate-checklist", requireRole(["super_admin", "event_manager", "counter_staff"]), async (req: any, res) => {
-  try {
-    const eventId = String(req.params.eventId || "");
-    if (!eventId) return res.status(400).json({ success: false, error: "eventId is required." });
-    const adminToken = await getAdminAuthToken();
-
-    const ticketsSnap = await rtdbGet("tickets", adminToken);
-    const allTickets = Object.entries((ticketsSnap.data || {}) as Record<string, any>);
-    const rows: any[] = [];
-    for (const [id, t] of allTickets) {
-      const ticket = t as any;
-      if (!ticket || ticket.eventId !== eventId) continue;
-      const status = String(ticket.status || "active").toLowerCase();
-      if (status === "deleted" || status === "cancelled" || status === "refunded" || status === "void") continue;
-      rows.push({ id, ...ticket });
-    }
-    rows.sort((a, b) => String(a.ticketNumber || "").localeCompare(String(b.ticketNumber || "")));
-
-    const eventSnap = await rtdbGet(`events/${eventId}`, adminToken);
-    const eventTitle = (eventSnap.data as any)?.title || eventId;
-
-    const csvCell = (v: any) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-    const columns = selectExportColumns([
-      { label: "S.No", value: (_t: any, i: number) => i + 1 },
-      { label: "Ticket No", value: (t: any) => t.ticketNumber || t.id },
-      { label: "Attendee", value: (t: any) => t.attendeeName || "" },
-      { label: "Email", value: (t: any) => t.attendeeEmail || "" },
-      { label: "Phone", value: (t: any) => t.attendeePhone || "" },
-      { label: "Category", value: (t: any) => t.tierName || "" },
-      { label: "Qty", value: (t: any) => Number(t.quantity) || 1 },
-      { label: "Seats", value: (t: any) => t.seatNumber || (Array.isArray(t.selectedSeats) && t.selectedSeats.length ? t.selectedSeats.join(" ") : "General") },
-      { label: "Checked In", value: (t: any) => t.status === "redeemed" ? "YES" : "" },
-      { label: "Hold At Counter", value: (t: any) => t.holdAtCounter ? "YES" : "" },
-      { label: "Payment", value: (t: any) => t.paymentStatus === "paid" || t.status === "redeemed" ? "PAID" : (t.amountDue ? `DUE ₹${t.amountDue}` : "PAID") },
-      { label: "Status", value: (t: any) => String(t.status || "") },
-    ], (req.query as any).columns);
-    const csv = [columns.map((c) => csvCell(c.label)).join(",")]
-      .concat(rows.map((t, i) => columns.map((c) => csvCell(c.value(t, i))).join(",")))
-      .join("\n");
-
-    return res.setHeader("content-type", "text/csv")
-      .setHeader("content-disposition", `attachment; filename="gate-checklist-${eventTitle.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.csv"`)
-      .send(csv);
-  } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-app.get("/api/counter/my-sales", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
-  try {
-    const adminToken = await getAdminAuthToken();
-    const staffId = req.user.uid;
-    const staffName = req.user.name || "";
-    const staffEmail = req.user.email || "";
-    const rbacRole = req.user.rbacRole || toRbacRole(req.user.role) || "counter_staff";
-
-    const q = req.query || {};
-    const eventId = typeof q.eventId === "string" ? q.eventId : undefined;
-    const status = typeof q.status === "string" ? q.status : undefined;
-    const dateRange = typeof q.dateRange === "string" ? q.dateRange : "today"; // "today", "7-day", "30-day", "all-time"
-    const search = typeof q.search === "string" ? q.search.trim().toLowerCase() : undefined;
-    const page = Math.max(1, Number(q.page) || 1);
-    const pageSize = Math.min(100, Math.max(10, Number(q.pageSize) || 20));
-
-    const ordersSnap = await rtdbGet("orders", adminToken);
-    const orders = (ordersSnap.data || {}) as Record<string, any>;
-
-    const ticketsSnap = await rtdbGet("tickets", adminToken);
-    const tickets = Object.values((ticketsSnap.data || {}) as Record<string, any>);
-
-    // If the request is from a sub-user session, we should filter by their subUserId
-    // to ensure they only see their own sales on their device.
-        const subUserId = typeof q.subUserId === "string" ? q.subUserId : undefined;
-    const shiftId = typeof q.shiftId === "string" ? q.shiftId : undefined;
-    const counterId = typeof q.counterId === "string" ? q.counterId : undefined;
-    let filtered = tickets.filter((t: any) => {
-
-      const scannedBy = String(t.scannedByStaffId || "").toLowerCase();
-      const createdBy = String(t.createdByStaffId || "").toLowerCase();
-      const issuedBySubId = String(t.issuedBySubUserId || "").toLowerCase();
-      
-      const order = t.orderId ? orders[t.orderId] : null;
-      const orderScannedBy = order ? String(order.scannedByStaffId || "").toLowerCase() : "";
-      const orderCreatedBy = order ? String(order.createdBy || "").toLowerCase() : "";
-      const orderSubUserId = order ? String(order.issuedBySubUserId || "").toLowerCase() : "";
-
-      if (shiftId && t.shiftId !== shiftId && order?.shiftId !== shiftId) return false;
-      if (counterId && t.counterId !== counterId && order?.counterId !== counterId) return false;
-      // If a specific sub-user filter is provided (from the frontend session), it MUST match.
-      if (subUserId) {
-        const subIdLower = subUserId.toLowerCase();
-        if (issuedBySubId !== subIdLower && orderSubUserId !== subIdLower) return false;
-      }
-
-      // Admins and Event Managers can see every staff member's sales. Their
-      // scope check is skipped, but the event/status/date/search filters
-      // below must still apply — otherwise the UI filters do nothing for them.
-      const isUnscopedViewer = rbacRole === "super_admin" || rbacRole === "event_manager";
-
-      // Check if this ticket belongs to the requesting staff member (or their sub-users)
-      const isStaffMatch = 
-        scannedBy === staffId.toLowerCase() ||
-        scannedBy === staffEmail.toLowerCase() ||
-        createdBy === staffId.toLowerCase() ||
-        orderScannedBy === staffId.toLowerCase() ||
-        orderCreatedBy === staffId.toLowerCase() ||
-        (order?.shiftId && String(order.shiftId).toLowerCase().includes(staffId.toLowerCase()));
-
-      if (!isUnscopedViewer && !isStaffMatch) return false;
-
-      if (eventId && t.eventId !== eventId) return false;
-      if (status && t.status !== status) return false;
-
-      if (t.purchasedAt) {
-        const pDate = new Date(t.purchasedAt);
-        const now = new Date();
-        // Event business hours are in IST (Asia/Kolkata). Comparing dates in
-        // the server's UTC locale hides early-morning IST tickets under the
-        // previous calendar day, so all date windows are computed in IST.
-        const kolkataDate = (d: Date) =>
-          new Date(d.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
-        if (dateRange === "today") {
-          const isToday = kolkataDate(pDate).toDateString() === kolkataDate(now).toDateString();
-          if (!isToday) return false;
-        } else if (dateRange === "7-day") {
-          const diffTime = Math.abs(kolkataDate(now).getTime() - kolkataDate(pDate).getTime());
-          const diffDays = diffTime / (1000 * 60 * 60 * 24);
-          if (diffDays > 7) return false;
-        } else if (dateRange === "30-day") {
-          const diffTime = Math.abs(kolkataDate(now).getTime() - kolkataDate(pDate).getTime());
-          const diffDays = diffTime / (1000 * 60 * 60 * 24);
-          if (diffDays > 30) return false;
-        }
-      }
-
-      if (search) {
-        const searchPool = [t.ticketNumber, t.attendeeName, t.attendeePhone, t.attendeeEmail].map(String).join(" ").toLowerCase();
-        if (!searchPool.includes(search)) return false;
-      }
-
-      return true;
-    });
-
-    filtered.sort((a: any, b: any) => String(b.purchasedAt || "").localeCompare(String(a.purchasedAt || "")));
-
-    const totalSalesCount = filtered.length;
-    const totalAmountSum = filtered.reduce((sum: number, t: any) => sum + (Number(t.price) * Number(t.quantity || 1)), 0);
-
-    const total = filtered.length;
-    const exportAll = q.export === '1' || q.export === 'true';
-    const paged = exportAll ? filtered : filtered.slice((page - 1) * pageSize, page * pageSize);
-
-    return res.json({
-      success: true,
-      tickets: paged,
-      total,
-      page,
-      pageSize,
-      summary: {
-        count: totalSalesCount,
-        amount: totalAmountSum,
-        bySubUser: filtered.reduce((acc: any, t: any) => {
-          const sub = t.issuedBySubUserName || 'Main Staff';
-          acc[sub] = (acc[sub] || 0) + (Number(t.price) * Number(t.quantity || 1));
-          return acc;
-        }, {} as Record<string, number>)
-      }
-    });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// Admin attendee-panel deletion: hide the ticket from active views while
-// preserving the order, payment, and audit history for financial records.
-app.delete("/api/admin/tickets/:ticketId", requireRole(["event_manager", "super_admin"]), async (req: any, res) => {
-  try {
-    const { ticketId } = req.params;
-    const adminToken = (await getAdminAuthToken()) || req.user.idToken;
-    const ticketSnap = await rtdbGet(`tickets/${ticketId}`, adminToken);
-    const ticket = ticketSnap.data as any;
-    if (!ticket) return res.status(404).json({ success: false, error: "Ticket not found." });
-    if (String(ticket.status || '').toLowerCase() === 'deleted') {
-      return res.status(200).json({ success: true, alreadyDeleted: true });
-    }
-
-    const before = JSON.parse(JSON.stringify(ticket));
-    const deletedTicket = {
-      ...ticket,
-      status: 'deleted',
-      deletedAt: new Date().toISOString(),
-      deletedBy: req.user.uid,
-    };
-    await rtdbSet(`tickets/${ticketId}`, deletedTicket, adminToken);
-    if (ticket.ownerId) {
-      await rtdbSet(`users/${ticket.ownerId}/tickets/${ticketId}`, deletedTicket, adminToken).catch(() => {});
-    }
-    console.info('[ADMIN_TICKET_DELETE]', {
-      adminEmail: req.user.email || 'unknown',
-      ticketId,
-      before,
-    });
-    await writeAuditEntry({
-      actorId: req.user.uid,
-      actorRole: req.user.rbacRole || 'super_admin',
-      action: 'ticket.admin_deleted',
-      entityType: 'ticket',
-      entityId: ticketId,
-      beforeState: before,
-      afterState: { status: 'deleted', salesHistoryPreserved: true },
-    });
-    return res.status(200).json({ success: true, ticket: deletedTicket, salesHistoryPreserved: true });
-  } catch (err: any) {
-    console.error('[ADMIN_TICKET_DELETE] Failed:', err?.message || err);
-    return res.status(500).json({ success: false, error: err.message || 'Could not delete ticket.' });
-  }
-});
-
-app.post("/api/counter/tickets/:ticketId/toggle-checkin", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
-  try {
-    const { ticketId } = req.params;
-    const adminToken = await getAdminAuthToken();
-
-    const ticketSnap = await rtdbGet(`tickets/${ticketId}`, adminToken);
-    const ticket = ticketSnap.data as any;
-    if (!ticket) return res.status(404).json({ success: false, error: "Ticket not found." });
-
-    const beforeState = JSON.parse(JSON.stringify(ticket));
-    const nowStatus = String(ticket.status || "valid").toLowerCase();
-    // Voided/cancelled/refunded/deleted tickets can never be checked in —
-    // manual toggle only flips between valid/active and redeemed.
-    if (nowStatus !== "redeemed" && nowStatus !== "valid" && nowStatus !== "active") {
-      return res.status(400).json({ success: false, error: "This ticket is voided/cancelled and cannot be checked in." });
-    }
-    const nextStatus = nowStatus === "redeemed" ? "valid" : "redeemed";
-
-    const updatedTicket = {
-      ...ticket,
-      status: nextStatus,
-      redeemedAt: nextStatus === "redeemed" ? new Date().toISOString() : null,
-      redeemedBy: nextStatus === "redeemed" ? (req.user.name || req.user.uid) : null,
-    };
-
-    await rtdbSet(`tickets/${ticketId}`, updatedTicket, adminToken);
-    if (ticket.ownerId) {
-      await rtdbSet(`users/${ticket.ownerId}/tickets/${ticketId}`, updatedTicket, adminToken).catch(() => {});
-    }
-
-    await writeAuditEntry({
-      actorId: req.user.uid,
-      actorRole: req.user.rbacRole,
-      action: "ticket.toggle_checkin",
-      entityType: "ticket",
-      entityId: ticketId,
-      beforeState,
-      afterState: updatedTicket,
-    });
-
-    return res.json({ success: true, ticket: updatedTicket });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-app.post("/api/counter/tickets/:ticketId/edit-attendee", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
-  try {
-    const { ticketId } = req.params;
-    const {
-      attendeeName, attendeePhone, attendeeEmail, selectedSeats, tierId,
-      quantity: requestedQuantity, discount: requestedDiscount,
-      couponCode: requestedCouponCode, paymentMethod: requestedPaymentMethod,
-      counterName: requestedCounterName, issuedBySubUserName: requestedIssuer,
-      eventId: requestedEventId,
-    } = req.body || {};
-    const adminToken = await getAdminAuthToken();
-
-    if (!attendeeName || !String(attendeeName).trim()) {
-      return res.status(400).json({ success: false, error: "Attendee name is required." });
-    }
-
-    const ticketSnap = await rtdbGet(`tickets/${ticketId}`, adminToken);
-    const ticket = ticketSnap.data as any;
-    if (!ticket) return res.status(404).json({ success: false, error: "Ticket not found." });
-
-    const beforeState = JSON.parse(JSON.stringify(ticket));
-    if (requestedEventId && requestedEventId !== ticket.eventId) {
-      return res.status(400).json({ success: false, error: "Event cannot be changed after ticket issuance. Create a replacement order instead." });
-    }
-    if (requestedQuantity !== undefined) {
-      const nextQuantity = Number(requestedQuantity);
-      if (!Number.isInteger(nextQuantity) || nextQuantity < 1 || nextQuantity > 100) {
-        return res.status(400).json({ success: false, error: "Quantity must be a whole number between 1 and 100." });
-      }
-    }
-    const nextQuantity = requestedQuantity !== undefined ? Number(requestedQuantity) : (Number(ticket.quantity) || 1);
-    const nextDiscount = requestedDiscount !== undefined ? Number(requestedDiscount) : Number(ticket.discount || 0);
-    if (!Number.isFinite(nextDiscount) || nextDiscount < 0) {
-      return res.status(400).json({ success: false, error: "Discount must be a non-negative amount." });
-    }
-    const event = (await rtdbGet(`events/${ticket.eventId}`, adminToken)).data as any;
-    const availableTiers = normalizeTiers(event?.ticketTiers);
-    const currentTier = availableTiers.find((t: any) => t.id === ticket.tierId || t.name === ticket.tierName || Number(t.price) === Number(ticket.price));
-    const oldTierId = ticket.tierId || currentTier?.id;
-    const nextTierId = tierId || oldTierId;
-    const tier = availableTiers.find((t: any) => t.id === nextTierId || (!nextTierId && t.name === ticket.tierName));
-    if (!tier) return res.status(400).json({ success: false, error: "The selected ticket tier is not available." });
-    const grossAmount = Number(tier.price || 0) * nextQuantity;
-    if (nextDiscount > grossAmount) return res.status(400).json({ success: false, error: "Discount cannot be greater than the ticket total." });
-    const nextSeats = Array.isArray(selectedSeats) ? selectedSeats.map((seat: any) => String(seat).trim()).filter(Boolean) : (ticket.selectedSeats || []);
-    if (nextSeats.length > nextQuantity) return res.status(400).json({ success: false, error: "The number of selected seats cannot exceed the ticket quantity." });
-    const oldQty = Number(ticket.quantity) || 1;
-    if (oldTierId && (oldTierId !== nextTierId || oldQty !== nextQuantity)) {
-      const restored = await adjustInventoryTier(adminToken, ticket.eventId, oldTierId, -oldQty);
-      if (!restored.success) return res.status(409).json({ success: false, error: restored.error || "Could not restore the previous inventory." });
-      const deducted = await adjustInventoryTier(adminToken, ticket.eventId, nextTierId, nextQuantity);
-      if (!deducted.success) {
-        await adjustInventoryTier(adminToken, ticket.eventId, oldTierId, oldQty).catch(() => {});
-        return res.status(409).json({ success: false, error: deducted.error || "Not enough inventory for the new ticket quantity." });
-      }
-    }
-
-    const updatedTicket = {
-      ...ticket,
-      attendeeName: String(attendeeName).trim(),
-      attendeePhone: attendeePhone ? String(attendeePhone).trim() : (ticket.attendeePhone || ""),
-      attendeeEmail: attendeeEmail ? String(attendeeEmail).trim() : (ticket.attendeeEmail || ""),
-      tierId: nextTierId,
-      tierName: tier.name || ticket.tierName,
-      price: Number(tier.price || ticket.price || 0),
-      quantity: nextQuantity,
-      selectedSeats: nextSeats,
-      seatNumber: nextSeats.length ? nextSeats.join(", ") : ticket.seatNumber,
-      discount: nextDiscount,
-      couponCode: requestedCouponCode !== undefined ? String(requestedCouponCode || "").trim().slice(0, 64) || null : (ticket.couponCode || null),
-      paymentMethod: requestedPaymentMethod !== undefined ? String(requestedPaymentMethod || "").trim().slice(0, 32) : ticket.paymentMethod,
-      counterName: requestedCounterName !== undefined ? String(requestedCounterName || "").trim().slice(0, 80) || null : ticket.counterName,
-      issuedBySubUserName: requestedIssuer !== undefined ? String(requestedIssuer || "").trim().slice(0, 80) || null : ticket.issuedBySubUserName,
-      totalPaid: Math.max(0, grossAmount - nextDiscount),
-    };
-
-    await rtdbSet(`tickets/${ticketId}`, updatedTicket, adminToken);
-    if (ticket.ownerId) {
-      await rtdbSet(`users/${ticket.ownerId}/tickets/${ticketId}`, updatedTicket, adminToken).catch(() => {});
-    }
-
-    const orderId = ticket.orderId;
-    const bookingId = ticket.bookingId;
-
-    if (orderId) {
-      const orderSnap = await rtdbGet(`orders/${orderId}`, adminToken);
-      if (orderSnap.data) {
-        const order = orderSnap.data as any;
-        const updatedOrder = {
-          ...order,
-          customerDetails: {
-            ...order.customerDetails,
-            name: updatedTicket.attendeeName,
-            phone: updatedTicket.attendeePhone,
-            email: updatedTicket.attendeeEmail,
-          },
-          tierId: updatedTicket.tierId,
-          quantity: updatedTicket.quantity,
-          seatIds: updatedTicket.selectedSeats || [],
-          amount: updatedTicket.totalPaid,
-          discount: updatedTicket.discount,
-          couponCode: updatedTicket.couponCode,
-          paymentMethod: updatedTicket.paymentMethod,
-          counterName: updatedTicket.counterName,
-          issuedBySubUserName: updatedTicket.issuedBySubUserName,
-          updatedAt: new Date().toISOString(),
-        };
-        await rtdbSet(`orders/${orderId}`, updatedOrder, adminToken).catch(() => {});
-        const passesSnap = await rtdbGet("passes", adminToken);
-        for (const [passId, pass] of Object.entries((passesSnap.data || {}) as Record<string, any>)) {
-          if ((pass as any)?.ticketId !== ticketId) continue;
-          await rtdbUpdate(`passes/${passId}`, {
-            eventTitle: updatedTicket.eventTitle,
-            tierName: updatedTicket.tierName,
-            quantity: updatedTicket.quantity,
-            seatNumber: updatedTicket.seatNumber,
-            attendeeName: updatedTicket.attendeeName,
-            paymentStatus: updatedTicket.paymentStatus,
-            amountDue: updatedTicket.amountDue,
-          }, adminToken).catch(() => {});
-        }
-        const procSnap = await rtdbGet(`processed_orders/${orderId}`, adminToken);
-        if (procSnap.data) {
-          const proc = procSnap.data as any;
-          proc.ticket = updatedTicket;
-          if (proc.booking) {
-            proc.booking.attendeeName = updatedTicket.attendeeName;
-            proc.booking.attendeePhone = updatedTicket.attendeePhone;
-            proc.booking.attendeeEmail = updatedTicket.attendeeEmail;
-            proc.booking.quantity = updatedTicket.quantity;
-            proc.booking.totalAmount = updatedTicket.totalPaid;
+  // List shifts: staff see their own; admins see all.
+  app.get("/api/counter/shifts", requireRole(["counter_staff", "auditor", "event_manager", "super_admin"]), async (req: any, res) => {
+    try {
+      const rbacRole = (req.user.rbacRole as string) || "counter_staff";
+      const isAdmin = rbacRole === "super_admin" || rbacRole === "event_manager";
+      const adminToken = (await getAdminAuthToken()) || req.user.idToken;
+      const shifts = await fetchCounterShifts(adminToken, req.user.uid, isAdmin);
+      const shiftList = await Promise.all(
+        Object.values(shifts).map(async (s: any) => {
+          if (s.status === "open") {
+            const liveTotals = await computeShiftCashTotals(adminToken, s).catch(() => null);
+            return { ...s, liveTotals, ticketsSold: liveTotals?.ticketsSold ?? s.ticketsSold ?? 0 };
           }
-          await rtdbSet(`processed_orders/${orderId}`, proc, adminToken).catch(() => {});
+          return s;
+        })
+      );
+      return res.status(200).json({ success: true, shifts: shiftList });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || "Could not list shifts." });
+    }
+  });
+
+  // Admin shift edit: correct attribution, timing, cash, or status without
+  // deleting the underlying ticket/order history.
+  app.put("/api/admin/shifts/:shiftId", requireRole(["event_manager", "super_admin"]), async (req: any, res) => {
+    try {
+      const { shiftId } = req.params;
+      const adminToken = (await getAdminAuthToken()) || req.user.idToken;
+      if (!adminToken) return res.status(503).json({ success: false, error: "Server authentication unavailable." });
+
+      const existingSnap = await rtdbGet(`counter_shifts/${shiftId}`, adminToken);
+      const existing = existingSnap.data as any;
+      if (!existing) return res.status(404).json({ success: false, error: "Shift not found." });
+
+      const body = req.body || {};
+      const updates: Record<string, any> = {};
+      const textFields = ["staffName", "subUserName", "counterName"] as const;
+      for (const field of textFields) {
+        if (body[field] !== undefined) {
+          const value = String(body[field] || "").trim();
+          if (value.length > 120) return res.status(400).json({ success: false, error: `${field} is too long.` });
+          updates[field] = value;
         }
       }
-    }
-
-    if (bookingId) {
-      const bkgSnap = await rtdbGet(`bookings/${bookingId}`, adminToken);
-      if (bkgSnap.data) {
-        const bkg = bkgSnap.data as any;
-        const updatedBkg = {
-          ...bkg,
-          attendeeName: updatedTicket.attendeeName,
-          attendeePhone: updatedTicket.attendeePhone,
-          attendeeEmail: updatedTicket.attendeeEmail,
-          quantity: updatedTicket.quantity,
-          totalAmount: updatedTicket.totalPaid,
-          paymentMethod: updatedTicket.paymentMethod,
-        };
-        await rtdbSet(`bookings/${bookingId}`, updatedBkg, adminToken).catch(() => {});
-        if (bkg.userId) {
-          await rtdbSet(`users/${bkg.userId}/bookings/${bookingId}`, updatedBkg, adminToken).catch(() => {});
+      for (const field of ["subUserId", "counterId"] as const) {
+        if (body[field] !== undefined) {
+          const value = String(body[field] || "").trim();
+          if (value.length > 120) return res.status(400).json({ success: false, error: `${field} is too long.` });
+          updates[field] = value || null;
         }
       }
-    }
 
-    await writeAuditEntry({
-      actorId: req.user.uid,
-      actorRole: req.user.rbacRole,
-      action: "ticket.edit_details",
-      entityType: "ticket",
-      entityId: ticketId,
-      beforeState,
-      afterState: updatedTicket,
-    });
+      const startTime = body.startTime !== undefined ? String(body.startTime || "") : existing.startTime;
+      const endTimeInput = body.endTime !== undefined ? body.endTime : existing.endTime;
+      const startMs = new Date(startTime).getTime();
+      if (!Number.isFinite(startMs)) return res.status(400).json({ success: false, error: "Start time is invalid." });
+      updates.startTime = new Date(startTime).toISOString();
 
-    return res.json({ success: true, ticket: updatedTicket });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-app.post("/api/counter/tickets/:ticketId/void", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
-  try {
-    const { ticketId } = req.params;
-    const { reason } = req.body || {};
-    const adminToken = await getAdminAuthToken();
-
-    if (!reason || String(reason).trim().length < 5) {
-      return res.status(400).json({ success: false, error: "A void reason of at least 5 characters is required." });
-    }
-
-    const ticketSnap = await rtdbGet(`tickets/${ticketId}`, adminToken);
-    const ticket = ticketSnap.data as any;
-    if (!ticket) return res.status(404).json({ success: false, error: "Ticket not found." });
-    if (ticket.status === "cancelled") return res.status(400).json({ success: false, error: "Ticket is already voided." });
-
-    const beforeState = JSON.parse(JSON.stringify(ticket));
-
-    const seatsToRelease = ticket.selectedSeats || ticket.seatIds || [];
-    for (const seatId of seatsToRelease) {
-      await releaseSeat(adminToken, ticket.eventId, seatId, {}).catch(() => {});
-    }
-
-    // Restore event tier inventory (Prompt B Item 5 complement)
-    // Legacy fix: tickets might lack tierId; fallback to order record or tier name mapping.
-    let resolvedTierId = ticket.tierId;
-    if (!resolvedTierId && ticket.orderId) {
-      const orderSnap = await rtdbGet(`orders/${ticket.orderId}`, adminToken);
-      resolvedTierId = (orderSnap.data as any)?.tierId;
-    }
-    if (ticket.eventId && resolvedTierId) {
-      await restoreInventoryTier(adminToken, ticket.eventId, resolvedTierId, Number(ticket.quantity) || 1).catch(() => {});
-    }
-
-    const updatedTicket = {
-      ...ticket,
-      status: "cancelled",
-      cancelledReason: String(reason).trim(),
-      statusChangedAt: new Date().toISOString(),
-      cancelledBy: req.user.uid,
-    };
-
-    await rtdbSet(`tickets/${ticketId}`, updatedTicket, adminToken);
-    if (ticket.ownerId) {
-      await rtdbSet(`users/${ticket.ownerId}/tickets/${ticketId}`, updatedTicket, adminToken).catch(() => {});
-    }
-
-    const orderId = ticket.orderId;
-    const bookingId = ticket.bookingId;
-
-    if (orderId) {
-      const orderSnap = await rtdbGet(`orders/${orderId}`, adminToken);
-      if (orderSnap.data) {
-        const order = orderSnap.data as any;
-        const updatedOrder = {
-          ...order,
-          status: "refunded",
-          refundReason: String(reason).trim(),
-          refundAmount: Number(order.amount) || 0,
-          refundedAt: new Date().toISOString(),
-          refundedBy: req.user.uid,
-        };
-        await rtdbSet(`orders/${orderId}`, updatedOrder, adminToken).catch(() => {});
-        await rtdbDelete(`processed_orders/${orderId}`, adminToken).catch(() => {});
+      const requestedStatus = body.status !== undefined ? String(body.status) : String(existing.status || "open");
+      if (requestedStatus !== "open" && requestedStatus !== "closed") {
+        return res.status(400).json({ success: false, error: "Status must be open or closed." });
       }
-    }
+      updates.status = requestedStatus;
 
-    if (bookingId) {
-      const bkgSnap = await rtdbGet(`bookings/${bookingId}`, adminToken);
-      if (bkgSnap.data) {
-        const bkg = bkgSnap.data as any;
-        const updatedBkg = {
-          ...bkg,
-          status: "cancelled",
-        };
-        await rtdbSet(`bookings/${bookingId}`, updatedBkg, adminToken).catch(() => {});
-        if (bkg.userId) {
-          await rtdbSet(`users/${bkg.userId}/bookings/${bookingId}`, updatedBkg, adminToken).catch(() => {});
+      const endTime = requestedStatus === "closed"
+        ? (endTimeInput ? new Date(String(endTimeInput)) : new Date())
+        : null;
+      if (endTime && !Number.isFinite(endTime.getTime())) {
+        return res.status(400).json({ success: false, error: "End time is invalid." });
+      }
+      if (endTime && endTime.getTime() < startMs) {
+        return res.status(400).json({ success: false, error: "End time cannot be before start time." });
+      }
+      updates.endTime = endTime ? endTime.toISOString() : null;
+
+      const cashFields = ["startingCash", "countedCash"] as const;
+      for (const field of cashFields) {
+        if (body[field] === undefined || body[field] === "") continue;
+        const value = Number(body[field]);
+        if (!Number.isFinite(value) || value < 0) {
+          return res.status(400).json({ success: false, error: `${field} must be a non-negative number.` });
+        }
+        updates[field] = value;
+      }
+      let manualTicketsSold: number | undefined;
+      if (body.ticketsSold !== undefined && body.ticketsSold !== "") {
+        const value = Number(body.ticketsSold);
+        if (!Number.isInteger(value) || value < 0 || value > 1000000) {
+          return res.status(400).json({ success: false, error: "Tickets sold must be a whole number from 0 to 1,000,000." });
+        }
+        manualTicketsSold = value;
+        updates.ticketsSold = value;
+      }
+      if (requestedStatus === "open" && body.countedCash === undefined) {
+        updates.countedCash = null;
+        updates.expectedCash = null;
+        updates.discrepancy = null;
+        updates.autoReconciled = false;
+      }
+
+      const mergedShift = { ...existing, ...updates, shiftId };
+      if (requestedStatus === "closed") {
+        const totals = await computeShiftCashTotals(adminToken, mergedShift);
+        const expectedDrawer = Number(mergedShift.startingCash || 0) + totals.expectedCash;
+        const hasCountedCash = body.countedCash !== undefined && body.countedCash !== ""
+          ? true
+          : existing.countedCash !== undefined && existing.countedCash !== null;
+        const countedCash = hasCountedCash ? Number(updates.countedCash ?? existing.countedCash) : expectedDrawer;
+        if (!Number.isFinite(countedCash) || countedCash < 0) {
+          return res.status(400).json({ success: false, error: "Counted cash must be a non-negative number." });
+        }
+        updates.expectedCash = totals.expectedCash;
+        updates.cashSalesCount = totals.cashSalesCount;
+        updates.totalSales = totals.totalSales;
+        updates.byMethod = totals.byMethod;
+        updates.ticketsSold = manualTicketsSold ?? totals.ticketsSold;
+        updates.countedCash = countedCash;
+        updates.discrepancy = Math.round((countedCash - expectedDrawer) * 100) / 100;
+        updates.autoReconciled = !hasCountedCash;
+        updates.closedBy = req.user.uid;
+      } else {
+        const totals = await computeShiftCashTotals(adminToken, mergedShift);
+        updates.expectedCash = totals.expectedCash;
+        updates.cashSalesCount = totals.cashSalesCount;
+        updates.totalSales = totals.totalSales;
+        updates.byMethod = totals.byMethod;
+        updates.ticketsSold = manualTicketsSold ?? totals.ticketsSold;
+        updates.discrepancy = null;
+      }
+
+      await rtdbUpdate(`counter_shifts/${shiftId}`, updates, adminToken);
+      const updated = { ...existing, ...updates, shiftId };
+      console.info("[ADMIN_SHIFT_EDIT]", {
+        adminEmail: req.user.email || "unknown",
+        shiftId,
+        before: existing,
+        after: updated,
+      });
+      await writeAuditEntry({
+        actorId: req.user.uid,
+        actorRole: req.user.rbacRole || "super_admin",
+        action: "shift.admin_edited",
+        entityType: "shift",
+        entityId: shiftId,
+        beforeState: existing,
+        afterState: updated,
+      });
+      return res.status(200).json({ success: true, shift: updated });
+    } catch (err: any) {
+      console.error("[ADMIN_SHIFT_EDIT] Failed:", err?.message || err);
+      return res.status(500).json({ success: false, error: err.message || "Could not update shift." });
+    }
+  });
+
+  // Admin shift delete: remove only the shift record and its shift-specific
+  // attribution from related orders. Tickets and order records remain intact.
+  app.delete("/api/admin/shifts/:shiftId", requireRole(["event_manager", "super_admin"]), async (req: any, res) => {
+    try {
+      const { shiftId } = req.params;
+      const adminToken = (await getAdminAuthToken()) || req.user.idToken;
+      if (!adminToken) return res.status(503).json({ success: false, error: "Server authentication unavailable." });
+
+      const existingSnap = await rtdbGet(`counter_shifts/${shiftId}`, adminToken);
+      const existing = existingSnap.data as any;
+      if (!existing) return res.status(404).json({ success: false, error: "Shift not found." });
+
+      const stripShiftAttribution = async (collection: string) => {
+        const snap = await rtdbGet(collection, adminToken).catch(() => ({ data: null }));
+        const records = (snap.data || {}) as Record<string, any>;
+        for (const [recordId, record] of Object.entries(records)) {
+          const item = (record || {}) as any;
+          if (item.shiftId !== shiftId && item.staffShiftId !== shiftId) continue;
+          await rtdbUpdate(`${collection}/${recordId}`, {
+            shiftId: null,
+            staffShiftId: null,
+            issuedBySubUserId: null,
+            issuedBySubUserName: null,
+          }, adminToken);
+        }
+      };
+
+      await stripShiftAttribution("orders");
+      await stripShiftAttribution("processed_orders");
+      await stripShiftAttribution("pending_orders");
+      await rtdbDelete(`counter_shifts/${shiftId}`, adminToken);
+
+      console.info("[ADMIN_SHIFT_DELETE]", {
+        adminEmail: req.user.email || "unknown",
+        shiftId,
+        before: existing,
+      });
+      await writeAuditEntry({
+        actorId: req.user.uid,
+        actorRole: req.user.rbacRole || "super_admin",
+        action: "shift.admin_deleted",
+        entityType: "shift",
+        entityId: shiftId,
+        beforeState: existing,
+        afterState: { deleted: true, salesHistoryPreserved: true },
+      });
+      return res.status(200).json({ success: true, deletedShiftId: shiftId, salesHistoryPreserved: true });
+    } catch (err: any) {
+      console.error("[ADMIN_SHIFT_DELETE] Failed:", err?.message || err);
+      return res.status(500).json({ success: false, error: err.message || "Could not delete shift." });
+    }
+  });
+
+  app.post("/api/counter/tickets/:ticketId/reprint", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res: any) => {
+    try {
+      const { ticketId } = req.params;
+      const { reason } = req.body || {};
+      const actorUid = req.user.uid;
+      const rbacRole = (req.user.rbacRole as string) || "counter_staff";
+      const trimmedReason = String(reason || "").trim();
+      if (!trimmedReason) {
+        return res.status(400).json({ success: false, error: "A reprint reason is required (e.g. 'lost', 'printer jam')." });
+      }
+      const snap = await rtdbGet(`tickets/${ticketId}`, await getAdminAuthToken());
+      const ticket = snap.data as any;
+      if (!ticket) return res.status(404).json({ success: false, error: "Ticket not found." });
+      await writeAuditEntry({
+        actorId: actorUid,
+        actorRole: rbacRole,
+        action: "ticket.reprinted",
+        entityType: "ticket",
+        entityId: ticketId,
+        afterState: { ticketNumber: ticket.ticketNumber, attendee: ticket.attendeeName, reason: trimmedReason },
+      });
+      return res.status(200).json({ success: true, ticket });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || "Could not reprint ticket." });
+    }
+  });
+
+  // Void sale — only while the order is still pending (not finalized).
+  app.post("/api/counter/sales/:orderId/void", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
+    try {
+      const { orderId } = req.params;
+      const actorUid = req.user.uid;
+      const rbacRole = (req.user.rbacRole as string) || "counter_staff";
+      const pendingSnap = await rtdbGet(`pending_orders/${orderId}`, await getAdminAuthToken());
+      const pending = pendingSnap.data as any;
+      if (!pending) {
+        return res.status(409).json({ success: false, error: "This sale has already been finalized and cannot be voided. Use the refund action instead." });
+      }
+      const beforeState = { orderId, eventId: pending.eventId, tierId: pending.tierId, quantity: pending.quantity, amount: pending.amount, paymentMethod: pending.paymentMethod };
+      // Release any seats claimed for this pending order.
+      if (Array.isArray(pending.seatIds) && pending.seatIds.length > 0 && pending.eventId) {
+        for (const seatId of pending.seatIds) {
+          await releaseSeat(await getAdminAuthToken(), pending.eventId, seatId, { reservationId: pending.reservationId }).catch(() => { });
         }
       }
+      await rtdbDelete(`pending_orders/${orderId}`, await getAdminAuthToken());
+      await writeAuditEntry({
+        actorId: actorUid,
+        actorRole: rbacRole,
+        action: "order.voided.counter",
+        entityType: "order",
+        entityId: orderId,
+        beforeState,
+        afterState: { voided: true, voidedBy: actorUid, reason: "Voided before finalization at counter." },
+      });
+      return res.status(200).json({ success: true, message: "Sale voided before finalization." });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || "Could not void sale." });
     }
+  });
 
-    await writeAuditEntry({
-      actorId: req.user.uid,
-      actorRole: req.user.rbacRole,
-      action: "ticket.voided_counter",
-      entityType: "ticket",
-      entityId: ticketId,
-      beforeState,
-      afterState: updatedTicket,
-    });
-
-    return res.json({ success: true, message: "Ticket and associated order voided successfully.", ticket: updatedTicket });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-app.post("/api/counter/tickets/:ticketId/resend-whatsapp", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
-  try {
-    const { ticketId } = req.params;
-    const adminToken = await getAdminAuthToken();
-
-    const ticketSnap = await rtdbGet(`tickets/${ticketId}`, adminToken);
-    const ticket = ticketSnap.data as any;
-    if (!ticket) return res.status(404).json({ success: false, error: "Ticket not found." });
-
-    if (!ticket.attendeePhone) {
-      return res.status(400).json({ success: false, error: "Ticket does not have an associated attendee phone number." });
+  // Exchange seat — release old seat, atomically claim the new one; honors the
+  // event-level exchangesAllowedUntil window when set.
+  app.post("/api/counter/orders/:orderId/exchange", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
+    try {
+      const { orderId } = req.params;
+      const { oldSeatId, newSeats } = req.body || {};
+      const actorUid = req.user.uid;
+      const rbacRole = (req.user.rbacRole as string) || "counter_staff";
+      const adminToken = await getAdminAuthToken();
+      const processedSnap = await rtdbGet(`processed_orders/${orderId}`, adminToken);
+      const processed = (processedSnap.data as any) || {};
+      const ticket = processed.ticket as any;
+      if (!ticket || !processed.booking) {
+        return res.status(404).json({ success: false, error: "Confirmed order not found." });
+      }
+      if (!oldSeatId || !Array.isArray(newSeats) || newSeats.length === 0) {
+        return res.status(400).json({ success: false, error: "oldSeatId and at least one new seat are required." });
+      }
+      const currentSeats: string[] = processed.booking.seatIds || ticket.selectedSeats || [];
+      if (!currentSeats.includes(oldSeatId)) {
+        return res.status(400).json({ success: false, error: "The old seat is not part of this order." });
+      }
+      // Exchange window check (event-level setting, optional).
+      const eventSnap = await rtdbGet(`events/${ticket.eventId}`, adminToken);
+      const event = (eventSnap.data as any) || {};
+      if (event.exchangesAllowedUntil) {
+        if (new Date(event.exchangesAllowedUntil).getTime() < Date.now()) {
+          return res.status(409).json({ success: false, error: "The exchange window for this event has closed." });
+        }
+      }
+      // Guard against duplicate new seats.
+      const uniqueNew = Array.from(new Set(String(newSeats).split(",").map((s: string) => String(s).trim()).filter(Boolean)));
+      const overlap = uniqueNew.filter((s: string) => currentSeats.includes(s));
+      if (overlap.length > 0) {
+        return res.status(400).json({ success: false, error: `New seat(s) already belong to this order: ${overlap.join(", ")}.` });
+      }
+      const ownerId = String(ticket.ownerId || "walk_in_guest");
+      // Release the old seat (must still be held/booked by this order).
+      const release = await releaseSeat(adminToken, ticket.eventId, oldSeatId, {});
+      if (release.committed) {
+        await rtdbTransaction(`seats/${ticket.eventId}/${oldSeatId}`, (seat: any) => {
+          if (!seat) return undefined;
+          if (seat.status === "booked" && seat.orderId === orderId) {
+            return { ...seat, status: "available", bookedBy: null, bookedAt: null, orderId: null, ticketId: null, bookingId: null, statusChangedAt: Date.now(), statusChangedBy: "exchange" };
+          }
+          if (seat.status === "available" || (seat.status === "held" && seat.heldBy !== ownerId)) {
+            return seat; // someone else took it; let the claim step validate
+          }
+          return undefined;
+        }, adminToken).catch(() => { });
+      }
+      // Claim the new seats atomically under the order identity.
+      const claim = await claimSeatsAtomically(adminToken, ticket.eventId, uniqueNew, orderId, ownerId);
+      if (!claim.committed) {
+        // Best-effort restore of the old seat (already bookable again).
+        return res.status(409).json({ success: false, error: claim.error || "The selected replacement seat is no longer available." });
+      }
+      // Transition new seats to booked (fulfillment) and update ticket/booking linkage.
+      for (const seatId of uniqueNew) {
+        await bookSeat(adminToken, ticket.eventId, seatId, ownerId, orderId, ticket.id, processed.booking.bookingId).catch(() => { });
+      }
+      const exchangeEntry = {
+        oldSeatId,
+        newSeats: uniqueNew,
+        actorId: actorUid,
+        at: new Date().toISOString(),
+      };
+      const exchangeHistory = [...((processed.booking as any).exchangeHistory || []), exchangeEntry];
+      await rtdbUpdate(`bookings/${processed.booking.bookingId}`, { exchangeHistory, seatIds: currentSeats.filter((s: string) => s !== oldSeatId).concat(uniqueNew) }, adminToken).catch(() => { });
+      await writeAuditEntry({
+        actorId: actorUid,
+        actorRole: rbacRole,
+        action: "order.seat_exchanged",
+        entityType: "order",
+        entityId: orderId,
+        beforeState: { seats: currentSeats },
+        afterState: { seats: currentSeats.filter((s: string) => s !== oldSeatId).concat(uniqueNew), oldSeatId, newSeats: uniqueNew },
+      });
+      const seatLabel = [...currentSeats.filter((s: string) => s !== oldSeatId), ...uniqueNew]
+        .map((s: string) => {
+          const parts = s.split("-");
+          const r = String.fromCharCode(64 + parseInt(parts[0].replace("R", ""), 10));
+          const c = parts[1].replace("C", "");
+          return `${r}-${c}`;
+        })
+        .join(", ");
+      const updatedTicket = { ...ticket, seatNumber: seatLabel, selectedSeats: currentSeats.filter((s: string) => s !== oldSeatId).concat(uniqueNew) };
+      await rtdbSet(`tickets/${ticket.id}`, updatedTicket, adminToken).catch(() => { });
+      await rtdbSet(`users/${ownerId}/tickets/${ticket.id}`, updatedTicket, adminToken).catch(() => { });
+      return res.status(200).json({ success: true, ticket: updatedTicket });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || "Could not exchange seat." });
     }
+  });
 
-    // Clear the idempotency lock so the manual resend is never silently skipped.
-    // The lock only guards the automatic post-purchase send; a manual resend by
-    // staff should always go through.
-    await rtdbUpdate(`tickets/${ticketId}`, { whatsappConfirmationSent: null }, adminToken).catch(() => {});
-
-    const waRes = await sendTicketWhatsApp(ticket, ticket.attendeePhone);
-    const notificationEntry: any = {
-      channel: 'enotify_whatsapp',
-      createdAt: new Date().toISOString()
-    };
-
-    if (waRes.success) {
-      notificationEntry.status = 'sent';
-      notificationEntry.waMessageId = waRes.waMessageId;
-    } else {
-      notificationEntry.status = 'failed';
-      notificationEntry.reason = waRes.error?.message || JSON.stringify(waRes.error) || 'Unknown error';
+  // Discount override approval: managers/admins and counter staff may approve.
+  app.post("/api/counter/discount-override", requireRole(["event_manager", "super_admin", "counter_staff"]), async (req: any, res) => {
+    try {
+      const actorUid = req.user.uid;
+      const rbacRole = (req.user.rbacRole as string) || "event_manager";
+      const { eventId, orderAmount, discountPercent, discountAmount: rawDiscountAmount, reason } = req.body || {};
+      if (!eventId || !orderAmount) {
+        return res.status(400).json({ success: false, error: "eventId and orderAmount are required." });
+      }
+      const amount = Number(orderAmount);
+      if (!Number.isFinite(amount) || amount <= 0) {
+        return res.status(400).json({ success: false, error: "orderAmount must be a positive number." });
+      }
+      let discountAmount = 0;
+      if (discountPercent !== undefined && discountPercent !== null && Number(discountPercent) > 0) {
+        const pct = Number(discountPercent);
+        if (!Number.isFinite(pct) || pct < 0 || pct > 100) {
+          return res.status(400).json({ success: false, error: "Discount percent must be between 0 and 100." });
+        }
+        discountAmount = Math.round((amount * pct) / 100);
+      } else {
+        const d = Number(rawDiscountAmount);
+        if (!Number.isFinite(d) || d < 0 || d > amount) {
+          return res.status(400).json({ success: false, error: "Discount amount must be between 0 and the order total." });
+        }
+        discountAmount = Math.round(d);
+      }
+      const staffSnap = await rtdbGet(`staff/${actorUid}`, req.user.idToken);
+      const staffName = (staffSnap?.data as any)?.name || req.user.email || actorUid;
+      const overrideId = `dov_${Date.now()}_${secureRandomHex(4)}`;
+      await writeAuditEntry({
+        actorId: actorUid,
+        actorRole: rbacRole,
+        action: "discount.override",
+        entityType: "event",
+        entityId: String(eventId),
+        afterState: {
+          overrideId,
+          eventId,
+          orderAmount: amount,
+          discountAmount,
+          approvedBy: actorUid,
+          approvedByName: staffName,
+          reason: String(reason || "").trim() || "Manager discount override",
+        },
+      });
+      return res.status(200).json({
+        success: true,
+        discountOverride: { overrideId, discountAmount, actorId: actorUid, actorName: staffName, amount },
+      });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || "Could not approve discount override." });
     }
+  });
 
-    await rtdbPush("notifications", {
-      ...notificationEntry,
-      ticketId: ticketId,
-      recipientPhone: ticket.attendeePhone,
-      attendeeName: ticket.attendeeName,
-      eventTitle: ticket.eventTitle,
-      subject: "WhatsApp Ticket Confirmation (Resend)",
-      recipientCount: 1,
-      createdBy: req.user.uid
-    }, adminToken).catch(() => {});
-
-    if (!ticket.notifications) {
-      ticket.notifications = [];
+  // Seat-availability snapshot for the counter seat map (real-time refresh).
+  app.get("/api/counter/events/:eventId/seats", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
+    try {
+      const { eventId } = req.params;
+      const adminToken = await getAdminAuthToken();
+      const eventSnap = await rtdbGet(`events/${eventId}`, adminToken);
+      const event = (eventSnap.data as any) || {};
+      const seatsSnap = await rtdbGet(`seats/${eventId}`, adminToken).catch(() => ({ data: null }));
+      const seats = (seatsSnap.data as Record<string, any>) || {};
+      const now = Date.now();
+      const seatsSnapshot: Record<string, { status: string; heldBy?: string; expiresAt?: number; bookedAt?: number }> = {};
+      for (const [seatId, node] of Object.entries(seats)) {
+        const n = (node || {}) as any;
+        const expiresAt = n.holdExpiresAt || (n.heldAt ? n.heldAt + 10 * 60 * 1000 : 0);
+        let status = n.status || "available";
+        if (status === "held" && expiresAt && now > expiresAt) status = "available";
+        seatsSnapshot[seatId] = {
+          status,
+          heldBy: status === "held" ? n.heldBy : undefined,
+          expiresAt: status === "held" ? expiresAt : undefined,
+          bookedAt: status === "booked" ? n.bookedAt : undefined,
+        };
+      }
+      return res.status(200).json({
+        success: true,
+        event: { id: eventId, title: event.title, seatMap: event.seatMap || null, ticketTiers: event.ticketTiers || [], exchangesAllowedUntil: event.exchangesAllowedUntil || null },
+        seats: seatsSnapshot,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || "Could not load seat availability." });
     }
-    ticket.notifications.push(notificationEntry);
-    await rtdbSet(`tickets/${ticketId}`, ticket, adminToken);
-    if (ticket.ownerId) {
-      await rtdbSet(`users/${ticket.ownerId}/tickets/${ticketId}`, ticket, adminToken).catch(() => {});
-    }
+  });
 
-    if (waRes.success) {
-      return res.json({ success: true, message: "WhatsApp message resent successfully." });
-    } else {
+  // Merchant UPI configuration for the counter's dynamic payment QR.
+  // The counter embeds the final order total into the QR URI, so the customer's
+  // UPI app always receives an exact-amount payment request. Stored at
+  // app_config/merchant_upi with shape { vpa, name }.
+  app.get("/api/merchant-upi", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
+    try {
+      const configSnap = await rtdbGet("app_config/merchant_upi", await getAdminAuthToken());
+      const config = (configSnap.data || {}) as { vpa?: string; name?: string };
+      return res.status(200).json({ success: true, vpa: config.vpa || "", name: config.name || "" });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || "Could not load merchant UPI config." });
+    }
+  });
+
+  app.put("/api/merchant-upi", requireRole(["super_admin"]), async (req: any, res) => {
+    try {
+      const rawVpa = String(req.body?.vpa || "").trim();
+      const rawName = String(req.body?.name || "").trim();
+      if (!rawVpa) {
+        return res.status(400).json({ success: false, error: "A merchant UPI ID (VPA) is required." });
+      }
+      if (!/^[A-Za-z0-9.\-_]{2,64}@[A-Za-z0-9.\-_]{2,64}$/.test(rawVpa) || rawVpa.length > 129) {
+        return res.status(400).json({ success: false, error: "The UPI ID must look like 'merchant@upi' (letters, digits, . _ - only)." });
+      }
+      const name = rawName.slice(0, 25) || undefined;
+      await rtdbSet("app_config/merchant_upi", { vpa: rawVpa, ...(name ? { name } : {}) }, await getAdminAuthToken());
+      await writeAuditEntry({
+        actorId: req.user.uid,
+        actorRole: req.user.rbacRole,
+        action: "config.merchant_upi.updated",
+        entityType: "config",
+        entityId: "merchant_upi",
+        afterState: { vpa: rawVpa, name },
+      });
+      return res.status(200).json({ success: true, vpa: rawVpa, name: name || "" });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || "Could not save merchant UPI config." });
+    }
+  });
+
+  // ──────────────────────────────────────────────────────────────────────
+  // "My Sales" counter-facing operations
+  // ──────────────────────────────────────────────────────────────────────
+
+  // Printable gate checklist: one row per ticket for a specific event, with the
+  // important gate data. Opens directly in Excel; designed to be printed and
+  // ticked off at the gate.
+  app.get("/api/admin/events/:eventId/gate-checklist", requireRole(["super_admin", "event_manager", "counter_staff"]), async (req: any, res) => {
+    try {
+      const eventId = String(req.params.eventId || "");
+      if (!eventId) return res.status(400).json({ success: false, error: "eventId is required." });
+      const adminToken = await getAdminAuthToken();
+
+      const ticketsSnap = await rtdbGet("tickets", adminToken);
+      const allTickets = Object.entries((ticketsSnap.data || {}) as Record<string, any>);
+      const rows: any[] = [];
+      for (const [id, t] of allTickets) {
+        const ticket = t as any;
+        if (!ticket || ticket.eventId !== eventId) continue;
+        const status = String(ticket.status || "active").toLowerCase();
+        if (status === "deleted" || status === "cancelled" || status === "refunded" || status === "void") continue;
+        rows.push({ id, ...ticket });
+      }
+      rows.sort((a, b) => String(a.ticketNumber || "").localeCompare(String(b.ticketNumber || "")));
+
+      const eventSnap = await rtdbGet(`events/${eventId}`, adminToken);
+      const eventTitle = (eventSnap.data as any)?.title || eventId;
+
+      const csvCell = (v: any) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+      const columns = selectExportColumns([
+        { label: "S.No", value: (_t: any, i: number) => i + 1 },
+        { label: "Ticket No", value: (t: any) => t.ticketNumber || t.id },
+        { label: "Attendee", value: (t: any) => t.attendeeName || "" },
+        { label: "Email", value: (t: any) => t.attendeeEmail || "" },
+        { label: "Phone", value: (t: any) => t.attendeePhone || "" },
+        { label: "Category", value: (t: any) => t.tierName || "" },
+        { label: "Qty", value: (t: any) => Number(t.quantity) || 1 },
+        { label: "Seats", value: (t: any) => t.seatNumber || (Array.isArray(t.selectedSeats) && t.selectedSeats.length ? t.selectedSeats.join(" ") : "General") },
+        { label: "Checked In", value: (t: any) => t.status === "redeemed" ? "YES" : "" },
+        { label: "Hold At Counter", value: (t: any) => t.holdAtCounter ? "YES" : "" },
+        { label: "Payment", value: (t: any) => t.paymentStatus === "paid" || t.status === "redeemed" ? "PAID" : (t.amountDue ? `DUE ₹${t.amountDue}` : "PAID") },
+        { label: "Status", value: (t: any) => String(t.status || "") },
+      ], (req.query as any).columns);
+      const csv = [columns.map((c) => csvCell(c.label)).join(",")]
+        .concat(rows.map((t, i) => columns.map((c) => csvCell(c.value(t, i))).join(",")))
+        .join("\n");
+
+      return res.setHeader("content-type", "text/csv")
+        .setHeader("content-disposition", `attachment; filename="gate-checklist-${eventTitle.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.csv"`)
+        .send(csv);
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  app.get("/api/counter/my-sales", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
+    try {
+      const adminToken = await getAdminAuthToken();
+      const staffId = req.user.uid;
+      const staffName = req.user.name || "";
+      const staffEmail = req.user.email || "";
+      const rbacRole = req.user.rbacRole || toRbacRole(req.user.role) || "counter_staff";
+
+      const q = req.query || {};
+      const eventId = typeof q.eventId === "string" ? q.eventId : undefined;
+      const status = typeof q.status === "string" ? q.status : undefined;
+      const dateRange = typeof q.dateRange === "string" ? q.dateRange : "today"; // "today", "7-day", "30-day", "all-time"
+      const search = typeof q.search === "string" ? q.search.trim().toLowerCase() : undefined;
+      const page = Math.max(1, Number(q.page) || 1);
+      const pageSize = Math.min(100, Math.max(10, Number(q.pageSize) || 20));
+
+      const ordersSnap = await rtdbGet("orders", adminToken);
+      const orders = (ordersSnap.data || {}) as Record<string, any>;
+
+      const ticketsSnap = await rtdbGet("tickets", adminToken);
+      const tickets = Object.values((ticketsSnap.data || {}) as Record<string, any>);
+
+      // If the request is from a sub-user session, we should filter by their subUserId
+      // to ensure they only see their own sales on their device.
+      const subUserId = typeof q.subUserId === "string" ? q.subUserId : undefined;
+      const shiftId = typeof q.shiftId === "string" ? q.shiftId : undefined;
+      const counterId = typeof q.counterId === "string" ? q.counterId : undefined;
+      let filtered = tickets.filter((t: any) => {
+
+        const scannedBy = String(t.scannedByStaffId || "").toLowerCase();
+        const createdBy = String(t.createdByStaffId || "").toLowerCase();
+        const issuedBySubId = String(t.issuedBySubUserId || "").toLowerCase();
+
+        const order = t.orderId ? orders[t.orderId] : null;
+        const orderScannedBy = order ? String(order.scannedByStaffId || "").toLowerCase() : "";
+        const orderCreatedBy = order ? String(order.createdBy || "").toLowerCase() : "";
+        const orderSubUserId = order ? String(order.issuedBySubUserId || "").toLowerCase() : "";
+
+        if (shiftId && t.shiftId !== shiftId && order?.shiftId !== shiftId) return false;
+        if (counterId && t.counterId !== counterId && order?.counterId !== counterId) return false;
+        // If a specific sub-user filter is provided (from the frontend session), it MUST match.
+        if (subUserId) {
+          const subIdLower = subUserId.toLowerCase();
+          if (issuedBySubId !== subIdLower && orderSubUserId !== subIdLower) return false;
+        }
+
+        // Admins and Event Managers can see every staff member's sales. Their
+        // scope check is skipped, but the event/status/date/search filters
+        // below must still apply — otherwise the UI filters do nothing for them.
+        const isUnscopedViewer = rbacRole === "super_admin" || rbacRole === "event_manager";
+
+        // Check if this ticket belongs to the requesting staff member (or their sub-users)
+        const isStaffMatch =
+          scannedBy === staffId.toLowerCase() ||
+          scannedBy === staffEmail.toLowerCase() ||
+          createdBy === staffId.toLowerCase() ||
+          orderScannedBy === staffId.toLowerCase() ||
+          orderCreatedBy === staffId.toLowerCase() ||
+          (order?.shiftId && String(order.shiftId).toLowerCase().includes(staffId.toLowerCase()));
+
+        if (!isUnscopedViewer && !isStaffMatch) return false;
+
+        if (eventId && t.eventId !== eventId) return false;
+        if (status && t.status !== status) return false;
+
+        if (t.purchasedAt) {
+          const pDate = new Date(t.purchasedAt);
+          const now = new Date();
+          // Event business hours are in IST (Asia/Kolkata). Comparing dates in
+          // the server's UTC locale hides early-morning IST tickets under the
+          // previous calendar day, so all date windows are computed in IST.
+          const kolkataDate = (d: Date) =>
+            new Date(d.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+          if (dateRange === "today") {
+            const isToday = kolkataDate(pDate).toDateString() === kolkataDate(now).toDateString();
+            if (!isToday) return false;
+          } else if (dateRange === "7-day") {
+            const diffTime = Math.abs(kolkataDate(now).getTime() - kolkataDate(pDate).getTime());
+            const diffDays = diffTime / (1000 * 60 * 60 * 24);
+            if (diffDays > 7) return false;
+          } else if (dateRange === "30-day") {
+            const diffTime = Math.abs(kolkataDate(now).getTime() - kolkataDate(pDate).getTime());
+            const diffDays = diffTime / (1000 * 60 * 60 * 24);
+            if (diffDays > 30) return false;
+          }
+        }
+
+        if (search) {
+          const searchPool = [t.ticketNumber, t.attendeeName, t.attendeePhone, t.attendeeEmail].map(String).join(" ").toLowerCase();
+          if (!searchPool.includes(search)) return false;
+        }
+
+        return true;
+      });
+
+      filtered.sort((a: any, b: any) => String(b.purchasedAt || "").localeCompare(String(a.purchasedAt || "")));
+
+      const totalSalesCount = filtered.length;
+      const totalAmountSum = filtered.reduce((sum: number, t: any) => sum + (Number(t.price) * Number(t.quantity || 1)), 0);
+
+      const total = filtered.length;
+      const exportAll = q.export === '1' || q.export === 'true';
+      const paged = exportAll ? filtered : filtered.slice((page - 1) * pageSize, page * pageSize);
+
+      return res.json({
+        success: true,
+        tickets: paged,
+        total,
+        page,
+        pageSize,
+        summary: {
+          count: totalSalesCount,
+          amount: totalAmountSum,
+          bySubUser: filtered.reduce((acc: any, t: any) => {
+            const sub = t.issuedBySubUserName || 'Main Staff';
+            acc[sub] = (acc[sub] || 0) + (Number(t.price) * Number(t.quantity || 1));
+            return acc;
+          }, {} as Record<string, number>)
+        }
+      });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // Admin attendee-panel deletion: hide the ticket from active views while
+  // preserving the order, payment, and audit history for financial records.
+  app.delete("/api/admin/tickets/:ticketId", requireRole(["event_manager", "super_admin"]), async (req: any, res) => {
+    try {
+      const { ticketId } = req.params;
+      const adminToken = (await getAdminAuthToken()) || req.user.idToken;
+      const ticketSnap = await rtdbGet(`tickets/${ticketId}`, adminToken);
+      const ticket = ticketSnap.data as any;
+      if (!ticket) return res.status(404).json({ success: false, error: "Ticket not found." });
+      if (String(ticket.status || '').toLowerCase() === 'deleted') {
+        return res.status(200).json({ success: true, alreadyDeleted: true });
+      }
+
+      const before = JSON.parse(JSON.stringify(ticket));
+      const deletedTicket = {
+        ...ticket,
+        status: 'deleted',
+        deletedAt: new Date().toISOString(),
+        deletedBy: req.user.uid,
+      };
+      await rtdbSet(`tickets/${ticketId}`, deletedTicket, adminToken);
+      if (ticket.ownerId) {
+        await rtdbSet(`users/${ticket.ownerId}/tickets/${ticketId}`, deletedTicket, adminToken).catch(() => { });
+      }
+      console.info('[ADMIN_TICKET_DELETE]', {
+        adminEmail: req.user.email || 'unknown',
+        ticketId,
+        before,
+      });
+      await writeAuditEntry({
+        actorId: req.user.uid,
+        actorRole: req.user.rbacRole || 'super_admin',
+        action: 'ticket.admin_deleted',
+        entityType: 'ticket',
+        entityId: ticketId,
+        beforeState: before,
+        afterState: { status: 'deleted', salesHistoryPreserved: true },
+      });
+      return res.status(200).json({ success: true, ticket: deletedTicket, salesHistoryPreserved: true });
+    } catch (err: any) {
+      console.error('[ADMIN_TICKET_DELETE] Failed:', err?.message || err);
+      return res.status(500).json({ success: false, error: err.message || 'Could not delete ticket.' });
+    }
+  });
+
+  app.post("/api/counter/tickets/:ticketId/toggle-checkin", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
+    try {
+      const { ticketId } = req.params;
+      const adminToken = await getAdminAuthToken();
+
+      const ticketSnap = await rtdbGet(`tickets/${ticketId}`, adminToken);
+      const ticket = ticketSnap.data as any;
+      if (!ticket) return res.status(404).json({ success: false, error: "Ticket not found." });
+
+      const beforeState = JSON.parse(JSON.stringify(ticket));
+      const nowStatus = String(ticket.status || "valid").toLowerCase();
+      // Voided/cancelled/refunded/deleted tickets can never be checked in —
+      // manual toggle only flips between valid/active and redeemed.
+      if (nowStatus !== "redeemed" && nowStatus !== "valid" && nowStatus !== "active") {
+        return res.status(400).json({ success: false, error: "This ticket is voided/cancelled and cannot be checked in." });
+      }
+      const nextStatus = nowStatus === "redeemed" ? "valid" : "redeemed";
+
+      const updatedTicket = {
+        ...ticket,
+        status: nextStatus,
+        redeemedAt: nextStatus === "redeemed" ? new Date().toISOString() : null,
+        redeemedBy: nextStatus === "redeemed" ? (req.user.name || req.user.uid) : null,
+      };
+
+      await rtdbSet(`tickets/${ticketId}`, updatedTicket, adminToken);
+      if (ticket.ownerId) {
+        await rtdbSet(`users/${ticket.ownerId}/tickets/${ticketId}`, updatedTicket, adminToken).catch(() => { });
+      }
+
+      await writeAuditEntry({
+        actorId: req.user.uid,
+        actorRole: req.user.rbacRole,
+        action: "ticket.toggle_checkin",
+        entityType: "ticket",
+        entityId: ticketId,
+        beforeState,
+        afterState: updatedTicket,
+      });
+
+      return res.json({ success: true, ticket: updatedTicket });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  app.post("/api/counter/tickets/:ticketId/edit-attendee", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
+    try {
+      const { ticketId } = req.params;
+      const {
+        attendeeName, attendeePhone, attendeeEmail, selectedSeats, tierId,
+        quantity: requestedQuantity, discount: requestedDiscount,
+        couponCode: requestedCouponCode, paymentMethod: requestedPaymentMethod,
+        counterName: requestedCounterName, issuedBySubUserName: requestedIssuer,
+        eventId: requestedEventId,
+      } = req.body || {};
+      const adminToken = await getAdminAuthToken();
+
+      if (!attendeeName || !String(attendeeName).trim()) {
+        return res.status(400).json({ success: false, error: "Attendee name is required." });
+      }
+
+      const ticketSnap = await rtdbGet(`tickets/${ticketId}`, adminToken);
+      const ticket = ticketSnap.data as any;
+      if (!ticket) return res.status(404).json({ success: false, error: "Ticket not found." });
+
+      const beforeState = JSON.parse(JSON.stringify(ticket));
+      if (requestedEventId && requestedEventId !== ticket.eventId) {
+        return res.status(400).json({ success: false, error: "Event cannot be changed after ticket issuance. Create a replacement order instead." });
+      }
+      if (requestedQuantity !== undefined) {
+        const nextQuantity = Number(requestedQuantity);
+        if (!Number.isInteger(nextQuantity) || nextQuantity < 1 || nextQuantity > 100) {
+          return res.status(400).json({ success: false, error: "Quantity must be a whole number between 1 and 100." });
+        }
+      }
+      const nextQuantity = requestedQuantity !== undefined ? Number(requestedQuantity) : (Number(ticket.quantity) || 1);
+      const nextDiscount = requestedDiscount !== undefined ? Number(requestedDiscount) : Number(ticket.discount || 0);
+      if (!Number.isFinite(nextDiscount) || nextDiscount < 0) {
+        return res.status(400).json({ success: false, error: "Discount must be a non-negative amount." });
+      }
+      const event = (await rtdbGet(`events/${ticket.eventId}`, adminToken)).data as any;
+      const availableTiers = normalizeTiers(event?.ticketTiers);
+      const currentTier = availableTiers.find((t: any) => t.id === ticket.tierId || t.name === ticket.tierName || Number(t.price) === Number(ticket.price));
+      const oldTierId = ticket.tierId || currentTier?.id;
+      const nextTierId = tierId || oldTierId;
+      const tier = availableTiers.find((t: any) => t.id === nextTierId || (!nextTierId && t.name === ticket.tierName));
+      if (!tier) return res.status(400).json({ success: false, error: "The selected ticket tier is not available." });
+      const grossAmount = Number(tier.price || 0) * nextQuantity;
+      if (nextDiscount > grossAmount) return res.status(400).json({ success: false, error: "Discount cannot be greater than the ticket total." });
+      const nextSeats = Array.isArray(selectedSeats) ? selectedSeats.map((seat: any) => String(seat).trim()).filter(Boolean) : (ticket.selectedSeats || []);
+      if (nextSeats.length > nextQuantity) return res.status(400).json({ success: false, error: "The number of selected seats cannot exceed the ticket quantity." });
+      const oldQty = Number(ticket.quantity) || 1;
+      if (oldTierId && (oldTierId !== nextTierId || oldQty !== nextQuantity)) {
+        const restored = await adjustInventoryTier(adminToken, ticket.eventId, oldTierId, -oldQty);
+        if (!restored.success) return res.status(409).json({ success: false, error: restored.error || "Could not restore the previous inventory." });
+        const deducted = await adjustInventoryTier(adminToken, ticket.eventId, nextTierId, nextQuantity);
+        if (!deducted.success) {
+          await adjustInventoryTier(adminToken, ticket.eventId, oldTierId, oldQty).catch(() => { });
+          return res.status(409).json({ success: false, error: deducted.error || "Not enough inventory for the new ticket quantity." });
+        }
+      }
+
+      const updatedTicket = {
+        ...ticket,
+        attendeeName: String(attendeeName).trim(),
+        attendeePhone: attendeePhone ? String(attendeePhone).trim() : (ticket.attendeePhone || ""),
+        attendeeEmail: attendeeEmail ? String(attendeeEmail).trim() : (ticket.attendeeEmail || ""),
+        tierId: nextTierId,
+        tierName: tier.name || ticket.tierName,
+        price: Number(tier.price || ticket.price || 0),
+        quantity: nextQuantity,
+        selectedSeats: nextSeats,
+        seatNumber: nextSeats.length ? nextSeats.join(", ") : ticket.seatNumber,
+        discount: nextDiscount,
+        couponCode: requestedCouponCode !== undefined ? String(requestedCouponCode || "").trim().slice(0, 64) || null : (ticket.couponCode || null),
+        paymentMethod: requestedPaymentMethod !== undefined ? String(requestedPaymentMethod || "").trim().slice(0, 32) : ticket.paymentMethod,
+        counterName: requestedCounterName !== undefined ? String(requestedCounterName || "").trim().slice(0, 80) || null : ticket.counterName,
+        issuedBySubUserName: requestedIssuer !== undefined ? String(requestedIssuer || "").trim().slice(0, 80) || null : ticket.issuedBySubUserName,
+        totalPaid: Math.max(0, grossAmount - nextDiscount),
+      };
+
+      await rtdbSet(`tickets/${ticketId}`, updatedTicket, adminToken);
+      if (ticket.ownerId) {
+        await rtdbSet(`users/${ticket.ownerId}/tickets/${ticketId}`, updatedTicket, adminToken).catch(() => { });
+      }
+
+      const orderId = ticket.orderId;
+      const bookingId = ticket.bookingId;
+
+      if (orderId) {
+        const orderSnap = await rtdbGet(`orders/${orderId}`, adminToken);
+        if (orderSnap.data) {
+          const order = orderSnap.data as any;
+          const updatedOrder = {
+            ...order,
+            customerDetails: {
+              ...order.customerDetails,
+              name: updatedTicket.attendeeName,
+              phone: updatedTicket.attendeePhone,
+              email: updatedTicket.attendeeEmail,
+            },
+            tierId: updatedTicket.tierId,
+            quantity: updatedTicket.quantity,
+            seatIds: updatedTicket.selectedSeats || [],
+            amount: updatedTicket.totalPaid,
+            discount: updatedTicket.discount,
+            couponCode: updatedTicket.couponCode,
+            paymentMethod: updatedTicket.paymentMethod,
+            counterName: updatedTicket.counterName,
+            issuedBySubUserName: updatedTicket.issuedBySubUserName,
+            updatedAt: new Date().toISOString(),
+          };
+          await rtdbSet(`orders/${orderId}`, updatedOrder, adminToken).catch(() => { });
+          const passesSnap = await rtdbGet("passes", adminToken);
+          for (const [passId, pass] of Object.entries((passesSnap.data || {}) as Record<string, any>)) {
+            if ((pass as any)?.ticketId !== ticketId) continue;
+            await rtdbUpdate(`passes/${passId}`, {
+              eventTitle: updatedTicket.eventTitle,
+              tierName: updatedTicket.tierName,
+              quantity: updatedTicket.quantity,
+              seatNumber: updatedTicket.seatNumber,
+              attendeeName: updatedTicket.attendeeName,
+              paymentStatus: updatedTicket.paymentStatus,
+              amountDue: updatedTicket.amountDue,
+            }, adminToken).catch(() => { });
+          }
+          const procSnap = await rtdbGet(`processed_orders/${orderId}`, adminToken);
+          if (procSnap.data) {
+            const proc = procSnap.data as any;
+            proc.ticket = updatedTicket;
+            if (proc.booking) {
+              proc.booking.attendeeName = updatedTicket.attendeeName;
+              proc.booking.attendeePhone = updatedTicket.attendeePhone;
+              proc.booking.attendeeEmail = updatedTicket.attendeeEmail;
+              proc.booking.quantity = updatedTicket.quantity;
+              proc.booking.totalAmount = updatedTicket.totalPaid;
+            }
+            await rtdbSet(`processed_orders/${orderId}`, proc, adminToken).catch(() => { });
+          }
+        }
+      }
+
+      if (bookingId) {
+        const bkgSnap = await rtdbGet(`bookings/${bookingId}`, adminToken);
+        if (bkgSnap.data) {
+          const bkg = bkgSnap.data as any;
+          const updatedBkg = {
+            ...bkg,
+            attendeeName: updatedTicket.attendeeName,
+            attendeePhone: updatedTicket.attendeePhone,
+            attendeeEmail: updatedTicket.attendeeEmail,
+            quantity: updatedTicket.quantity,
+            totalAmount: updatedTicket.totalPaid,
+            paymentMethod: updatedTicket.paymentMethod,
+          };
+          await rtdbSet(`bookings/${bookingId}`, updatedBkg, adminToken).catch(() => { });
+          if (bkg.userId) {
+            await rtdbSet(`users/${bkg.userId}/bookings/${bookingId}`, updatedBkg, adminToken).catch(() => { });
+          }
+        }
+      }
+
+      await writeAuditEntry({
+        actorId: req.user.uid,
+        actorRole: req.user.rbacRole,
+        action: "ticket.edit_details",
+        entityType: "ticket",
+        entityId: ticketId,
+        beforeState,
+        afterState: updatedTicket,
+      });
+
+      return res.json({ success: true, ticket: updatedTicket });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  app.post("/api/counter/tickets/:ticketId/void", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
+    try {
+      const { ticketId } = req.params;
+      const { reason } = req.body || {};
+      const adminToken = await getAdminAuthToken();
+
+      if (!reason || String(reason).trim().length < 5) {
+        return res.status(400).json({ success: false, error: "A void reason of at least 5 characters is required." });
+      }
+
+      const ticketSnap = await rtdbGet(`tickets/${ticketId}`, adminToken);
+      const ticket = ticketSnap.data as any;
+      if (!ticket) return res.status(404).json({ success: false, error: "Ticket not found." });
+      if (ticket.status === "cancelled") return res.status(400).json({ success: false, error: "Ticket is already voided." });
+
+      const beforeState = JSON.parse(JSON.stringify(ticket));
+
+      const seatsToRelease = ticket.selectedSeats || ticket.seatIds || [];
+      for (const seatId of seatsToRelease) {
+        await releaseSeat(adminToken, ticket.eventId, seatId, {}).catch(() => { });
+      }
+
+      // Restore event tier inventory (Prompt B Item 5 complement)
+      // Legacy fix: tickets might lack tierId; fallback to order record or tier name mapping.
+      let resolvedTierId = ticket.tierId;
+      if (!resolvedTierId && ticket.orderId) {
+        const orderSnap = await rtdbGet(`orders/${ticket.orderId}`, adminToken);
+        resolvedTierId = (orderSnap.data as any)?.tierId;
+      }
+      if (ticket.eventId && resolvedTierId) {
+        await restoreInventoryTier(adminToken, ticket.eventId, resolvedTierId, Number(ticket.quantity) || 1).catch(() => { });
+      }
+
+      const updatedTicket = {
+        ...ticket,
+        status: "cancelled",
+        cancelledReason: String(reason).trim(),
+        statusChangedAt: new Date().toISOString(),
+        cancelledBy: req.user.uid,
+      };
+
+      await rtdbSet(`tickets/${ticketId}`, updatedTicket, adminToken);
+      if (ticket.ownerId) {
+        await rtdbSet(`users/${ticket.ownerId}/tickets/${ticketId}`, updatedTicket, adminToken).catch(() => { });
+      }
+
+      const orderId = ticket.orderId;
+      const bookingId = ticket.bookingId;
+
+      if (orderId) {
+        const orderSnap = await rtdbGet(`orders/${orderId}`, adminToken);
+        if (orderSnap.data) {
+          const order = orderSnap.data as any;
+          const updatedOrder = {
+            ...order,
+            status: "refunded",
+            refundReason: String(reason).trim(),
+            refundAmount: Number(order.amount) || 0,
+            refundedAt: new Date().toISOString(),
+            refundedBy: req.user.uid,
+          };
+          await rtdbSet(`orders/${orderId}`, updatedOrder, adminToken).catch(() => { });
+          await rtdbDelete(`processed_orders/${orderId}`, adminToken).catch(() => { });
+        }
+      }
+
+      if (bookingId) {
+        const bkgSnap = await rtdbGet(`bookings/${bookingId}`, adminToken);
+        if (bkgSnap.data) {
+          const bkg = bkgSnap.data as any;
+          const updatedBkg = {
+            ...bkg,
+            status: "cancelled",
+          };
+          await rtdbSet(`bookings/${bookingId}`, updatedBkg, adminToken).catch(() => { });
+          if (bkg.userId) {
+            await rtdbSet(`users/${bkg.userId}/bookings/${bookingId}`, updatedBkg, adminToken).catch(() => { });
+          }
+        }
+      }
+
+      await writeAuditEntry({
+        actorId: req.user.uid,
+        actorRole: req.user.rbacRole,
+        action: "ticket.voided_counter",
+        entityType: "ticket",
+        entityId: ticketId,
+        beforeState,
+        afterState: updatedTicket,
+      });
+
+      return res.json({ success: true, message: "Ticket and associated order voided successfully.", ticket: updatedTicket });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  app.post("/api/counter/tickets/:ticketId/resend-whatsapp", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
+    try {
+      const { ticketId } = req.params;
+      const adminToken = await getAdminAuthToken();
+
+      const ticketSnap = await rtdbGet(`tickets/${ticketId}`, adminToken);
+      const ticket = ticketSnap.data as any;
+      if (!ticket) return res.status(404).json({ success: false, error: "Ticket not found." });
+
+      if (!ticket.attendeePhone) {
+        return res.status(400).json({ success: false, error: "Ticket does not have an associated attendee phone number." });
+      }
+
+      // Clear the idempotency lock so the manual resend is never silently skipped.
+      // The lock only guards the automatic post-purchase send; a manual resend by
+      // staff should always go through.
+      await rtdbUpdate(`tickets/${ticketId}`, { whatsappConfirmationSent: null }, adminToken).catch(() => { });
+
+      const waRes = await sendTicketWhatsApp(ticket, ticket.attendeePhone);
+      const notificationEntry: any = {
+        channel: 'enotify_whatsapp',
+        createdAt: new Date().toISOString()
+      };
+
+      if (waRes.success) {
+        notificationEntry.status = 'sent';
+        notificationEntry.waMessageId = waRes.waMessageId;
+      } else {
+        notificationEntry.status = 'failed';
+        notificationEntry.reason = waRes.error?.message || JSON.stringify(waRes.error) || 'Unknown error';
+      }
+
+      await rtdbPush("notifications", {
+        ...notificationEntry,
+        ticketId: ticketId,
+        recipientPhone: ticket.attendeePhone,
+        attendeeName: ticket.attendeeName,
+        eventTitle: ticket.eventTitle,
+        subject: "WhatsApp Ticket Confirmation (Resend)",
+        recipientCount: 1,
+        createdBy: req.user.uid
+      }, adminToken).catch(() => { });
+
+      if (!ticket.notifications) {
+        ticket.notifications = [];
+      }
+      ticket.notifications.push(notificationEntry);
+      await rtdbSet(`tickets/${ticketId}`, ticket, adminToken);
+      if (ticket.ownerId) {
+        await rtdbSet(`users/${ticket.ownerId}/tickets/${ticketId}`, ticket, adminToken).catch(() => { });
+      }
+
+      if (waRes.success) {
+        return res.json({ success: true, message: "WhatsApp message resent successfully." });
+      } else {
+        return res.status(500).json({ success: false, error: waRes.error?.message || "WhatsApp delivery failed." });
+      }
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // Backward-compatible alias: older deployed clients and the admin panel may
+  // call /api/countertickets/:ticketId/resend-whatsapp (without the slash).
+  // Forward to the real handler so those requests don't 404/500.
+  app.post("/api/countertickets/:ticketId/resend-whatsapp", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
+    req.url = req.url.replace('/api/countertickets/', '/api/counter/tickets/');
+    // Re-use handler logic inline rather than forwarding to avoid circular routing.
+    try {
+      const { ticketId } = req.params;
+      const adminToken = await getAdminAuthToken();
+      const ticketSnap = await rtdbGet(`tickets/${ticketId}`, adminToken);
+      const ticket = ticketSnap.data as any;
+      if (!ticket) return res.status(404).json({ success: false, error: "Ticket not found." });
+      if (!ticket.attendeePhone) {
+        return res.status(400).json({ success: false, error: "Ticket does not have an associated attendee phone number." });
+      }
+      await rtdbUpdate(`tickets/${ticketId}`, { whatsappConfirmationSent: null }, adminToken).catch(() => { });
+      const waRes = await sendTicketWhatsApp(ticket, ticket.attendeePhone);
+      const notificationEntry: any = {
+        channel: 'enotify_whatsapp',
+        createdAt: new Date().toISOString(),
+        ...(waRes.success ? { status: 'sent', waMessageId: waRes.waMessageId } : { status: 'failed', reason: waRes.error?.message || JSON.stringify(waRes.error) || 'Unknown error' }),
+      };
+      await rtdbPush("notifications", { ...notificationEntry, ticketId, recipientPhone: ticket.attendeePhone, attendeeName: ticket.attendeeName, eventTitle: ticket.eventTitle, subject: "WhatsApp Ticket Confirmation (Resend)", recipientCount: 1, createdBy: (req as any).user?.uid }, adminToken).catch(() => { });
+      if (!ticket.notifications) ticket.notifications = [];
+      ticket.notifications.push(notificationEntry);
+      await rtdbSet(`tickets/${ticketId}`, ticket, adminToken);
+      if (ticket.ownerId) await rtdbSet(`users/${ticket.ownerId}/tickets/${ticketId}`, ticket, adminToken).catch(() => { });
+      if (waRes.success) return res.json({ success: true, message: "WhatsApp message resent successfully." });
       return res.status(500).json({ success: false, error: waRes.error?.message || "WhatsApp delivery failed." });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
     }
-  } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message });
-  }
-});
+  });
 
-// Backward-compatible alias: older deployed clients and the admin panel may
-// call /api/countertickets/:ticketId/resend-whatsapp (without the slash).
-// Forward to the real handler so those requests don't 404/500.
-app.post("/api/countertickets/:ticketId/resend-whatsapp", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
-  req.url = req.url.replace('/api/countertickets/', '/api/counter/tickets/');
-  // Re-use handler logic inline rather than forwarding to avoid circular routing.
-  try {
-    const { ticketId } = req.params;
-    const adminToken = await getAdminAuthToken();
-    const ticketSnap = await rtdbGet(`tickets/${ticketId}`, adminToken);
-    const ticket = ticketSnap.data as any;
-    if (!ticket) return res.status(404).json({ success: false, error: "Ticket not found." });
-    if (!ticket.attendeePhone) {
-      return res.status(400).json({ success: false, error: "Ticket does not have an associated attendee phone number." });
-    }
-    await rtdbUpdate(`tickets/${ticketId}`, { whatsappConfirmationSent: null }, adminToken).catch(() => {});
-    const waRes = await sendTicketWhatsApp(ticket, ticket.attendeePhone);
-    const notificationEntry: any = {
-      channel: 'enotify_whatsapp',
-      createdAt: new Date().toISOString(),
-      ...(waRes.success ? { status: 'sent', waMessageId: waRes.waMessageId } : { status: 'failed', reason: waRes.error?.message || JSON.stringify(waRes.error) || 'Unknown error' }),
-    };
-    await rtdbPush("notifications", { ...notificationEntry, ticketId, recipientPhone: ticket.attendeePhone, attendeeName: ticket.attendeeName, eventTitle: ticket.eventTitle, subject: "WhatsApp Ticket Confirmation (Resend)", recipientCount: 1, createdBy: (req as any).user?.uid }, adminToken).catch(() => {});
-    if (!ticket.notifications) ticket.notifications = [];
-    ticket.notifications.push(notificationEntry);
-    await rtdbSet(`tickets/${ticketId}`, ticket, adminToken);
-    if (ticket.ownerId) await rtdbSet(`users/${ticket.ownerId}/tickets/${ticketId}`, ticket, adminToken).catch(() => {});
-    if (waRes.success) return res.json({ success: true, message: "WhatsApp message resent successfully." });
-    return res.status(500).json({ success: false, error: waRes.error?.message || "WhatsApp delivery failed." });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// Public attendee resend endpoint for confirmation page and digital pass view
-app.post("/api/tickets/:ticketId/resend-whatsapp", async (req: any, res) => {
-  try {
-    const { ticketId } = req.params;
-    if (!ticketId || typeof ticketId !== "string") {
-      return res.status(400).json({ success: false, error: "Invalid ticket ID." });
-    }
-    const adminToken = await getAdminAuthToken();
-    const ticketSnap = await rtdbGet(`tickets/${ticketId}`, adminToken);
-    const ticket = ticketSnap.data as any;
-    if (!ticket) return res.status(404).json({ success: false, error: "Ticket not found." });
-
-    const targetPhone = req.body?.phone || ticket.attendeePhone;
-    if (!targetPhone || String(targetPhone).replace(/\D/g, '').length < 10) {
-      return res.status(400).json({ success: false, error: "Ticket does not have a valid attendee phone number." });
-    }
-
-    const waRes = await sendTicketWhatsApp(ticket, targetPhone);
-    const notificationEntry: any = {
-      channel: 'enotify_whatsapp',
-      createdAt: new Date().toISOString(),
-      ticketId,
-      recipientPhone: targetPhone,
-      attendeeName: ticket.attendeeName || 'Attendee',
-      eventTitle: ticket.eventTitle || 'Event',
-      subject: "WhatsApp Ticket Confirmation (Resend)",
-      recipientCount: 1,
-      createdBy: "attendee_web",
-      status: waRes.success ? 'sent' : 'failed',
-      ...(waRes.success ? { waMessageId: waRes.waMessageId } : { reason: waRes.error?.message || JSON.stringify(waRes.error) || 'Unknown error' }),
-    };
-
-    await rtdbPush("notifications", notificationEntry, adminToken).catch(() => {});
-    if (waRes.success) {
-      await rtdbUpdate(`tickets/${ticketId}`, {
-        whatsappConfirmationSent: true,
-        whatsappSentAt: notificationEntry.createdAt,
-        whatsappMessageId: waRes.waMessageId || null,
-      }, adminToken).catch(() => {});
-      return res.json({ success: true, message: "WhatsApp message resent successfully." });
-    } else {
-      return res.status(500).json({ success: false, error: waRes.error?.message || "WhatsApp delivery failed." });
-    }
-  } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-app.post("/api/admin/tickets/:ticketId/collect", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
-  try {
-    const { ticketId } = req.params;
-    const { paymentMethod = "cash", collectedAmount } = req.body || {};
-    const userToken = await getAdminAuthToken();
-
-    const ticketSnap = await rtdbGet(`tickets/${ticketId}`, userToken);
-    const ticket = ticketSnap.data as any;
-    if (!ticket) {
-      return res.status(404).json({ success: false, error: `Ticket ${ticketId} not found.` });
-    }
-
-    if (ticket.paymentStatus === "paid") {
-      return res.status(400).json({ success: false, error: "This ticket has already been fully paid." });
-    }
-
-    const amountToCollect = collectedAmount !== undefined ? Number(collectedAmount) : (Number(ticket.amountDue) || Number(ticket.totalPaid) || Number(ticket.price * (ticket.quantity || 1)) || 0);
-    const collectedAt = new Date().toISOString();
-    const staffUid = req.user?.uid || "ticket_counter_staff";
-
-    const updatedTicketUpdates: Record<string, any> = {
-      paymentStatus: "paid",
-      amountDue: 0,
-      totalPaid: (Number(ticket.totalPaid) || 0) + amountToCollect,
-      collectedAt,
-      collectedBy: staffUid,
-      collectedPaymentMethod: String(paymentMethod).slice(0, 32),
-    };
-
-    await rtdbUpdate(`tickets/${ticketId}`, updatedTicketUpdates, userToken);
-
-    if (ticket.ownerId) {
-      await rtdbUpdate(`users/${ticket.ownerId}/tickets/${ticketId}`, updatedTicketUpdates, userToken).catch(() => {});
-    }
-
-    // Also update linked booking and order if found
-    const bookingsSnap = await rtdbGet("bookings", userToken);
-    const allBookings = (bookingsSnap.data || {}) as Record<string, any>;
-    const matchedBooking = Object.values(allBookings).find((b: any) => b.ticketId === ticketId || b.reservationId === ticket.reservationId);
-    if (matchedBooking && matchedBooking.bookingId) {
-      const bookingUpdates = { paymentStatus: "paid", amountDue: 0, collectedAt, collectedBy: staffUid };
-      await rtdbUpdate(`bookings/${matchedBooking.bookingId}`, bookingUpdates, userToken).catch(() => {});
-      if (matchedBooking.userId) {
-        await rtdbUpdate(`users/${matchedBooking.userId}/bookings/${matchedBooking.bookingId}`, bookingUpdates, userToken).catch(() => {});
+  // Public attendee resend endpoint for confirmation page and digital pass view
+  app.post("/api/tickets/:ticketId/resend-whatsapp", async (req: any, res) => {
+    try {
+      const { ticketId } = req.params;
+      if (!ticketId || typeof ticketId !== "string") {
+        return res.status(400).json({ success: false, error: "Invalid ticket ID." });
       }
+      const adminToken = await getAdminAuthToken();
+      const ticketSnap = await rtdbGet(`tickets/${ticketId}`, adminToken);
+      const ticket = ticketSnap.data as any;
+      if (!ticket) return res.status(404).json({ success: false, error: "Ticket not found." });
+
+      const targetPhone = req.body?.phone || ticket.attendeePhone;
+      if (!targetPhone || String(targetPhone).replace(/\D/g, '').length < 10) {
+        return res.status(400).json({ success: false, error: "Ticket does not have a valid attendee phone number." });
+      }
+
+      const waRes = await sendTicketWhatsApp(ticket, targetPhone);
+      const notificationEntry: any = {
+        channel: 'enotify_whatsapp',
+        createdAt: new Date().toISOString(),
+        ticketId,
+        recipientPhone: targetPhone,
+        attendeeName: ticket.attendeeName || 'Attendee',
+        eventTitle: ticket.eventTitle || 'Event',
+        subject: "WhatsApp Ticket Confirmation (Resend)",
+        recipientCount: 1,
+        createdBy: "attendee_web",
+        status: waRes.success ? 'sent' : 'failed',
+        ...(waRes.success ? { waMessageId: waRes.waMessageId } : { reason: waRes.error?.message || JSON.stringify(waRes.error) || 'Unknown error' }),
+      };
+
+      await rtdbPush("notifications", notificationEntry, adminToken).catch(() => { });
+      if (waRes.success) {
+        await rtdbUpdate(`tickets/${ticketId}`, {
+          whatsappConfirmationSent: true,
+          whatsappSentAt: notificationEntry.createdAt,
+          whatsappMessageId: waRes.waMessageId || null,
+        }, adminToken).catch(() => { });
+        return res.json({ success: true, message: "WhatsApp message resent successfully." });
+      } else {
+        return res.status(500).json({ success: false, error: waRes.error?.message || "WhatsApp delivery failed." });
+      }
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
     }
+  });
 
-    const ordersSnap = await rtdbGet("orders", userToken);
-    const allOrders = (ordersSnap.data || {}) as Record<string, any>;
-    const matchedOrder = Object.values(allOrders).find((o: any) => o.ticketId === ticketId || o.bookingId === matchedBooking?.bookingId);
-    if (matchedOrder && matchedOrder.orderId) {
-      await rtdbUpdate(`orders/${matchedOrder.orderId}`, { paymentStatus: "paid", amountDue: 0, collectedAt, collectedBy: staffUid }, userToken).catch(() => {});
+  app.post("/api/admin/tickets/:ticketId/collect", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
+    try {
+      const { ticketId } = req.params;
+      const { paymentMethod = "cash", collectedAmount } = req.body || {};
+      const userToken = await getAdminAuthToken();
+
+      const ticketSnap = await rtdbGet(`tickets/${ticketId}`, userToken);
+      const ticket = ticketSnap.data as any;
+      if (!ticket) {
+        return res.status(404).json({ success: false, error: `Ticket ${ticketId} not found.` });
+      }
+
+      if (ticket.paymentStatus === "paid") {
+        return res.status(400).json({ success: false, error: "This ticket has already been fully paid." });
+      }
+
+      const amountToCollect = collectedAmount !== undefined ? Number(collectedAmount) : (Number(ticket.amountDue) || Number(ticket.totalPaid) || Number(ticket.price * (ticket.quantity || 1)) || 0);
+      const collectedAt = new Date().toISOString();
+      const staffUid = req.user?.uid || "ticket_counter_staff";
+
+      const updatedTicketUpdates: Record<string, any> = {
+        paymentStatus: "paid",
+        amountDue: 0,
+        totalPaid: (Number(ticket.totalPaid) || 0) + amountToCollect,
+        collectedAt,
+        collectedBy: staffUid,
+        collectedPaymentMethod: String(paymentMethod).slice(0, 32),
+      };
+
+      await rtdbUpdate(`tickets/${ticketId}`, updatedTicketUpdates, userToken);
+
+      if (ticket.ownerId) {
+        await rtdbUpdate(`users/${ticket.ownerId}/tickets/${ticketId}`, updatedTicketUpdates, userToken).catch(() => { });
+      }
+
+      // Also update linked booking and order if found
+      const bookingsSnap = await rtdbGet("bookings", userToken);
+      const allBookings = (bookingsSnap.data || {}) as Record<string, any>;
+      const matchedBooking = Object.values(allBookings).find((b: any) => b.ticketId === ticketId || b.reservationId === ticket.reservationId);
+      if (matchedBooking && matchedBooking.bookingId) {
+        const bookingUpdates = { paymentStatus: "paid", amountDue: 0, collectedAt, collectedBy: staffUid };
+        await rtdbUpdate(`bookings/${matchedBooking.bookingId}`, bookingUpdates, userToken).catch(() => { });
+        if (matchedBooking.userId) {
+          await rtdbUpdate(`users/${matchedBooking.userId}/bookings/${matchedBooking.bookingId}`, bookingUpdates, userToken).catch(() => { });
+        }
+      }
+
+      const ordersSnap = await rtdbGet("orders", userToken);
+      const allOrders = (ordersSnap.data || {}) as Record<string, any>;
+      const matchedOrder = Object.values(allOrders).find((o: any) => o.ticketId === ticketId || o.bookingId === matchedBooking?.bookingId);
+      if (matchedOrder && matchedOrder.orderId) {
+        await rtdbUpdate(`orders/${matchedOrder.orderId}`, { paymentStatus: "paid", amountDue: 0, collectedAt, collectedBy: staffUid }, userToken).catch(() => { });
+      }
+
+      await writeAuditEntry({
+        actorId: req.user.uid,
+        actorRole: req.user.rbacRole || req.user.role,
+        action: "counter.payment.collected",
+        entityType: "ticket",
+        entityId: ticketId,
+        afterState: { ...ticket, ...updatedTicketUpdates },
+      }).catch(() => { });
+
+      return res.json({
+        success: true,
+        message: `Payment of ₹${amountToCollect} successfully collected. Reservation Pass is now active for entry.`,
+        ticket: { ...ticket, ...updatedTicketUpdates },
+        amountCollected: amountToCollect,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
     }
+  });
 
-    await writeAuditEntry({
-      actorId: req.user.uid,
-      actorRole: req.user.rbacRole || req.user.role,
-      action: "counter.payment.collected",
-      entityType: "ticket",
-      entityId: ticketId,
-      afterState: { ...ticket, ...updatedTicketUpdates },
-    }).catch(() => {});
+  // ──────────────────────────────────────────────────────────────────────
+  // Ticket-counter stations management (named counters, e.g. "Gate A").
+  // Each counter can carry its own merchant UPI ID (overrides the global
+  // app_config/merchant_upi) and an allow-list of staff authorized to run it.
+  // Counters live at RTDB path counters/<counterId>.
+  // ──────────────────────────────────────────────────────────────────────
 
-    return res.json({
-      success: true,
-      message: `Payment of ₹${amountToCollect} successfully collected. Reservation Pass is now active for entry.`,
-      ticket: { ...ticket, ...updatedTicketUpdates },
-      amountCollected: amountToCollect,
-    });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message });
-  }
-});
+  const COUNTER_VPA_RE = /^[A-Za-z0-9.\-_]{2,64}@[A-Za-z0-9.\-_]{2,64}$/;
 
-// ──────────────────────────────────────────────────────────────────────
-// Ticket-counter stations management (named counters, e.g. "Gate A").
-// Each counter can carry its own merchant UPI ID (overrides the global
-// app_config/merchant_upi) and an allow-list of staff authorized to run it.
-// Counters live at RTDB path counters/<counterId>.
-// ──────────────────────────────────────────────────────────────────────
+  // Public counters list for event pages and counter selection
+  app.get("/api/counters", async (req, res) => {
+    try {
+      const snap = await rtdbGet("counters", await getAdminAuthToken());
+      const nodes = (snap.data || {}) as Record<string, any>;
+      const counters = Object.entries(nodes)
+        .map(([id, c]) => ({
+          id,
+          name: c.name || "Box Office Counter",
+          venue: c.venue || "",
+          address: c.address || "",
+          city: c.city || "",
+          mapsUrl: c.mapsUrl || "",
+          operatingHours: c.operatingHours || "",
+          phone: c.phone || "",
+          status: c.status || "active",
+        }))
+        .filter((c) => c.status === "active");
+      return res.status(200).json({ success: true, counters });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || "Could not fetch counters." });
+    }
+  });
 
-const COUNTER_VPA_RE = /^[A-Za-z0-9.\-_]{2,64}@[A-Za-z0-9.\-_]{2,64}$/;
+  // Staff-only counter list for shift selection
+  app.get("/api/counter/list", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
+    try {
+      const authToken = (await getAdminAuthToken()) || req.user.idToken;
+      const snap = await rtdbGet("counters", authToken);
+      const nodes = (snap.data || {}) as Record<string, any>;
+      const counters = Object.entries(nodes)
+        .map(([id, c]) => ({
+          id,
+          name: c.name || "Box Office Counter",
+          venue: c.venue || "",
+          status: c.status || "active",
+          merchantUpi: { vpa: String(c?.merchantUpi?.vpa || ""), name: String(c?.merchantUpi?.name || "") },
+          subUsers: Object.fromEntries(
+            Object.entries(c.subUsers || {}).map(([key, u]: [string, any]) => [key, {
+              id: String(u?.id || key),
+              name: String(u?.name || "Counter User"),
+              phone: String(u?.phone || ""),
+              status: u?.status === "inactive" ? "inactive" : "active",
+            }])
+          ),
+          assignedStaffIds: Array.isArray(c.assignedStaffIds) ? c.assignedStaffIds : []
+        }))
+        .filter((c) => c.status === "active")
+        // Counter-facing screens are always scoped to the logged-in account.
+        // Elevated roles use /api/admin/counters for administration; they must
+        // not inherit every counter on the operational ticket dashboard.
+        .filter((c) => c.assignedStaffIds.includes(req.user.uid));
+      return res.status(200).json({ success: true, counters });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || "Could not fetch counter list." });
+    }
+  });
 
-// Public counters list for event pages and counter selection
-app.get("/api/counters", async (req, res) => {
-  try {
-    const snap = await rtdbGet("counters", await getAdminAuthToken());
-    const nodes = (snap.data || {}) as Record<string, any>;
-    const counters = Object.entries(nodes)
-      .map(([id, c]) => ({
+  // Server-fresh events for counter panels — bypasses all client-side Firebase
+  // SDK caching. Returns only published/sold_out events (visible to counters).
+  app.get("/api/counter/events", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
+    try {
+      const authToken = (await getAdminAuthToken()) || req.user.idToken;
+      const snap = await rtdbGet("events", authToken);
+      const nodes = (snap.data || {}) as Record<string, any>;
+      const events = Object.entries(nodes)
+        .map(([id, e]: [string, any]) => ({
+          id,
+          title: e.title || "Untitled Event",
+          subtitle: e.subtitle || "",
+          category: e.category || "concert",
+          status: e.status || "published",
+          date: e.date || "",
+          time: e.time || "",
+          venue: e.venue || "",
+          city: e.city || "",
+          address: e.address || "",
+          posterUrl: e.posterUrl || "",
+          coverUrl: e.coverUrl || "",
+          cardImageUrl: e.cardImageUrl || null,
+          ticketTiers: Array.isArray(e.ticketTiers)
+            ? e.ticketTiers
+            : (typeof e.ticketTiers === "object" && e.ticketTiers ? Object.values(e.ticketTiers) : []),
+          startingPrice: typeof e.startingPrice === "number" ? e.startingPrice : 0,
+          usesSeatMap: e.usesSeatMap !== false,
+          seatMap: e.seatMap || null,
+          isEventPublic: e.isEventPublic !== false,
+          isFeatured: e.isFeatured === true,
+          isTrending: e.isTrending === true,
+          earlyBird: e.earlyBird || null,
+          sponsors: Array.isArray(e.sponsors)
+            ? e.sponsors
+            : (typeof e.sponsors === "object" && e.sponsors ? Object.values(e.sponsors) : []),
+        }))
+        .filter((e) => (e.status === "published" || e.status === "sold_out") && e.isEventPublic !== false);
+      return res.status(200).json({ success: true, events });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || "Could not fetch events." });
+    }
+  });
+
+  app.get("/api/admin/counters", requireRole(["event_manager", "super_admin"]), async (req: any, res) => {
+    try {
+      const authToken = (await getAdminAuthToken()) || req.user.idToken;
+      const snap = await rtdbGet("counters", authToken);
+      const nodes = (snap.data || {}) as Record<string, any>;
+      const counters = Object.entries(nodes).map(([id, c]) => ({
         id,
-        name: c.name || "Box Office Counter",
-        venue: c.venue || "",
-        address: c.address || "",
-        city: c.city || "",
-        mapsUrl: c.mapsUrl || "",
-        operatingHours: c.operatingHours || "",
-        phone: c.phone || "",
-        status: c.status || "active",
-      }))
-      .filter((c) => c.status === "active");
-    return res.status(200).json({ success: true, counters });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message || "Could not fetch counters." });
-  }
-});
-
-// Staff-only counter list for shift selection
-app.get("/api/counter/list", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
-  try {
-    const authToken = (await getAdminAuthToken()) || req.user.idToken;
-    const snap = await rtdbGet("counters", authToken);
-    const nodes = (snap.data || {}) as Record<string, any>;
-    const counters = Object.entries(nodes)
-      .map(([id, c]) => ({
-        id,
-        name: c.name || "Box Office Counter",
-        venue: c.venue || "",
-        status: c.status || "active",
+        name: String(c?.name || "").slice(0, 40),
+        venue: String(c?.venue || "").slice(0, 60),
+        status: c?.status === "inactive" ? "inactive" : "active",
         merchantUpi: { vpa: String(c?.merchantUpi?.vpa || ""), name: String(c?.merchantUpi?.name || "") },
-        subUsers: Object.fromEntries(
-          Object.entries(c.subUsers || {}).map(([key, u]: [string, any]) => [key, {
-            id: String(u?.id || key),
-            name: String(u?.name || "Counter User"),
-            phone: String(u?.phone || ""),
-            status: u?.status === "inactive" ? "inactive" : "active",
-          }])
-        ),
-        assignedStaffIds: Array.isArray(c.assignedStaffIds) ? c.assignedStaffIds : []
-      }))
-      .filter((c) => c.status === "active")
-      // Counter-facing screens are always scoped to the logged-in account.
-      // Elevated roles use /api/admin/counters for administration; they must
-      // not inherit every counter on the operational ticket dashboard.
-      .filter((c) => c.assignedStaffIds.includes(req.user.uid));
-    return res.status(200).json({ success: true, counters });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message || "Could not fetch counter list." });
-  }
-});
-
-// Server-fresh events for counter panels — bypasses all client-side Firebase
-// SDK caching. Returns only published/sold_out events (visible to counters).
-app.get("/api/counter/events", requireRole(["counter_staff", "event_manager", "super_admin"]), async (req: any, res) => {
-  try {
-    const authToken = (await getAdminAuthToken()) || req.user.idToken;
-    const snap = await rtdbGet("events", authToken);
-    const nodes = (snap.data || {}) as Record<string, any>;
-    const events = Object.entries(nodes)
-      .map(([id, e]: [string, any]) => ({
-        id,
-        title: e.title || "Untitled Event",
-        subtitle: e.subtitle || "",
-        category: e.category || "concert",
-        status: e.status || "published",
-        date: e.date || "",
-        time: e.time || "",
-        venue: e.venue || "",
-        city: e.city || "",
-        address: e.address || "",
-        posterUrl: e.posterUrl || "",
-        coverUrl: e.coverUrl || "",
-        cardImageUrl: e.cardImageUrl || null,
-        ticketTiers: Array.isArray(e.ticketTiers)
-          ? e.ticketTiers
-          : (typeof e.ticketTiers === "object" && e.ticketTiers ? Object.values(e.ticketTiers) : []),
-        startingPrice: typeof e.startingPrice === "number" ? e.startingPrice : 0,
-        usesSeatMap: e.usesSeatMap !== false,
-        seatMap: e.seatMap || null,
-        isEventPublic: e.isEventPublic !== false,
-        isFeatured: e.isFeatured === true,
-        isTrending: e.isTrending === true,
-        earlyBird: e.earlyBird || null,
-        sponsors: Array.isArray(e.sponsors)
-          ? e.sponsors
-          : (typeof e.sponsors === "object" && e.sponsors ? Object.values(e.sponsors) : []),
-      }))
-      .filter((e) => (e.status === "published" || e.status === "sold_out") && e.isEventPublic !== false);
-    return res.status(200).json({ success: true, events });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message || "Could not fetch events." });
-  }
-});
-
-app.get("/api/admin/counters", requireRole(["event_manager", "super_admin"]), async (req: any, res) => {
-  try {
-    const authToken = (await getAdminAuthToken()) || req.user.idToken;
-    const snap = await rtdbGet("counters", authToken);
-    const nodes = (snap.data || {}) as Record<string, any>;
-    const counters = Object.entries(nodes).map(([id, c]) => ({
-      id,
-      name: String(c?.name || "").slice(0, 40),
-      venue: String(c?.venue || "").slice(0, 60),
-      status: c?.status === "inactive" ? "inactive" : "active",
-      merchantUpi: { vpa: String(c?.merchantUpi?.vpa || ""), name: String(c?.merchantUpi?.name || "") },
-      assignedStaffIds: Array.isArray(c?.assignedStaffIds) ? c.assignedStaffIds : [],
-      subUsers: c?.subUsers || {},
-      createdAt: String(c?.createdAt || ""),
-      updatedAt: String(c?.updatedAt || ""),
-    }));
-    counters.sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
-    return res.status(200).json({ success: true, counters });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message || "Could not list counters." });
-  }
-});
-
-app.post("/api/admin/counters", requireRole(["super_admin"]), async (req: any, res) => {
-  try {
-    const rawName = String(req.body?.name || "").trim();
-    if (rawName.length < 2 || rawName.length > 40) {
-      return res.status(400).json({ success: false, error: "Counter name must be 2-40 characters." });
+        assignedStaffIds: Array.isArray(c?.assignedStaffIds) ? c.assignedStaffIds : [],
+        subUsers: c?.subUsers || {},
+        createdAt: String(c?.createdAt || ""),
+        updatedAt: String(c?.updatedAt || ""),
+      }));
+      counters.sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+      return res.status(200).json({ success: true, counters });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || "Could not list counters." });
     }
-    const rawVenue = String(req.body?.venue || "").trim().slice(0, 60);
-    const rawStaff = Array.isArray(req.body?.assignedStaffIds) ? req.body.assignedStaffIds : [];
-    const staffIds: string[] = rawStaff.filter((s: any) => /^[a-zA-Z0-9_\-]{1,128}$/.test(String(s))).map(String).slice(0, 50);
-    // Validate staff IDs exist only when provided (best-effort); unknown IDs
-    // are dropped so a partial assignment never fails a create.
-    const token = await getAdminAuthToken();
-    const now = new Date().toISOString();
-    const counterId = `counter_${Date.now()}_${crypto.randomBytes(3).toString("hex")}`;
-    const record = {
-      name: rawName,
-      ...(rawVenue ? { venue: rawVenue } : {}),
-      status: "active",
-      assignedStaffIds: staffIds,
-      merchantUpi: {},
-      createdAt: now,
-      updatedAt: now,
-      createdBy: req.user.uid,
-    };
-    await rtdbSet(`counters/${counterId}`, record, token);
-    await writeAuditEntry({
-      actorId: req.user.uid,
-      actorRole: req.user.rbacRole,
-      action: "counter.created",
-      entityType: "counter",
-      entityId: counterId,
-      afterState: record,
-    });
-    return res.status(201).json({ success: true, counter: { id: counterId, ...record } });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message || "Could not create counter." });
-  }
-});
+  });
 
-app.put("/api/admin/counters/:counterId", requireRole(["super_admin"]), async (req: any, res) => {
-  try {
-    const { counterId } = req.params;
-    const token = await getAdminAuthToken();
-    const existing = (await rtdbGet(`counters/${counterId}`, token)).data as any;
-    if (!existing) {
-      return res.status(404).json({ success: false, error: "Counter not found." });
-    }
-    const body = req.body || {};
-    let name: string | undefined;
-    if (body.name !== undefined) {
-      name = String(body.name).trim();
-      if (name.length < 2 || name.length > 40) {
+  app.post("/api/admin/counters", requireRole(["super_admin"]), async (req: any, res) => {
+    try {
+      const rawName = String(req.body?.name || "").trim();
+      if (rawName.length < 2 || rawName.length > 40) {
         return res.status(400).json({ success: false, error: "Counter name must be 2-40 characters." });
       }
+      const rawVenue = String(req.body?.venue || "").trim().slice(0, 60);
+      const rawStaff = Array.isArray(req.body?.assignedStaffIds) ? req.body.assignedStaffIds : [];
+      const staffIds: string[] = rawStaff.filter((s: any) => /^[a-zA-Z0-9_\-]{1,128}$/.test(String(s))).map(String).slice(0, 50);
+      // Validate staff IDs exist only when provided (best-effort); unknown IDs
+      // are dropped so a partial assignment never fails a create.
+      const token = await getAdminAuthToken();
+      const now = new Date().toISOString();
+      const counterId = `counter_${Date.now()}_${crypto.randomBytes(3).toString("hex")}`;
+      const record = {
+        name: rawName,
+        ...(rawVenue ? { venue: rawVenue } : {}),
+        status: "active",
+        assignedStaffIds: staffIds,
+        merchantUpi: {},
+        createdAt: now,
+        updatedAt: now,
+        createdBy: req.user.uid,
+      };
+      await rtdbSet(`counters/${counterId}`, record, token);
+      await writeAuditEntry({
+        actorId: req.user.uid,
+        actorRole: req.user.rbacRole,
+        action: "counter.created",
+        entityType: "counter",
+        entityId: counterId,
+        afterState: record,
+      });
+      return res.status(201).json({ success: true, counter: { id: counterId, ...record } });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || "Could not create counter." });
     }
-    const venue = body.venue !== undefined ? String(body.venue).trim().slice(0, 60) : undefined;
-    let status: string | undefined;
-    if (body.status !== undefined) {
-      status = String(body.status);
-      if (status !== "active" && status !== "inactive") {
-        return res.status(400).json({ success: false, error: "Status must be 'active' or 'inactive'." });
-      }
-    }
-    // Per-counter UPI: { vpa, name } sets it; explicit null/undefined-omitted
-    // keys or an empty vpa clears the override (counter falls back to the
-    // global app_config/merchant_upi).
-    let merchantUpi: { vpa?: string; name?: string } | null | undefined;
-    if (body.merchantUpi === null) {
-      merchantUpi = null;
-    } else if (body.merchantUpi !== undefined && typeof body.merchantUpi === "object") {
-      const rawVpa = String(body.merchantUpi?.vpa || "").trim();
-      if (rawVpa) {
-        if (!COUNTER_VPA_RE.test(rawVpa) || rawVpa.length > 129) {
-          return res.status(400).json({ success: false, error: "The UPI ID must look like 'merchant@upi' (letters, digits, . _ - only)." });
-        }
-        merchantUpi = { vpa: rawVpa };
-        const rawName = String(body.merchantUpi?.name || "").trim();
-        if (rawName) merchantUpi.name = rawName.slice(0, 25);
-      } else {
-        merchantUpi = null;
-      }
-    }
-    let assignedStaffIds: string[] | undefined;
-    if (body.assignedStaffIds !== undefined) {
-      if (!Array.isArray(body.assignedStaffIds) || body.assignedStaffIds.length > 50) {
-        return res.status(400).json({ success: false, error: "assignedStaffIds must be a list of at most 50 staff IDs." });
-      }
-      const ids: string[] = body.assignedStaffIds.filter((s: any) => /^[a-zA-Z0-9_\-]{1,128}$/.test(String(s))).map(String);
-      // Only unknown IDs are rejected — partial lists must refer to real staff.
-      const known: string[] = [];
-      const unknown: string[] = [];
-      for (const id of ids) {
-        const s = (await rtdbGet(`staff/${id}`, token)).data;
-        (s ? known : unknown).push(id);
-      }
-      if (unknown.length) {
-        return res.status(400).json({ success: false, error: `Unknown staff IDs: ${unknown.join(", ")}.` });
-      }
-      assignedStaffIds = known;
-    }
-    const now = new Date().toISOString();
-    const updated = {
-      ...existing,
-      ...(name !== undefined ? { name } : {}),
-      ...(venue !== undefined ? { venue } : {}),
-      ...(status !== undefined ? { status } : {}),
-      ...(merchantUpi !== undefined ? { merchantUpi: merchantUpi === null ? {} : merchantUpi } : {}),
-      ...(assignedStaffIds !== undefined ? { assignedStaffIds } : {}),
-      updatedAt: now,
-      updatedBy: req.user.uid,
-    };
-    await rtdbSet(`counters/${counterId}`, updated, token);
-    await writeAuditEntry({
-      actorId: req.user.uid,
-      actorRole: req.user.rbacRole,
-      action: "counter.updated",
-      entityType: "counter",
-      entityId: counterId,
-      beforeState: existing,
-      afterState: updated,
-    });
-    return res.status(200).json({ success: true, counter: { id: counterId, ...updated } });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message || "Could not update counter." });
-  }
-});
+  });
 
-// Batch update: one patch applied to many counters. Fails all-or-nothing
-// during validation, then applies each (non-fatal per-row on transient RTDB
-// errors) and reports per-counter outcomes.
-app.patch("/api/admin/counters", requireRole(["super_admin"]), async (req: any, res) => {
-  try {
-    const body = req.body || {};
-    const counterIds: string[] = Array.isArray(body.counterIds) ? body.counterIds.map(String).slice(0, 100) : [];
-    if (counterIds.length === 0) {
-      return res.status(400).json({ success: false, error: "counterIds must list at least one counter." });
+  app.put("/api/admin/counters/:counterId", requireRole(["super_admin"]), async (req: any, res) => {
+    try {
+      const { counterId } = req.params;
+      const token = await getAdminAuthToken();
+      const existing = (await rtdbGet(`counters/${counterId}`, token)).data as any;
+      if (!existing) {
+        return res.status(404).json({ success: false, error: "Counter not found." });
+      }
+      const body = req.body || {};
+      let name: string | undefined;
+      if (body.name !== undefined) {
+        name = String(body.name).trim();
+        if (name.length < 2 || name.length > 40) {
+          return res.status(400).json({ success: false, error: "Counter name must be 2-40 characters." });
+        }
+      }
+      const venue = body.venue !== undefined ? String(body.venue).trim().slice(0, 60) : undefined;
+      let status: string | undefined;
+      if (body.status !== undefined) {
+        status = String(body.status);
+        if (status !== "active" && status !== "inactive") {
+          return res.status(400).json({ success: false, error: "Status must be 'active' or 'inactive'." });
+        }
+      }
+      // Per-counter UPI: { vpa, name } sets it; explicit null/undefined-omitted
+      // keys or an empty vpa clears the override (counter falls back to the
+      // global app_config/merchant_upi).
+      let merchantUpi: { vpa?: string; name?: string } | null | undefined;
+      if (body.merchantUpi === null) {
+        merchantUpi = null;
+      } else if (body.merchantUpi !== undefined && typeof body.merchantUpi === "object") {
+        const rawVpa = String(body.merchantUpi?.vpa || "").trim();
+        if (rawVpa) {
+          if (!COUNTER_VPA_RE.test(rawVpa) || rawVpa.length > 129) {
+            return res.status(400).json({ success: false, error: "The UPI ID must look like 'merchant@upi' (letters, digits, . _ - only)." });
+          }
+          merchantUpi = { vpa: rawVpa };
+          const rawName = String(body.merchantUpi?.name || "").trim();
+          if (rawName) merchantUpi.name = rawName.slice(0, 25);
+        } else {
+          merchantUpi = null;
+        }
+      }
+      let assignedStaffIds: string[] | undefined;
+      if (body.assignedStaffIds !== undefined) {
+        if (!Array.isArray(body.assignedStaffIds) || body.assignedStaffIds.length > 50) {
+          return res.status(400).json({ success: false, error: "assignedStaffIds must be a list of at most 50 staff IDs." });
+        }
+        const ids: string[] = body.assignedStaffIds.filter((s: any) => /^[a-zA-Z0-9_\-]{1,128}$/.test(String(s))).map(String);
+        // Only unknown IDs are rejected — partial lists must refer to real staff.
+        const known: string[] = [];
+        const unknown: string[] = [];
+        for (const id of ids) {
+          const s = (await rtdbGet(`staff/${id}`, token)).data;
+          (s ? known : unknown).push(id);
+        }
+        if (unknown.length) {
+          return res.status(400).json({ success: false, error: `Unknown staff IDs: ${unknown.join(", ")}.` });
+        }
+        assignedStaffIds = known;
+      }
+      const now = new Date().toISOString();
+      const updated = {
+        ...existing,
+        ...(name !== undefined ? { name } : {}),
+        ...(venue !== undefined ? { venue } : {}),
+        ...(status !== undefined ? { status } : {}),
+        ...(merchantUpi !== undefined ? { merchantUpi: merchantUpi === null ? {} : merchantUpi } : {}),
+        ...(assignedStaffIds !== undefined ? { assignedStaffIds } : {}),
+        updatedAt: now,
+        updatedBy: req.user.uid,
+      };
+      await rtdbSet(`counters/${counterId}`, updated, token);
+      await writeAuditEntry({
+        actorId: req.user.uid,
+        actorRole: req.user.rbacRole,
+        action: "counter.updated",
+        entityType: "counter",
+        entityId: counterId,
+        beforeState: existing,
+        afterState: updated,
+      });
+      return res.status(200).json({ success: true, counter: { id: counterId, ...updated } });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || "Could not update counter." });
     }
-    if (counterIds.length !== new Set(counterIds).size) {
-      return res.status(400).json({ success: false, error: "counterIds contains duplicates." });
-    }
-    const patch = body.patch || {};
-    const allowedPatchKeys = ["merchantUpi", "assignedStaffIds", "status"];
-    if (Object.keys(patch).length === 0 || !Object.keys(patch).every((k) => allowedPatchKeys.includes(k))) {
-      return res.status(400).json({ success: false, error: `Patch may only contain: ${allowedPatchKeys.join(", ")}.` });
-    }
-    // Validate merchant UPI patch value once, up front.
-    let patchUpi: { vpa?: string; name?: string } | null = undefined as never;
-    let patchUpiCleared = false;
-    if ("merchantUpi" in patch) {
-      if (patch.merchantUpi === null) {
-        patchUpi = null;
-        patchUpiCleared = true;
-      } else if (patch.merchantUpi && typeof patch.merchantUpi === "object") {
-        const rawVpa = String(patch.merchantUpi?.vpa || "").trim();
-        if (!rawVpa) {
+  });
+
+  // Batch update: one patch applied to many counters. Fails all-or-nothing
+  // during validation, then applies each (non-fatal per-row on transient RTDB
+  // errors) and reports per-counter outcomes.
+  app.patch("/api/admin/counters", requireRole(["super_admin"]), async (req: any, res) => {
+    try {
+      const body = req.body || {};
+      const counterIds: string[] = Array.isArray(body.counterIds) ? body.counterIds.map(String).slice(0, 100) : [];
+      if (counterIds.length === 0) {
+        return res.status(400).json({ success: false, error: "counterIds must list at least one counter." });
+      }
+      if (counterIds.length !== new Set(counterIds).size) {
+        return res.status(400).json({ success: false, error: "counterIds contains duplicates." });
+      }
+      const patch = body.patch || {};
+      const allowedPatchKeys = ["merchantUpi", "assignedStaffIds", "status"];
+      if (Object.keys(patch).length === 0 || !Object.keys(patch).every((k) => allowedPatchKeys.includes(k))) {
+        return res.status(400).json({ success: false, error: `Patch may only contain: ${allowedPatchKeys.join(", ")}.` });
+      }
+      // Validate merchant UPI patch value once, up front.
+      let patchUpi: { vpa?: string; name?: string } | null = undefined as never;
+      let patchUpiCleared = false;
+      if ("merchantUpi" in patch) {
+        if (patch.merchantUpi === null) {
           patchUpi = null;
           patchUpiCleared = true;
-        } else if (!COUNTER_VPA_RE.test(rawVpa) || rawVpa.length > 129) {
-          return res.status(400).json({ success: false, error: "The UPI ID must look like 'merchant@upi' (letters, digits, . _ - only)." });
+        } else if (patch.merchantUpi && typeof patch.merchantUpi === "object") {
+          const rawVpa = String(patch.merchantUpi?.vpa || "").trim();
+          if (!rawVpa) {
+            patchUpi = null;
+            patchUpiCleared = true;
+          } else if (!COUNTER_VPA_RE.test(rawVpa) || rawVpa.length > 129) {
+            return res.status(400).json({ success: false, error: "The UPI ID must look like 'merchant@upi' (letters, digits, . _ - only)." });
+          } else {
+            patchUpi = { vpa: rawVpa };
+            const rawName = String(patch.merchantUpi?.name || "").trim();
+            if (rawName) patchUpi.name = rawName.slice(0, 25);
+          }
         } else {
-          patchUpi = { vpa: rawVpa };
-          const rawName = String(patch.merchantUpi?.name || "").trim();
-          if (rawName) patchUpi.name = rawName.slice(0, 25);
+          return res.status(400).json({ success: false, error: "patch.merchantUpi must be a { vpa, name? } object or null to clear." });
         }
-      } else {
-        return res.status(400).json({ success: false, error: "patch.merchantUpi must be a { vpa, name? } object or null to clear." });
       }
+      let patchStatus: string | undefined;
+      if ("status" in patch) {
+        patchStatus = String(patch.status);
+        if (patchStatus !== "active" && patchStatus !== "inactive") {
+          return res.status(400).json({ success: false, error: "patch.status must be 'active' or 'inactive'." });
+        }
+      }
+      let patchStaff: string[] | undefined;
+      if ("assignedStaffIds" in patch) {
+        if (!Array.isArray(patch.assignedStaffIds) || patch.assignedStaffIds.length > 50) {
+          return res.status(400).json({ success: false, error: "patch.assignedStaffIds must list at most 50 staff IDs." });
+        }
+        patchStaff = patch.assignedStaffIds.filter((s: any) => /^[a-zA-Z0-9_\-]{1,128}$/.test(String(s))).map(String);
+        if (patchStaff.length !== patch.assignedStaffIds.length) {
+          return res.status(400).json({ success: false, error: "patch.assignedStaffIds contains invalid staff ID formats." });
+        }
+      }
+      const token = await getAdminAuthToken();
+      // Fail-all-or-nothing: resolve every counter and validate staff first.
+      const records: Array<{ id: string; existing: any }> = [];
+      for (const id of counterIds) {
+        const existing = (await rtdbGet(`counters/${id}`, token)).data;
+        if (!existing) {
+          return res.status(404).json({ success: false, error: `Counter '${id}' not found.` });
+        }
+        records.push({ id, existing });
+      }
+      if (patchStaff !== undefined) {
+        for (const sid of patchStaff) {
+          const s = (await rtdbGet(`staff/${sid}`, token)).data;
+          if (!s) {
+            return res.status(400).json({ success: false, error: `Unknown staff ID in patch: ${sid}.` });
+          }
+        }
+      }
+      // Apply.
+      const now = new Date().toISOString();
+      const outcomes: Array<{ counterId: string; success: boolean; error?: string }> = [];
+      for (const { id, existing } of records) {
+        try {
+          const updated = {
+            ...existing,
+            ...(patchStatus !== undefined ? { status: patchStatus } : {}),
+            ...(patchUpi !== undefined ? { merchantUpi: patchUpi === null ? {} : patchUpi } : {}),
+            ...(patchStaff !== undefined ? { assignedStaffIds: patchStaff } : {}),
+            updatedAt: now,
+            updatedBy: req.user.uid,
+          };
+          await rtdbSet(`counters/${id}`, updated, token);
+          await writeAuditEntry({
+            actorId: req.user.uid,
+            actorRole: req.user.rbacRole,
+            action: "counter.batch_updated",
+            entityType: "counter",
+            entityId: id,
+            beforeState: existing,
+            afterState: updated,
+          });
+          outcomes.push({ counterId: id, success: true });
+        } catch (rowErr: any) {
+          outcomes.push({ counterId: id, success: false, error: rowErr.message || "Could not update counter." });
+        }
+      }
+      return res.status(200).json({ success: true, outcomes });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || "Could not apply batch update." });
     }
-    let patchStatus: string | undefined;
-    if ("status" in patch) {
-      patchStatus = String(patch.status);
-      if (patchStatus !== "active" && patchStatus !== "inactive") {
-        return res.status(400).json({ success: false, error: "patch.status must be 'active' or 'inactive'." });
+  });
+
+  // ─── Admin: Delete Ticket Permanently ────────────────────────────────────────
+  app.delete("/api/admin/tickets/:ticketId", requireRole(["super_admin", "event_manager"]), async (req: any, res) => {
+    try {
+      const { ticketId } = req.params;
+      if (!ticketId || typeof ticketId !== "string") {
+        return res.status(400).json({ success: false, error: "Ticket ID is required." });
       }
+      const token = await getAdminAuthToken();
+
+      // 1. Find the ticket record
+      const ticketSnap = await rtdbGet(`tickets/${ticketId}`, token);
+      const ticket = ticketSnap.data as any;
+      if (!ticket) {
+        return res.status(404).json({ success: false, error: "Ticket not found." });
+      }
+
+      // 2. If the ticket has seats, release them back to available
+      const eventId = ticket.eventId;
+      const selectedSeats: string[] = Array.isArray(ticket.selectedSeats) ? ticket.selectedSeats : [];
+      if (eventId && selectedSeats.length > 0) {
+        for (const seatId of selectedSeats) {
+          const seatSnap = await rtdbGet(`events/${eventId}/seats/${seatId}`, token);
+          if (seatSnap.data) {
+            await rtdbSet(`events/${eventId}/seats/${seatId}`, null, token);
+          }
+        }
+      }
+
+      // 3. Find and remove the associated order
+      const ordersSnap = await rtdbGet("orders", token);
+      const orders = (ordersSnap.data || {}) as Record<string, any>;
+      for (const [orderId, order] of Object.entries(orders)) {
+        if (order?.ticketId === ticketId || order?.ticketNumber === ticket.ticketNumber) {
+          await rtdbSet(`orders/${orderId}`, null, token);
+          break;
+        }
+      }
+
+      // 4. Delete the ticket record
+      await rtdbSet(`tickets/${ticketId}`, null, token);
+
+      // 5. Audit log
+      await writeAuditEntry({
+        actorId: req.user.uid,
+        actorRole: req.user.rbacRole,
+        action: "ticket.deleted",
+        entityType: "ticket",
+        entityId: ticketId,
+        beforeState: ticket,
+      });
+
+      return res.status(200).json({
+        success: true,
+        message: "Ticket deleted permanently.",
+        ticketNumber: ticket.ticketNumber,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || "Could not delete ticket." });
     }
-    let patchStaff: string[] | undefined;
-    if ("assignedStaffIds" in patch) {
-      if (!Array.isArray(patch.assignedStaffIds) || patch.assignedStaffIds.length > 50) {
-        return res.status(400).json({ success: false, error: "patch.assignedStaffIds must list at most 50 staff IDs." });
-      }
-      patchStaff = patch.assignedStaffIds.filter((s: any) => /^[a-zA-Z0-9_\-]{1,128}$/.test(String(s))).map(String);
-      if (patchStaff.length !== patch.assignedStaffIds.length) {
-        return res.status(400).json({ success: false, error: "patch.assignedStaffIds contains invalid staff ID formats." });
-      }
-    }
-    const token = await getAdminAuthToken();
-    // Fail-all-or-nothing: resolve every counter and validate staff first.
-    const records: Array<{ id: string; existing: any }> = [];
-    for (const id of counterIds) {
-      const existing = (await rtdbGet(`counters/${id}`, token)).data;
+  });
+
+  app.delete("/api/admin/counters/:counterId", requireRole(["super_admin"]), async (req: any, res) => {
+    try {
+      const { counterId } = req.params;
+      const token = await getAdminAuthToken();
+      const existing = (await rtdbGet(`counters/${counterId}`, token)).data as any;
       if (!existing) {
-        return res.status(404).json({ success: false, error: `Counter '${id}' not found.` });
+        return res.status(404).json({ success: false, error: "Counter not found." });
       }
-      records.push({ id, existing });
-    }
-    if (patchStaff !== undefined) {
-      for (const sid of patchStaff) {
-        const s = (await rtdbGet(`staff/${sid}`, token)).data;
-        if (!s) {
-          return res.status(400).json({ success: false, error: `Unknown staff ID in patch: ${sid}.` });
-        }
+      if (existing.status !== "inactive") {
+        // Safety first: deactivate; hard delete only after a clean status flip.
+        const updated = { ...existing, status: "inactive", updatedAt: new Date().toISOString(), updatedBy: req.user.uid };
+        await rtdbSet(`counters/${counterId}`, updated, token);
+        await writeAuditEntry({ actorId: req.user.uid, actorRole: req.user.rbacRole, action: "counter.deactivated", entityType: "counter", entityId: counterId, beforeState: existing, afterState: updated });
+        return res.status(200).json({ success: true, counter: { id: counterId, ...updated }, note: "Counter deactivated. Delete again to remove permanently." });
       }
-    }
-    // Apply.
-    const now = new Date().toISOString();
-    const outcomes: Array<{ counterId: string; success: boolean; error?: string }> = [];
-    for (const { id, existing } of records) {
-      try {
-        const updated = {
-          ...existing,
-          ...(patchStatus !== undefined ? { status: patchStatus } : {}),
-          ...(patchUpi !== undefined ? { merchantUpi: patchUpi === null ? {} : patchUpi } : {}),
-          ...(patchStaff !== undefined ? { assignedStaffIds: patchStaff } : {}),
-          updatedAt: now,
-          updatedBy: req.user.uid,
-        };
-        await rtdbSet(`counters/${id}`, updated, token);
-        await writeAuditEntry({
-          actorId: req.user.uid,
-          actorRole: req.user.rbacRole,
-          action: "counter.batch_updated",
-          entityType: "counter",
-          entityId: id,
-          beforeState: existing,
-          afterState: updated,
-        });
-        outcomes.push({ counterId: id, success: true });
-      } catch (rowErr: any) {
-        outcomes.push({ counterId: id, success: false, error: rowErr.message || "Could not update counter." });
+      // Hard delete only when the counter has zero walk-in sales.
+      const salesSnap = await rtdbGet("sales", token);
+      const sales = (salesSnap.data || {}) as Record<string, any>;
+      const saleCount = Object.values(sales).filter((s: any) => s?.counterId === counterId).length;
+      if (saleCount > 0) {
+        return res.status(409).json({ success: false, error: `Cannot delete: counter has ${saleCount} recorded sale(s).` });
       }
+      await rtdbSet(`counters/${counterId}`, null, token);
+      await writeAuditEntry({ actorId: req.user.uid, actorRole: req.user.rbacRole, action: "counter.deleted", entityType: "counter", entityId: counterId, beforeState: existing });
+      return res.status(200).json({ success: true, note: "Counter removed." });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || "Could not delete counter." });
     }
-    return res.status(200).json({ success: true, outcomes });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message || "Could not apply batch update." });
-  }
-});
-
-// ─── Admin: Delete Ticket Permanently ────────────────────────────────────────
-app.delete("/api/admin/tickets/:ticketId", requireRole(["super_admin", "event_manager"]), async (req: any, res) => {
-  try {
-    const { ticketId } = req.params;
-    if (!ticketId || typeof ticketId !== "string") {
-      return res.status(400).json({ success: false, error: "Ticket ID is required." });
-    }
-    const token = await getAdminAuthToken();
-
-    // 1. Find the ticket record
-    const ticketSnap = await rtdbGet(`tickets/${ticketId}`, token);
-    const ticket = ticketSnap.data as any;
-    if (!ticket) {
-      return res.status(404).json({ success: false, error: "Ticket not found." });
-    }
-
-    // 2. If the ticket has seats, release them back to available
-    const eventId = ticket.eventId;
-    const selectedSeats: string[] = Array.isArray(ticket.selectedSeats) ? ticket.selectedSeats : [];
-    if (eventId && selectedSeats.length > 0) {
-      for (const seatId of selectedSeats) {
-        const seatSnap = await rtdbGet(`events/${eventId}/seats/${seatId}`, token);
-        if (seatSnap.data) {
-          await rtdbSet(`events/${eventId}/seats/${seatId}`, null, token);
-        }
-      }
-    }
-
-    // 3. Find and remove the associated order
-    const ordersSnap = await rtdbGet("orders", token);
-    const orders = (ordersSnap.data || {}) as Record<string, any>;
-    for (const [orderId, order] of Object.entries(orders)) {
-      if (order?.ticketId === ticketId || order?.ticketNumber === ticket.ticketNumber) {
-        await rtdbSet(`orders/${orderId}`, null, token);
-        break;
-      }
-    }
-
-    // 4. Delete the ticket record
-    await rtdbSet(`tickets/${ticketId}`, null, token);
-
-    // 5. Audit log
-    await writeAuditEntry({
-      actorId: req.user.uid,
-      actorRole: req.user.rbacRole,
-      action: "ticket.deleted",
-      entityType: "ticket",
-      entityId: ticketId,
-      beforeState: ticket,
-    });
-
-    return res.status(200).json({
-      success: true,
-      message: "Ticket deleted permanently.",
-      ticketNumber: ticket.ticketNumber,
-    });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message || "Could not delete ticket." });
-  }
-});
-
-app.delete("/api/admin/counters/:counterId", requireRole(["super_admin"]), async (req: any, res) => {
-  try {
-    const { counterId } = req.params;
-    const token = await getAdminAuthToken();
-    const existing = (await rtdbGet(`counters/${counterId}`, token)).data as any;
-    if (!existing) {
-      return res.status(404).json({ success: false, error: "Counter not found." });
-    }
-    if (existing.status !== "inactive") {
-      // Safety first: deactivate; hard delete only after a clean status flip.
-      const updated = { ...existing, status: "inactive", updatedAt: new Date().toISOString(), updatedBy: req.user.uid };
-      await rtdbSet(`counters/${counterId}`, updated, token);
-      await writeAuditEntry({ actorId: req.user.uid, actorRole: req.user.rbacRole, action: "counter.deactivated", entityType: "counter", entityId: counterId, beforeState: existing, afterState: updated });
-      return res.status(200).json({ success: true, counter: { id: counterId, ...updated }, note: "Counter deactivated. Delete again to remove permanently." });
-    }
-    // Hard delete only when the counter has zero walk-in sales.
-    const salesSnap = await rtdbGet("sales", token);
-    const sales = (salesSnap.data || {}) as Record<string, any>;
-    const saleCount = Object.values(sales).filter((s: any) => s?.counterId === counterId).length;
-    if (saleCount > 0) {
-      return res.status(409).json({ success: false, error: `Cannot delete: counter has ${saleCount} recorded sale(s).` });
-    }
-    await rtdbSet(`counters/${counterId}`, null, token);
-    await writeAuditEntry({ actorId: req.user.uid, actorRole: req.user.rbacRole, action: "counter.deleted", entityType: "counter", entityId: counterId, beforeState: existing });
-    return res.status(200).json({ success: true, note: "Counter removed." });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message || "Could not delete counter." });
-  }
-});
+  });
 
 
   // ─── PUBLIC TICKET VERIFICATION (no auth) ───────────────────────────────
@@ -10882,7 +10919,7 @@ app.delete("/api/admin/counters/:counterId", requireRole(["super_admin"]), async
         if (!isNaN(d.getTime())) {
           dtStart = d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
         }
-      } catch {}
+      } catch { }
       const dtEnd = dtStart ? new Date(new Date(dtStart).getTime() + 3 * 3600 * 1000).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "") : "";
 
       const ics = [
@@ -11076,7 +11113,7 @@ app.delete("/api/admin/counters/:counterId", requireRole(["super_admin"]), async
 
     // Serve the production static build, but never serve infrastructure/
     // metadata files that leak the source tree or database.
-      app.get("*", (req, res) => {
+    app.get("*", (req, res) => {
       if (isSensitiveFile(req.path) || looksSensitiveBasename(
         path.basename(req.path)
       )) {
