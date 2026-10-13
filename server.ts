@@ -1693,7 +1693,13 @@ async function finalizeBookingServerSide(
         }
       }
     } catch {}
-    if (dbRecheckPrice > 0) {
+    // Only apply single-tier recheck override when this is NOT a multi-item
+    // order. For multi-item orders, serverCalculatedRecheck was already built
+    // from the sum of all live tier-line prices (line ~1686) and must not be
+    // clobbered. Overwriting it with dbRecheckPrice * quantity (where quantity
+    // is 1 for mixed bookings) would produce a threshold far below the real
+    // order total, incorrectly flagging every mixed walk-in as an anomaly.
+    if (dbRecheckPrice > 0 && !isMultiItemOrder) {
       serverCalculatedRecheck = dbRecheckPrice * (quantity || 1);
     }
     if (amount && serverCalculatedRecheck > 0 && amount > serverCalculatedRecheck * 1.5) {
