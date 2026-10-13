@@ -30,6 +30,11 @@ type TicketPayload = {
   passed?: boolean;
   /** Sponsors for this event — populated dynamically from the event record. */
   sponsors?: Sponsor[];
+  /**
+   * Multi-tier breakdown — present only for mixed-type bookings (e.g. 2 Kids + 3 Adults).
+   * Each entry mirrors the TicketLineItem shape written by the server.
+   */
+  items?: Array<{ tierId: string; tierName?: string; price?: number; quantity: number }>;
 };
 
 export function TicketPassPage() {
@@ -280,7 +285,7 @@ export function TicketPassPage() {
             <div className="absolute bottom-3 left-4 right-4 flex items-end justify-between gap-2">
               <div className="min-w-0">
                 <span className="px-2.5 py-0.5 rounded-md bg-[#D4AF37] text-black text-[10px] font-extrabold uppercase tracking-wider shadow">
-                  {ticket?.tierName || 'Standard Entry'}
+                  {ticket?.items && ticket.items.length > 1 ? 'Multi-Tier Pass' : (ticket?.tierName || 'Standard Entry')}
                 </span>
                 <h2 className="text-lg font-bold text-white mt-1 line-clamp-2 drop-shadow-lg">{ticket?.eventTitle}</h2>
               </div>
@@ -303,7 +308,17 @@ export function TicketPassPage() {
             </div>
             <div className="flex justify-between items-center py-1.5 border-b border-white/10">
               <span className="text-gray-400 font-medium">Tickets</span>
-              <span className="text-white font-bold">{ticket?.quantity ?? 1} × {ticket?.tierName || 'Standard'}</span>
+              {ticket?.items && ticket.items.length > 1 ? (
+                <div className="flex flex-col items-end gap-1">
+                  {ticket.items.map((it, i) => (
+                    <span key={it.tierId || i} className="text-white font-bold">
+                      {it.quantity} × {it.tierName || it.tierId}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <span className="text-white font-bold">{ticket?.quantity ?? 1} × {ticket?.tierName || 'Standard'}</span>
+              )}
             </div>
             <div className="flex justify-between items-center py-1.5 border-b border-white/10">
               <span className="text-gray-400 font-medium">Ticket Ref</span>
@@ -323,7 +338,9 @@ export function TicketPassPage() {
             </div>
             <div className="flex justify-between items-center py-1.5 border-b border-white/10">
               <span className="text-gray-400 font-medium">Seat / Access</span>
-              <span className="text-white font-semibold">{ticket?.tierName} · {ticket?.seatNumber}</span>
+              <span className="text-white font-semibold">
+                {ticket?.items && ticket.items.length > 1 ? 'General Floor' : `${ticket?.tierName} · ${ticket?.seatNumber}`}
+              </span>
             </div>
             <div className="flex justify-between items-center py-1.5 border-b border-white/10">
               <span className="text-gray-400 font-medium">Date & Time</span>
@@ -380,7 +397,17 @@ export function TicketPassPage() {
               </div>
               <div className="flex justify-between items-center px-3 py-2">
                 <span className="text-gray-400 font-medium">Pass</span>
-                <span className="text-white font-semibold">{ticket?.quantity ?? 1} × {ticket?.tierName || 'Standard'}</span>
+                {ticket?.items && ticket.items.length > 1 ? (
+                  <div className="flex flex-col items-end gap-0.5">
+                    {ticket.items.map((it, i) => (
+                      <span key={it.tierId || i} className="text-white font-semibold text-xs">
+                        {it.quantity} × {it.tierName || it.tierId}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <span className="text-white font-semibold">{ticket?.quantity ?? 1} × {ticket?.tierName || 'Standard'}</span>
+                )}
               </div>
             </div>
 

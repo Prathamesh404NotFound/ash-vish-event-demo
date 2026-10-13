@@ -92,7 +92,7 @@ class SoundEffects {
         this.ctx = new AudioContextClass();
       }
       if (this.ctx.state === 'suspended') {
-        this.ctx.resume().catch(() => {});
+        this.ctx.resume().catch(() => { });
       }
       return this.ctx;
     } catch {
@@ -997,7 +997,7 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
                   const newZoom = Math.max(1, currentZoom - 0.25);
                   if (Math.abs(newZoom - currentZoom) > 0.01) {
                     setCurrentZoom(newZoom);
-                    videoTrackRef.current.applyConstraints({ advanced: [{ zoom: newZoom } as any] }).catch(() => {});
+                    videoTrackRef.current.applyConstraints({ advanced: [{ zoom: newZoom } as any] }).catch(() => { });
                   }
                 }
               }
@@ -1015,7 +1015,7 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
                   const newZoom = Math.min(maxZoom, currentZoom + Math.max(step, 0.25));
                   if (Math.abs(newZoom - currentZoom) > 0.01) {
                     setCurrentZoom(newZoom);
-                    videoTrackRef.current.applyConstraints({ advanced: [{ zoom: newZoom } as any] }).catch(() => {});
+                    videoTrackRef.current.applyConstraints({ advanced: [{ zoom: newZoom } as any] }).catch(() => { });
                   }
                 }
               }
@@ -1179,7 +1179,7 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
       // decoder (startRoiDecodingLoop) handles all QR detection at ~50% CPU
       // because it crops to a 360px center region instead of scanning the full
       // high-res frame.
-      const noopFrame = () => {};
+      const noopFrame = () => { };
       try {
         await html5QrCode.start(
           cameraSource,
@@ -1391,11 +1391,10 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
           <button
             onClick={toggleSound}
             title={soundEnabled ? 'Gate audio beeps enabled' : 'Gate audio beeps muted'}
-            className={`p-2.5 rounded-xl border text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-              soundEnabled
-                ? 'bg-[#1C1C1C] text-[#D4AF37] border-[#D4AF37]/30 hover:border-[#D4AF37]'
-                : 'bg-[#1C1C1C] text-gray-400 border-white/5 hover:text-white'
-            }`}
+            className={`p-2.5 rounded-xl border text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${soundEnabled
+              ? 'bg-[#1C1C1C] text-[#D4AF37] border-[#D4AF37]/30 hover:border-[#D4AF37]'
+              : 'bg-[#1C1C1C] text-gray-400 border-white/5 hover:text-white'
+              }`}
           >
             {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
           </button>
@@ -1403,33 +1402,30 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
           <button
             onClick={toggleVibration}
             title={vibrationEnabled ? 'Vibration feedback enabled' : 'Vibration feedback muted'}
-            className={`p-2.5 rounded-xl border text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-              vibrationEnabled
-                ? 'bg-[#1C1C1C] text-[#D4AF37] border-[#D4AF37]/30 hover:border-[#D4AF37]'
-                : 'bg-[#1C1C1C] text-gray-400 border-white/5 hover:text-white'
-            }`}
+            className={`p-2.5 rounded-xl border text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${vibrationEnabled
+              ? 'bg-[#1C1C1C] text-[#D4AF37] border-[#D4AF37]/30 hover:border-[#D4AF37]'
+              : 'bg-[#1C1C1C] text-gray-400 border-white/5 hover:text-white'
+              }`}
           >
             <Vibrate className="w-4 h-4" />
           </button>
 
           <button
             onClick={() => setActiveTab('camera')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-              activeTab === 'camera'
-                ? 'bg-[#D4AF37] text-black '
-                : 'bg-[#1C1C1C] text-gray-300 hover:text-white border border-white/5'
-            }`}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${activeTab === 'camera'
+              ? 'bg-[#D4AF37] text-black '
+              : 'bg-[#1C1C1C] text-gray-300 hover:text-white border border-white/5'
+              }`}
           >
             <Camera className="w-3.5 h-3.5" />
             <span>Camera Stream</span>
           </button>
           <button
             onClick={() => setActiveTab('manual')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-              activeTab === 'manual'
-                ? 'bg-[#D4AF37] text-black '
-                : 'bg-[#1C1C1C] text-gray-300 hover:text-white border border-white/5'
-            }`}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${activeTab === 'manual'
+              ? 'bg-[#D4AF37] text-black '
+              : 'bg-[#1C1C1C] text-gray-300 hover:text-white border border-white/5'
+              }`}
           >
             <Search className="w-3.5 h-3.5" />
             <span>Manual Entry</span>
@@ -1467,11 +1463,10 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
                         <button
                           key={lvl}
                           onClick={() => handleSetZoom(lvl)}
-                          className={`px-2 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
-                            currentZoom === lvl
-                              ? 'bg-[#D4AF37] text-black shadow-sm'
-                              : 'text-gray-400 hover:text-white'
-                          }`}
+                          className={`px-2 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${currentZoom === lvl
+                            ? 'bg-[#D4AF37] text-black shadow-sm'
+                            : 'text-gray-400 hover:text-white'
+                            }`}
                         >
                           {lvl}x
                         </button>
@@ -1496,11 +1491,10 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
                     <button
                       onClick={handleToggleTorch}
                       title={isTorchOn ? 'Turn Off Flashlight' : 'Turn On Flashlight'}
-                      className={`p-1.5 rounded-xl border transition-all cursor-pointer ${
-                        isTorchOn
-                          ? 'bg-[#D4AF37] text-black border-[#D4AF37] '
-                          : 'bg-[#1C1C1C] text-gray-300 hover:text-white border-white/10'
-                      }`}
+                      className={`p-1.5 rounded-xl border transition-all cursor-pointer ${isTorchOn
+                        ? 'bg-[#D4AF37] text-black border-[#D4AF37] '
+                        : 'bg-[#1C1C1C] text-gray-300 hover:text-white border-white/10'
+                        }`}
                     >
                       {isTorchOn ? <Zap className="w-4 h-4 fill-current" /> : <ZapOff className="w-4 h-4" />}
                     </button>
@@ -1747,16 +1741,15 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
                           return (
                             <>
                               <div className="text-right">
-                                <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold block border ${
-                                  st === 'FULLY_CHECKED_IN' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                                <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold block border ${st === 'FULLY_CHECKED_IN' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
                                   : st === 'PARTIALLY_CHECKED_IN' ? 'bg-sky-500/10 text-sky-400 border-sky-500/20'
-                                  : st === 'CANCELLED' ? 'bg-red-500/10 text-red-400 border-red-500/20'
-                                  : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                                }`}>
+                                    : st === 'CANCELLED' ? 'bg-red-500/10 text-red-400 border-red-500/20'
+                                      : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                                  }`}>
                                   {st === 'FULLY_CHECKED_IN' ? 'FULLY REDEEMED'
                                     : st === 'PARTIALLY_CHECKED_IN' ? `${checkedIn}/${qty} ADMITTED`
-                                    : st === 'CANCELLED' ? 'VOID / REVOKED'
-                                    : 'ENTRY AVAILABLE'}
+                                      : st === 'CANCELLED' ? 'VOID / REVOKED'
+                                        : 'ENTRY AVAILABLE'}
                                 </span>
                                 <span className="text-[10px] text-gray-300 block mt-0.5">
                                   {checkedIn} admitted · {remaining} remaining
@@ -1961,10 +1954,23 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
                     <span className="text-gray-400">Ticket #</span>
                     <span className="font-mono font-bold text-[#D4AF37]">{scanState.ticket.ticketNumber}</span>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-400">Pass Tier</span>
-                    <span className="font-bold text-gray-200">{scanState.ticket.tierName}</span>
-                  </div>
+                  {/* Multi-tier: per-tier breakdown; single-tier: tierName */}
+                  {(scanState.ticket as any)?.items?.length > 1 ? (
+                    <div className="pt-1 border-t border-white/10 space-y-1">
+                      <span className="text-gray-400 block">Ticket Types</span>
+                      {(scanState.ticket as any).items.map((it: any, i: number) => (
+                        <div key={it.tierId || i} className="flex items-center justify-between pl-2">
+                          <span className="text-gray-300">{it.tierName || it.tierId}</span>
+                          <span className="font-bold text-amber-300">× {it.quantity}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-400">Pass Tier</span>
+                      <span className="font-bold text-gray-200">{scanState.ticket.tierName}</span>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1984,25 +1990,22 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
             </div>
           ) : scanState.phase === 'review' ? (
             /* REVIEW / CONFIRM ENTRY OUTCOME — staff picks how many guests enter */
-            <div className={`p-6 sm:p-8 rounded-3xl border space-y-5 shadow-2xl animate-in zoom-in-95 duration-200 ${
-              scanState.entryState?.entryStatus === 'UNUSED'
-                ? 'border-emerald-500/50 bg-emerald-950/40'
-                : 'border-sky-500/50 bg-sky-950/40'
-            }`}>
+            <div className={`p-6 sm:p-8 rounded-3xl border space-y-5 shadow-2xl animate-in zoom-in-95 duration-200 ${scanState.entryState?.entryStatus === 'UNUSED'
+              ? 'border-emerald-500/50 bg-emerald-950/40'
+              : 'border-sky-500/50 bg-sky-950/40'
+              }`}>
               <div className="flex items-start gap-3">
-                <div className={`p-3.5 rounded-2xl border ${
-                  scanState.entryState?.entryStatus === 'UNUSED'
-                    ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
-                    : 'bg-sky-500/20 text-sky-400 border-sky-500/30'
-                }`}>
+                <div className={`p-3.5 rounded-2xl border ${scanState.entryState?.entryStatus === 'UNUSED'
+                  ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                  : 'bg-sky-500/20 text-sky-400 border-sky-500/30'
+                  }`}>
                   {scanState.entryState?.entryStatus === 'UNUSED'
                     ? <CheckCircle2 className="w-10 h-10" />
                     : <Clock className="w-10 h-10" />}
                 </div>
                 <div>
-                  <h1 className={`text-3xl sm:text-4xl font-heading font-black tracking-tight leading-none ${
-                    scanState.entryState?.entryStatus === 'UNUSED' ? 'text-emerald-400' : 'text-sky-400'
-                  }`}>
+                  <h1 className={`text-3xl sm:text-4xl font-heading font-black tracking-tight leading-none ${scanState.entryState?.entryStatus === 'UNUSED' ? 'text-emerald-400' : 'text-sky-400'
+                    }`}>
                     {scanState.heading}
                   </h1>
                   <p className="text-sm font-bold mt-1.5 text-gray-200">{scanState.subheading}</p>
@@ -2023,10 +2026,23 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
                     <span className="text-gray-400">Event</span>
                     <span className="font-semibold text-gray-200 truncate max-w-[180px]">{scanState.ticket.eventTitle}</span>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-400">Type</span>
-                    <span className="font-bold text-gray-200">{scanState.ticket.tierName}</span>
-                  </div>
+                  {/* Multi-tier: show per-tier breakdown; single-tier: show tierName */}
+                  {(scanState.ticket as any)?.items?.length > 1 ? (
+                    <div className="pt-1 border-t border-white/10 space-y-1">
+                      <span className="text-gray-400 block">Ticket Types</span>
+                      {(scanState.ticket as any).items.map((it: any, i: number) => (
+                        <div key={it.tierId || i} className="flex items-center justify-between pl-2">
+                          <span className="text-gray-300">{it.tierName || it.tierId}</span>
+                          <span className="font-bold text-white">× {it.quantity}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-400">Type</span>
+                      <span className="font-bold text-gray-200">{scanState.ticket.tierName}</span>
+                    </div>
+                  )}
                   {scanState.scannedAt && (
                     <div className="flex items-center justify-between">
                       <span className="text-gray-400">Last scan</span>
@@ -2077,9 +2093,8 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
                         key={n}
                         onClick={() => setGuestsEntering(n)}
                         disabled={confirmingEntry}
-                        className={`w-9 h-9 rounded-lg text-xs font-black transition-all cursor-pointer disabled:opacity-40 ${
-                          guestsEntering === n ? 'bg-[#D4AF37] text-black' : 'bg-[#1C1C1C] text-gray-300 border border-white/10 hover:border-white/30'
-                        }`}
+                        className={`w-9 h-9 rounded-lg text-xs font-black transition-all cursor-pointer disabled:opacity-40 ${guestsEntering === n ? 'bg-[#D4AF37] text-black' : 'bg-[#1C1C1C] text-gray-300 border border-white/10 hover:border-white/30'
+                          }`}
                       >{n}</button>
                     ))}
                   </div>
@@ -2115,25 +2130,22 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
             </div>
           ) : scanState.phase === 'confirmed' || scanState.phase === 'partial' ? (
             /* CONFIRMED / PARTIAL SAVED OUTCOME */
-            <div className={`p-6 sm:p-8 rounded-3xl border space-y-5 shadow-2xl animate-in zoom-in-95 duration-200 ${
-              scanState.phase === 'confirmed'
-                ? 'border-emerald-500/50 bg-emerald-950/40'
-                : 'border-sky-500/50 bg-sky-950/40'
-            }`}>
+            <div className={`p-6 sm:p-8 rounded-3xl border space-y-5 shadow-2xl animate-in zoom-in-95 duration-200 ${scanState.phase === 'confirmed'
+              ? 'border-emerald-500/50 bg-emerald-950/40'
+              : 'border-sky-500/50 bg-sky-950/40'
+              }`}>
               <div className="flex items-start gap-3">
-                <div className={`p-3.5 rounded-2xl border ${
-                  scanState.phase === 'confirmed'
-                    ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
-                    : 'bg-sky-500/20 text-sky-400 border-sky-500/30'
-                }`}>
+                <div className={`p-3.5 rounded-2xl border ${scanState.phase === 'confirmed'
+                  ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                  : 'bg-sky-500/20 text-sky-400 border-sky-500/30'
+                  }`}>
                   {scanState.phase === 'confirmed'
                     ? <CheckCircle2 className="w-10 h-10" />
                     : <Clock className="w-10 h-10" />}
                 </div>
                 <div>
-                  <h1 className={`text-3xl sm:text-4xl font-heading font-black tracking-tight leading-none ${
-                    scanState.phase === 'confirmed' ? 'text-emerald-400' : 'text-sky-400'
-                  }`}>{scanState.heading}</h1>
+                  <h1 className={`text-3xl sm:text-4xl font-heading font-black tracking-tight leading-none ${scanState.phase === 'confirmed' ? 'text-emerald-400' : 'text-sky-400'
+                    }`}>{scanState.heading}</h1>
                   <p className="text-sm font-bold mt-1.5 text-gray-200">{scanState.subheading}</p>
                 </div>
               </div>

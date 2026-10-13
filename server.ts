@@ -1875,9 +1875,13 @@ async function finalizeBookingServerSide(
     // 6. Generate Ticket and Booking records
     const isDeferred = deferPayment === true;
     if (isMultiItemOrder) {
-      // Multi-type purchase: one pass record per ticket type line (e.g.
-      // 2 VIP + 3 Kids -> two tickets, each with its own tier, price,
-      // quantity, QR token, and pass slug).
+      // ── CONSOLIDATED MULTI-TIER PASS ────────────────────────────────────────
+      // One booking → one ticket record → one QR pass, regardless of how many
+      // tier-lines are in the order (e.g. 2 Kids + 3 Adults → single pass).
+      //
+      // The full tier breakdown is stored as `items` on the ticket so the pass
+      // page and gate scanner can display every tier and quantity.
+      // Inventory deduction for each tier has already happened above this block.
       const eventRes = await rtdbGet(`events/${eventId}`, authToken);
       const eventData = eventRes.data || {};
       eventTitle = eventData.title || "Live Event";
@@ -1889,111 +1893,134 @@ async function finalizeBookingServerSide(
       date = eventData.date || "Today";
       time = eventData.time || "07:30 PM";
       bookingId = 'bkg_' + Date.now() + '_' + secureRandomHex(4);
-      const subtotalTotal = tierLines.reduce((s, l) => s + (l.price || 0) * (l.quantity || 0), 0);
-      const createdTicketIds: string[] = [];
-      for (let li = 0; li < tierLines.length; li++) {
-        const line = tierLines[li];
-        const lineQty = line.quantity || 1;
-        const lineSubtotal = (line.price || 0) * lineQty;
-        const lineShare = subtotalTotal > 0 ? lineSubtotal / subtotalTotal : 1 / tierLines.length;
-        const tId = 'tkt_' + Date.now() + '_' + secureRandomHex(8) + '_' + li;
-        const tNum = isDeferred
-          ? `ASH-RES-${crypto.randomInt(1000, 10000)}`
-          : `ASH-${crypto.randomInt(1000, 10000)}-SRV`;
-        const tSeatLabel = `${line.tierName}, General Floor`;
-        const tIssuedAt = new Date().toISOString();
-        const tPayload = `${bookingId}|${eventId}|${tSeatLabel}|${tId}|${tIssuedAt}`;
-        const tSig = signHmac(tPayload).substring(0, 16);
-        const tQr = `${isDeferred ? 'ASH_RES' : 'ASH_PASS'}.${Buffer.from(tPayload).toString('base64url')}.${tSig}`;
-        const tPassId = crypto.randomBytes(24).toString('base64url');
-        const tPassSig = signHmac(`${tPassId}|${tId}`).substring(0, 16);
-        const tPassSlug = { id: tPassId, sig: tPassSig, createdAt: Date.now() };
-        const t = {
-          id: tId,
-          ticketNumber: tNum,
-          eventId,
-          orderId,
-          bookingId,
-          eventTitle,
-          eventPoster,
-          venue,
-          city,
-          date,
-          time,
-          tierName: line.tierName,
-          price: line.price || 0,
-          quantity: lineQty,
-          totalPaid: isDeferred
-            ? 0
-            : Math.round(((pendingOrder.isPartial ? (Number(pendingOrder.amountPaid) || 0) : (Number(amount) || 0) - (Number(discountAmount) || 0)) * lineShare) * 100) / 100,
-          discount: Math.round((Number(discountAmount) || 0) * lineShare * 100) / 100,
-          seatNumber: tSeatLabel,
-          selectedSeats: seatIds || [],
-          attendeeName: customerDetails.name,
-          attendeeEmail: customerDetails.email,
-          attendeePhone: customerDetails.phone,
-          qrCodeValue: tQr,
-          passSlug: tPassSlug,
-          tierId: line.tierId || "",
-          eventGoogleMapsQuery: eventData.mapsUrl || (eventData as any).eventGoogleMapsQuery || `${venue}, ${city}`,
-          passType: isDeferred ? 'reservation' : (pendingOrder.isPartial ? 'reservation' : 'entry'),
-          paymentStatus: isDeferred ? 'pending' : (pendingOrder.isPartial ? 'partial' : 'paid'),
-          amountDue: isDeferred
-            ? Math.round((Number(amount) || 0) * lineShare * 100) / 100
-            : (pendingOrder.isPartial ? Math.round((Number(pendingOrder.amountDue) || 0) * lineShare * 100) / 100 : 0),
-          status: 'valid',
-          purchasedAt: new Date().toISOString(),
-          ownerId: userId,
-          scannedByStaffId: pendingOrder?.scannedByStaffId || null,
-          createdByStaffId: pendingOrder?.scannedByStaffId || null,
-          shiftId: pendingOrder?.shiftId || null,
-          counterId: pendingOrder?.counterId || null,
-          counterName: pendingOrder?.counterName || null,
-          issuedBySubUserId: pendingOrder?.issuedBySubUserId || null,
-          issuedBySubUserName: pendingOrder?.issuedBySubUserName || null,
-          ...(pendingOrder?.holdAtCounter ? { holdAtCounter: true } : {}),
-          payments: pendingOrder?.payments || null,
-          paymentMethod: pendingOrder?.paymentMethod || paymentMethod,
-          ...(pendingOrder?.reservationId ? { reservationId: pendingOrder.reservationId } : {}),
-          ...(isMultiItemOrder ? { items: pendingOrder?.items } : {}),
-        };
-        createdTicketIds.push(tId);
-        if (li === 0) {
-          ticketId = tId;
-          ticketNum = tNum;
-          newTicket = t;
-          tierName = line.tierName;
-          price = line.price || 0;
-          seatLabel = tSeatLabel;
-        }
-        await rtdbSet(`tickets/${tId}`, t, authToken);
-        await rtdbSet(`users/${userId}/tickets/${tId}`, t, authToken);
-        await rtdbSet(`passes/${tPassId}`, {
-          ticketId: tId,
-          signature: tPassSig,
-          ticketNumber: tNum,
-          eventTitle,
-          eventPoster,
-          venue,
-          city,
-          date,
-          time,
-          tierName: line.tierName,
-          quantity: lineQty,
-          seatNumber: tSeatLabel,
-          attendeeName: customerDetails.name,
-          qrCodeValue: tQr,
-          status: 'valid',
-          passType: isDeferred ? 'reservation' : 'entry',
-          paymentStatus: isDeferred ? 'pending' : 'paid',
-          amountDue: isDeferred ? amount : 0,
-          redeemedAt: null,
-          redeemedBy: null,
-          createdAt: Date.now(),
-          openCount: 0,
-          eventGoogleMapsQuery: eventData.mapsUrl || (eventData as any).eventGoogleMapsQuery || `${venue}, ${city}`,
-        }, authToken);
-      }
+
+      // Human-readable consolidated tier label, e.g. "Kids ×2 + Adults ×3"
+      const consolidatedTierLabel = tierLines
+        .map((l) => `${l.tierName} ×${l.quantity}`)
+        .join(' + ');
+      // Total guest count across all tiers
+      const totalQty = tierLines.reduce((s, l) => s + (l.quantity || 0), 0);
+      seatLabel = `${consolidatedTierLabel}, General Floor`;
+      tierName = consolidatedTierLabel;
+      price = amount / Math.max(1, totalQty);
+
+      // One ticket ID and ticket number for the whole booking
+      ticketId = 'tkt_' + Date.now() + '_' + secureRandomHex(8);
+      ticketNum = isDeferred
+        ? `ASH-RES-${crypto.randomInt(1000, 10000)}`
+        : `ASH-${crypto.randomInt(1000, 10000)}-SRV`;
+
+      // QR payload encodes the consolidated ticket (same HMAC scheme as single-tier)
+      const issuedAt = new Date().toISOString();
+      const qrPayload = `${bookingId}|${eventId}|${seatLabel}|${ticketId}|${issuedAt}`;
+      const qrSig = signHmac(qrPayload).substring(0, 16);
+      const qrCodeValue = `${isDeferred ? 'ASH_RES' : 'ASH_PASS'}.${Buffer.from(qrPayload).toString('base64url')}.${qrSig}`;
+
+      // Consolidated pass slug (one per booking)
+      const passId = crypto.randomBytes(24).toString('base64url');
+      const passSig = signHmac(`${passId}|${ticketId}`).substring(0, 16);
+      const passSlug = { id: passId, sig: passSig, createdAt: Date.now() };
+
+      const totalPaid = isDeferred
+        ? 0
+        : Math.round(((pendingOrder.isPartial
+          ? (Number(pendingOrder.amountPaid) || 0)
+          : (Number(amount) || 0) - (Number(discountAmount) || 0))) * 100) / 100;
+
+      const amountDueVal = isDeferred
+        ? (Number(amount) || 0)
+        : (pendingOrder.isPartial ? (Number(pendingOrder.amountDue) || 0) : 0);
+
+      // Canonical items array stored on the ticket (server-authoritative tier lines)
+      const canonicalItems = tierLines.map((l) => ({
+        tierId: l.tierId,
+        tierName: l.tierName,
+        price: l.price,
+        quantity: l.quantity,
+      }));
+
+      newTicket = {
+        id: ticketId,
+        ticketNumber: ticketNum,
+        eventId,
+        orderId,
+        bookingId,
+        eventTitle,
+        eventPoster,
+        venue,
+        city,
+        date,
+        time,
+        // tierName is the consolidated label; items carries the full breakdown
+        tierName: consolidatedTierLabel,
+        tierId: tierLines[0]?.tierId || "",
+        price,
+        quantity: totalQty,
+        totalPaid,
+        discount: Number(discountAmount) || 0,
+        seatNumber: seatLabel,
+        selectedSeats: seatIds || [],
+        attendeeName: customerDetails.name,
+        attendeeEmail: customerDetails.email,
+        attendeePhone: customerDetails.phone,
+        qrCodeValue,
+        passSlug,
+        eventGoogleMapsQuery: eventData.mapsUrl || (eventData as any).eventGoogleMapsQuery || `${venue}, ${city}`,
+        passType: isDeferred ? 'reservation' : (pendingOrder.isPartial ? 'reservation' : 'entry'),
+        paymentStatus: isDeferred ? 'pending' : (pendingOrder.isPartial ? 'partial' : 'paid'),
+        amountDue: amountDueVal,
+        status: 'valid',
+        purchasedAt: new Date().toISOString(),
+        ownerId: userId,
+        scannedByStaffId: pendingOrder?.scannedByStaffId || null,
+        createdByStaffId: pendingOrder?.scannedByStaffId || null,
+        shiftId: pendingOrder?.shiftId || null,
+        counterId: pendingOrder?.counterId || null,
+        counterName: pendingOrder?.counterName || null,
+        issuedBySubUserId: pendingOrder?.issuedBySubUserId || null,
+        issuedBySubUserName: pendingOrder?.issuedBySubUserName || null,
+        ...(pendingOrder?.holdAtCounter ? { holdAtCounter: true } : {}),
+        payments: pendingOrder?.payments || null,
+        paymentMethod: pendingOrder?.paymentMethod || paymentMethod,
+        ...(pendingOrder?.reservationId ? { reservationId: pendingOrder.reservationId } : {}),
+        // Full tier breakdown — the authoritative record for the gate scanner
+        // and pass page to display all included ticket types and quantities.
+        items: canonicalItems,
+      } as any;
+
+      await rtdbSet(`tickets/${ticketId}`, newTicket, authToken);
+      await rtdbSet(`users/${userId}/tickets/${ticketId}`, newTicket, authToken);
+
+      // Single consolidated pass record
+      await rtdbSet(`passes/${passId}`, {
+        ticketId,
+        signature: passSig,
+        ticketNumber: ticketNum,
+        eventTitle,
+        eventPoster,
+        venue,
+        city,
+        date,
+        time,
+        tierName: consolidatedTierLabel,
+        quantity: totalQty,
+        seatNumber: seatLabel,
+        attendeeName: customerDetails.name,
+        qrCodeValue,
+        status: 'valid',
+        passType: isDeferred ? 'reservation' : 'entry',
+        paymentStatus: isDeferred ? 'pending' : 'paid',
+        amountDue: amountDueVal,
+        redeemedAt: null,
+        redeemedBy: null,
+        createdAt: Date.now(),
+        openCount: 0,
+        eventGoogleMapsQuery: eventData.mapsUrl || (eventData as any).eventGoogleMapsQuery || `${venue}, ${city}`,
+        // Carry items on the pass record too so the pass endpoint can return
+        // the breakdown without a separate ticket lookup when the pass cache is warm.
+        items: canonicalItems,
+      }, authToken);
+
       newBookingRecord = {
         bookingId,
         userId,
@@ -2003,14 +2030,14 @@ async function finalizeBookingServerSide(
         discount: discountAmount,
         status: 'confirmed',
         paymentStatus: isDeferred ? 'pending' : (pendingOrder.isPartial ? 'partial' : 'paid'),
-        amountDue: isDeferred ? amount : (pendingOrder.isPartial ? pendingOrder.amountDue : 0),
+        amountDue: amountDueVal,
         createdAt: new Date().toISOString(),
         paymentMethod,
         attendeeName: customerDetails.name,
         attendeePhone: customerDetails.phone,
         attendeeEmail: customerDetails.email,
         ticketId,
-        ticketIds: createdTicketIds,
+        ticketIds: [ticketId],
         isWalkIn: paymentMethod.includes('walkin'),
         issuedBySubUserId: pendingOrder?.issuedBySubUserId || null,
         issuedBySubUserName: pendingOrder?.issuedBySubUserName || null,
@@ -8510,6 +8537,17 @@ export async function createApp() {
         eventGoogleMapsQuery: ticketData.eventGoogleMapsQuery || (ticketData as any).mapsUrl || `${ticketData.venue}, ${ticketData.city}`,
         passed,
         sponsors: passSponsors,
+        // Multi-tier breakdown — present only when ticket was booked with mixed types.
+        // RTDB can store the array as a numeric-keyed object; normalise to a plain array.
+        items: (() => {
+          const raw = ticketData.items;
+          if (Array.isArray(raw) && raw.length > 0) return raw;
+          if (raw && typeof raw === 'object') {
+            const vals = Object.values(raw as Record<string, any>).filter(Boolean);
+            if (vals.length > 0) return vals;
+          }
+          return undefined;
+        })(),
       };
 
       console.log(`[PASS:${reqId}] Served pass for ticket ${ticketData.ticketNumber}`);
@@ -8718,6 +8756,16 @@ export async function createApp() {
         eventGoogleMapsQuery: ticketData.eventGoogleMapsQuery || (ticketData as any).mapsUrl || `${ticketData.venue}, ${ticketData.city}`,
         passed,
         sponsors: passSponsors,
+        // Multi-tier breakdown — present only when ticket was booked with mixed types.
+        items: (() => {
+          const raw = ticketData.items;
+          if (Array.isArray(raw) && raw.length > 0) return raw;
+          if (raw && typeof raw === 'object') {
+            const vals = Object.values(raw as Record<string, any>).filter(Boolean);
+            if (vals.length > 0) return vals;
+          }
+          return undefined;
+        })(),
       };
 
       console.log(`[PASS:${reqId}] Served legacy pass for ticket ${ticketData.ticketNumber}`);
