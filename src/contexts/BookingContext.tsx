@@ -150,7 +150,7 @@ interface BookingContextType {
   releaseHeldSeats: (eventId: string, seatIds: string[]) => Promise<void>;
   confirmPurchase: (attendeeDetails: { name: string; email: string; phone: string }, paymentMethod: string, ownerId?: string) => Promise<Ticket>;
   confirmServerPurchasedTicket: (ticket: any, booking: any) => Ticket;
-  createWalkInBooking: (eventId: string, tierId: string, attendeeName: string, attendeePhone: string, scannedByStaffId?: string, selectedSeats?: string[], paymentMethod?: string, options?: { payments?: { method: string; amount: number }[]; discountOverride?: { overrideId: string; discountAmount: number; actorId: string; reason: string }; shiftId?: string; idempotencyKey?: string; quantity?: number; counterId?: string; holdAtCounter?: boolean }) => Promise<Ticket>;
+  createWalkInBooking: (eventId: string, tierId: string, attendeeName: string, attendeePhone: string, scannedByStaffId?: string, selectedSeats?: string[], paymentMethod?: string, options?: { payments?: { method: string; amount: number }[]; discountOverride?: { overrideId: string; discountAmount: number; actorId: string; reason: string }; shiftId?: string; idempotencyKey?: string; quantity?: number; counterId?: string; subUserId?: string; subUserName?: string; items?: { tierId: string; tierName?: string; quantity: number }[]; holdAtCounter?: boolean }) => Promise<Ticket>;
   getEventById: (id: string) => EventItem | undefined;
   addEvent: (newEvent: Omit<EventItem, 'id' | 'rating' | 'reviewsCount'>) => void;
   updateEvent: (updatedEvent: EventItem) => void;
@@ -952,17 +952,30 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     const ticket = data.ticket as Ticket;
     const booking = data.booking as BookingRecord;
-    const countToDeduct = ticket.quantity || selectedSeats?.length || 1;
+    // Build a map of tier deductions from the multi-item list when present,
+    // otherwise fall back to the single-tier quantity used in the simple case.
+    const mixedItems = Array.isArray(options?.items) && options!.items!.length > 0 ? options!.items! : null;
+    const deductionMap: Record<string, number> = {};
+    if (mixedItems) {
+      for (const line of mixedItems) {
+        deductionMap[line.tierId] = (deductionMap[line.tierId] || 0) + line.quantity;
+      }
+    } else {
+      const countToDeduct = ticket.quantity || selectedSeats?.length || 1;
+      deductionMap[tierId] = countToDeduct;
+    }
     setEvents((prev) => prev.map((event) => event.id !== eventId ? event : {
       ...event,
       ticketTiers: (Array.isArray(event.ticketTiers)
         ? event.ticketTiers
         : (event.ticketTiers && typeof event.ticketTiers === 'object')
           ? Object.values(event.ticketTiers)
-          : []).filter(Boolean).map((tier: any) =>
-        !tier ? tier : tier.id !== tierId
-          ? tier
-          : { ...tier, remainingInventory: Math.max(0, (tier.remainingInventory || 0) - countToDeduct) }),
+          : []).filter(Boolean).map((tier: any) => {
+          if (!tier) return tier;
+          const deduct = deductionMap[tier.id];
+          if (!deduct) return tier;
+          return { ...tier, remainingInventory: Math.max(0, (tier.remainingInventory || 0) - deduct) };
+        }),
     }));
     setAllTickets((prev) => [ticket, ...prev.filter((item) => item.id !== ticket.id)]);
     setMyTickets((prev) => [ticket, ...prev.filter((item) => item.id !== ticket.id)]);
