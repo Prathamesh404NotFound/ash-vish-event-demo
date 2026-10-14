@@ -6011,6 +6011,7 @@ export async function createApp() {
             amount: Number(linkedOrder?.amount ?? ticket.totalPaid ?? ((ticket.price || 0) * quantity)) || 0,
             amountPaid: Number(linkedOrder?.amountPaid ?? ticket.totalPaid ?? 0) || 0,
             discount: Number(linkedOrder?.discount ?? ticket.discount ?? 0) || 0,
+            priceAdjustment: linkedOrder?.priceAdjustment || ticket.priceAdjustment || null,
             couponCode: linkedOrder?.couponCode || ticket.couponCode || null,
             quantity,
             paymentMethod,
@@ -6038,6 +6039,8 @@ export async function createApp() {
         const paymentMethod = String(order.paymentMethod || "");
         const discountAmount = Number(order.discount || 0) || 0;
         const issuer = order.issuedBySubUserName || order.createdBy || null;
+        const adjType: string = order.priceAdjustment?.type || '';
+        const adjAmount: number = Number(order.priceAdjustment?.amount || 0);
         return {
           ...order,
           eventTitle: order.eventTitle || event?.title || event?.name || null,
@@ -6047,7 +6050,15 @@ export async function createApp() {
           customerPhone: customer.phone || null,
           quantity,
           discountAmount,
-          discountLabel: order.couponCode ? `Coupon ${order.couponCode}` : (discountAmount > 0 ? "Discount applied" : "No discount"),
+          // Explicit type-aware label so the frontend table shows the right text
+          // even when priceAdjustment comes through on the order.
+          discountLabel: (() => {
+            if (adjType === 'increase' && adjAmount > 0) return `Price increase +₹${adjAmount}`;
+            if (order.couponCode) return `Coupon ${order.couponCode}`;
+            if (adjType === 'discount' && adjAmount > 0) return `Discount ₹${adjAmount} off`;
+            if (discountAmount > 0) return 'Discount applied';
+            return 'No adjustment';
+          })(),
           issuedBy: issuer,
           paymentMethodLabel: paymentMethod
             ? paymentMethod.replace(/^walkin[_-]?/i, "").replace(/^manual[_-]?/i, "").replace(/[_-]+/g, " ").replace(/\b\w/g, (char: string) => char.toUpperCase())
