@@ -253,6 +253,30 @@ export interface OrganizerAccount {
   eventsCount?: number;
 }
 
+/**
+ * Manager-applied price adjustment for a walk-in / counter booking.
+ * Replaces the legacy "discount-only" override with an explicit two-mode
+ * structure so audits, reports, and receipts can clearly distinguish a
+ * markdown from a surcharge.
+ *
+ * Backward-compatibility note: old bookings only have a numeric `discount`
+ * field; interpret the absence of `priceAdjustment` as an implicit discount.
+ */
+export interface PriceAdjustment {
+  /** Whether the manager reduced or increased the ticket price. */
+  type: 'discount' | 'increase';
+  /** The signed INR amount applied — always positive, sign is conveyed by `type`. */
+  amount: number;
+  /** Reason entered by the manager (free text, max 200 chars). */
+  reason: string;
+  /** UID of the staff member who authorised the adjustment. */
+  approvedBy: string;
+  /** Display name of the approving staff member (best-effort). */
+  approvedByName?: string;
+  /** ISO timestamp of when the adjustment was approved. */
+  approvedAt: string;
+}
+
 export interface Ticket {
   id: string;
   ticketNumber: string;
@@ -267,6 +291,15 @@ export interface Ticket {
   price: number;
   quantity: number;
   totalPaid: number;
+  /**
+   * Combined total discount applied to this ticket (early-bird + coupon +
+   * manager override discount). Always ≥ 0. For manager price-increases, this
+   * field stays 0 and the increase is expressed in `priceAdjustment`.
+   */
+  discount?: number;
+  /** Structured manager price adjustment — present when a manager applied a
+   *  discount or a price increase during a walk-in / counter booking. */
+  priceAdjustment?: PriceAdjustment;
   seatNumber: string;
   selectedSeats?: string[];
   attendeeName: string;
@@ -401,6 +434,10 @@ export interface BookingRecord {
   eventId: string;
   seatIds: string[];
   totalAmount: number;
+  /** Combined discount (early-bird + coupon + manager discount). Always ≥ 0. */
+  discount?: number;
+  /** Structured manager price adjustment, mirrored from the ticket record. */
+  priceAdjustment?: PriceAdjustment;
   status: 'pending' | 'confirmed' | 'cancelled';
   createdAt: string;
   paymentMethod?: string;

@@ -251,11 +251,11 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       tier: dbTier ? { ...currentCheckout.tier, ...dbTier } : currentCheckout.tier,
       ...(multiItems
         ? {
-            items: multiItems.map((it) => {
-              const dbT = dbTiers.find((t) => t.id === it.tierId);
-              return dbT ? { ...it, price: dbT.price, tierName: dbT.name } : it;
-            }),
-          }
+          items: multiItems.map((it) => {
+            const dbT = dbTiers.find((t) => t.id === it.tierId);
+            return dbT ? { ...it, price: dbT.price, tierName: dbT.name } : it;
+          }),
+        }
         : {}),
     });
   }, [events]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -727,11 +727,11 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         seatIds: Array.isArray(data.seatIds) ? data.seatIds : [],
         status: data.status,
         ownerId: data.ownerId,
-      expiresAt: data.expiresAt,
-      serverNow: data.serverNow,
-      holdTtlMs: data.holdTtlMs,
-      attendee: data.attendee,
-      ...(Array.isArray(data.items) && data.items.length > 0 ? { items: data.items } : {}),
+        expiresAt: data.expiresAt,
+        serverNow: data.serverNow,
+        holdTtlMs: data.holdTtlMs,
+        attendee: data.attendee,
+        ...(Array.isArray(data.items) && data.items.length > 0 ? { items: data.items } : {}),
       };
       setReservation(next);
       return next;
@@ -918,7 +918,7 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     scannedByStaffId?: string,
     selectedSeats?: string[],
     paymentMethod: string = 'cash',
-    options?: { payments?: { method: string; amount: number }[]; discountOverride?: { overrideId: string; discountAmount: number; actorId: string; reason: string }; shiftId?: string; idempotencyKey?: string; quantity?: number; counterId?: string; subUserId?: string; subUserName?: string; items?: { tierId: string; tierName?: string; quantity: number }[]; holdAtCounter?: boolean }
+    options?: { payments?: { method: string; amount: number }[]; discountOverride?: { overrideId: string; discountAmount: number; actorId: string; reason: string }; priceAdjustmentOverride?: { overrideId: string; adjustmentType: 'discount' | 'increase'; adjustmentAmount: number; actorId: string; reason: string }; shiftId?: string; idempotencyKey?: string; quantity?: number; counterId?: string; subUserId?: string; subUserName?: string; items?: { tierId: string; tierName?: string; quantity: number }[]; holdAtCounter?: boolean }
   ): Promise<Ticket> => {
     const response = await safeFetch<any>('/api/walk-in-bookings', {
       method: 'POST',
@@ -934,7 +934,10 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         ...(Number.isInteger(options?.quantity) && (options?.quantity as number) > 0 ? { quantity: options?.quantity } : {}),
         ...(Array.isArray(options?.items) && options!.items!.length > 0 ? { items: options!.items } : {}),
         ...(options?.payments ? { payments: options.payments } : {}),
-        ...(options?.discountOverride ? { discountOverride: options.discountOverride } : {}),
+        // Support new priceAdjustmentOverride (discount OR increase); fall back
+        // to legacy discountOverride so old callers keep working.
+        ...(options?.priceAdjustmentOverride ? { priceAdjustmentOverride: options.priceAdjustmentOverride } : {}),
+        ...(options?.discountOverride && !options?.priceAdjustmentOverride ? { discountOverride: options.discountOverride } : {}),
         ...(options?.shiftId ? { shiftId: options.shiftId } : {}),
         ...(options?.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {}),
         ...(options?.counterId ? { counterId: options.counterId } : {}),
@@ -971,11 +974,11 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         : (event.ticketTiers && typeof event.ticketTiers === 'object')
           ? Object.values(event.ticketTiers)
           : []).filter(Boolean).map((tier: any) => {
-          if (!tier) return tier;
-          const deduct = deductionMap[tier.id];
-          if (!deduct) return tier;
-          return { ...tier, remainingInventory: Math.max(0, (tier.remainingInventory || 0) - deduct) };
-        }),
+            if (!tier) return tier;
+            const deduct = deductionMap[tier.id];
+            if (!deduct) return tier;
+            return { ...tier, remainingInventory: Math.max(0, (tier.remainingInventory || 0) - deduct) };
+          }),
     }));
     setAllTickets((prev) => [ticket, ...prev.filter((item) => item.id !== ticket.id)]);
     setMyTickets((prev) => [ticket, ...prev.filter((item) => item.id !== ticket.id)]);
@@ -1002,13 +1005,13 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         ...(newEventData.usesSeatMap === false
           ? {}
           : {
-              seatMap: newEventData.seatMap || {
-                rows: 6,
-                cols: 8,
-                aisleAfterCols: [4],
-                tierByRow: { '1-2': 'VIP Skybox Lounge', '3-6': 'General Admission' },
-              },
-            }),
+            seatMap: newEventData.seatMap || {
+              rows: 6,
+              cols: 8,
+              aisleAfterCols: [4],
+              tierByRow: { '1-2': 'VIP Skybox Lounge', '3-6': 'General Admission' },
+            },
+          }),
       }),
     });
     const data = response.data || {};

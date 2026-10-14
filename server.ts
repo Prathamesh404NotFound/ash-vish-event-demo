@@ -1375,6 +1375,7 @@ async function recordOrder(params: {
   customerDetails: { name: string; email: string; phone: string };
   amount: number;
   discount?: number;
+  priceAdjustment?: { type: string; amount: number; reason: string; approvedBy: string; approvedAt: string } | null;
   couponCode?: string | null;
   paymentMethod: string;
   paymentStatus?: "paid" | "pending";
@@ -1406,6 +1407,7 @@ async function recordOrder(params: {
       },
       amount: Number(params.amount) || 0,
       discount: Number(params.discount) || 0,
+      ...(params.priceAdjustment ? { priceAdjustment: params.priceAdjustment } : {}),
       couponCode: params.couponCode || null,
       paymentMethod: String(params.paymentMethod || ""),
       paymentStatus: params.paymentStatus || "paid",
@@ -1462,6 +1464,7 @@ async function reconstructOrderFromTickets(orderId: string, authToken: string): 
       },
       amount: Number(linkedTicket.totalPaid || 0) || Number(linkedBooking?.totalAmount || 0) || 0,
       discount: Number(linkedTicket.discount || 0) || Number(linkedBooking?.discount || 0) || 0,
+      priceAdjustment: linkedTicket.priceAdjustment || linkedBooking?.priceAdjustment || null,
       couponCode: null,
       paymentMethod: linkedTicket.paymentMethod || linkedBooking?.paymentMethod || "",
       paymentStatus: "paid",
@@ -1662,6 +1665,13 @@ async function finalizeBookingServerSide(
     // coupon before building the pending order).
     const couponCode: string | null = pendingOrder.couponCode || explicitCouponCode || null;
     const discountAmount = Number(discount) || 0;
+    // Manager price adjustment stored on the pending order by the walk-in route.
+    // For increases, pendingOrder.managerIncrease holds the added amount;
+    // the priceAdjustment sub-object carries type, reason, and approver details.
+    const pendingPriceAdjustment = pendingOrder.priceAdjustment || null;
+    const pendingManagerIncrease = pendingPriceAdjustment?.type === 'increase'
+      ? Number(pendingPriceAdjustment.amount) || 0
+      : 0;
     const now = Date.now();
     // Production hardening: the live event tier price is the sole source of truth.
     let serverCalculatedRecheck = 0;
@@ -1929,7 +1939,7 @@ async function finalizeBookingServerSide(
         ? 0
         : Math.round(((pendingOrder.isPartial
           ? (Number(pendingOrder.amountPaid) || 0)
-          : (Number(amount) || 0) - (Number(discountAmount) || 0))) * 100) / 100;
+          : (Number(amount) || 0) - (Number(discountAmount) || 0) + pendingManagerIncrease)) * 100) / 100;
 
       const amountDueVal = isDeferred
         ? (Number(amount) || 0)
@@ -1962,6 +1972,7 @@ async function finalizeBookingServerSide(
         quantity: totalQty,
         totalPaid,
         discount: Number(discountAmount) || 0,
+        ...(pendingPriceAdjustment ? { priceAdjustment: pendingPriceAdjustment } : {}),
         seatNumber: seatLabel,
         selectedSeats: seatIds || [],
         attendeeName: customerDetails.name,
@@ -2032,6 +2043,7 @@ async function finalizeBookingServerSide(
         seatIds: seatIds || [],
         totalAmount: amount,
         discount: discountAmount,
+        ...(pendingPriceAdjustment ? { priceAdjustment: pendingPriceAdjustment } : {}),
         status: 'confirmed',
         paymentStatus: isDeferred ? 'pending' : (pendingOrder.isPartial ? 'partial' : 'paid'),
         amountDue: amountDueVal,
@@ -2116,8 +2128,9 @@ async function finalizeBookingServerSide(
         tierName,
         price,
         quantity,
-        totalPaid: isDeferred ? 0 : (pendingOrder.isPartial ? pendingOrder.amountPaid : (Number(amount) || 0) - (Number(discountAmount) || 0)),
+        totalPaid: isDeferred ? 0 : (pendingOrder.isPartial ? pendingOrder.amountPaid : (Number(amount) || 0) - (Number(discountAmount) || 0) + pendingManagerIncrease),
         discount: discountAmount,
+        ...(pendingPriceAdjustment ? { priceAdjustment: pendingPriceAdjustment } : {}),
         seatNumber: seatLabel,
         selectedSeats: seatIds || [],
         attendeeName: customerDetails.name,
@@ -2153,6 +2166,7 @@ async function finalizeBookingServerSide(
         seatIds: seatIds || [],
         totalAmount: amount,
         discount: discountAmount,
+        ...(pendingPriceAdjustment ? { priceAdjustment: pendingPriceAdjustment } : {}),
         status: 'confirmed',
         paymentStatus: isDeferred ? 'pending' : (pendingOrder.isPartial ? 'partial' : 'paid'),
         amountDue: isDeferred ? amount : (pendingOrder.isPartial ? pendingOrder.amountDue : 0),
@@ -2246,6 +2260,7 @@ async function finalizeBookingServerSide(
       customerDetails: customerDetails || {},
       amount,
       discount: pendingOrder?.discount || 0,
+      priceAdjustment: pendingPriceAdjustment || null,
       couponCode: couponCodeUpper,
       paymentMethod,
       paymentStatus: isDeferred ? "pending" : "paid",
@@ -5041,7 +5056,16 @@ export async function createApp() {
 
   app.post("/api/walk-in-bookings", verifyRole(['admin', 'ticket_counter']), async (req: any, res) => {
     try {
-      const { eventId, tierId: rawTierId, attendeeName, attendeePhone, attendeeEmail, selectedSeats = [], paymentMethod = 'cash', couponCode: rawCouponCode, payments: rawPayments, discountOverride: rawOverride, shiftId, idempotencyKey, counterId: rawCounterId, scannedByStaffId, subUserId, subUserName, holdAtCounter: rawHoldAtCounter, items: rawItems } = req.body || {};
+      const { eventId, tierId: rawTierId, attendeeName, attendeePhone, attendeeEmail, selectedSeats = [], paymentMethod = 'cash', couponCode: rawCouponCode, payments: rawPayments, discountOverride: rawLegacyOverride, priceAdjustmentOverride: rawNewOverride, shiftId, idempotencyKey, counterId: rawCounterId, scannedByStaffId, subUserId, subUserName, holdAtCounter: rawHoldAtCounter, items: rawItems } = req.body || {};
+      // Support both the new priceAdjustmentOverride field and the legacy
+      // discountOverride field so existing integrations keep working.
+      const rawOverride = rawNewOverride || (rawLegacyOverride ? {
+        overrideId: rawLegacyOverride.overrideId,
+        adjustmentType: 'discount' as const,
+        adjustmentAmount: rawLegacyOverride.discountAmount,
+        actorId: rawLegacyOverride.actorId,
+        reason: rawLegacyOverride.reason,
+      } : null);
       let tierId: string = String(rawTierId || "");
 
       // Idempotency: same key returns the same completed result
@@ -5285,36 +5309,47 @@ export async function createApp() {
       // (totalPaid = amount - discount), so staff receipts and reports show
       // the combined savings without any double-subtraction.
       discountAmount += earlyBirdDiscount;
-      // Discount override (Item 6): the frontend posts an approved override;
-      // manager-level roles and counter staff (ticket_counter) may supply one,
-      // and it must never exceed the order amount.
-      let overrideDiscount = 0;
-      let discountOverrideRecord: any = null;
+      // Manager price adjustment: can be a discount (reduces total) or a price
+      // increase (adds to total). The legacy discountOverride field is normalised
+      // to the same shape above, so this block handles both paths uniformly.
+      let overrideAdjustment = 0;
+      let adjustmentIsIncrease = false;
+      let priceAdjustmentRecord: any = null;
       if (rawOverride && typeof rawOverride === "object") {
         const actorRbac = (req.user.rbacRole as string) || "";
         const userRole = (req.user.role as string) || "";
         if (actorRbac !== "super_admin" && actorRbac !== "event_manager" && actorRbac !== "counter_staff" && userRole !== "admin" && userRole !== "ticket_counter") {
-          return res.status(403).json({ success: false, error: "Access Denied: Discount overrides require an authorized staff role." });
+          return res.status(403).json({ success: false, error: "Access Denied: Price adjustments require an authorized staff role." });
         }
-        const rawD = Number(rawOverride.discountAmount);
-        if (!Number.isFinite(rawD) || rawD < 0 || rawD > lineAmount) {
-          return res.status(400).json({ success: false, error: "Override discount must be between 0 and the order amount." });
+        const adjType: "discount" | "increase" = rawOverride.adjustmentType === "increase" ? "increase" : "discount";
+        const rawAdj = Number(rawOverride.adjustmentAmount ?? rawOverride.discountAmount);
+        if (!Number.isFinite(rawAdj) || rawAdj < 0) {
+          return res.status(400).json({ success: false, error: "Adjustment amount must be a non-negative number." });
         }
-        overrideDiscount = Math.round(rawD);
-        discountOverrideRecord = {
-          discountAmount: overrideDiscount,
-          reason: String(rawOverride.reason || "").slice(0, 200) || "Manager discount override",
+        if (adjType === "discount" && rawAdj > lineAmount) {
+          return res.status(400).json({ success: false, error: "Discount cannot exceed the order amount." });
+        }
+        overrideAdjustment = Math.round(rawAdj);
+        adjustmentIsIncrease = adjType === "increase";
+        priceAdjustmentRecord = {
+          type: adjType,
+          amount: overrideAdjustment,
+          reason: String(rawOverride.reason || "").slice(0, 200) || (adjType === "increase" ? "Manager price increase" : "Manager discount override"),
           approvedBy: String(rawOverride.actorId || req.user.uid).slice(0, 64),
           approvedAt: new Date().toISOString(),
         };
-        discountAmount += overrideDiscount;
+        // Discounts reduce the running total; increases are added after the cap.
+        if (adjType === "discount") {
+          discountAmount += overrideAdjustment;
+        }
       }
-      // Combined discount (coupon + early bird + override) can never exceed
-      // the order amount — protects totalPaid from going negative.
+      // Coupon + early-bird + manager discount can never exceed the order amount.
       discountAmount = Math.min(discountAmount, lineAmount);
+      // Apply manager increase on top of the discounted amount.
+      const managerIncrease = adjustmentIsIncrease ? overrideAdjustment : 0;
       // Round to 2 decimal places so the split-payment sum validation never
       // diverges from the displayed amount due to floating-point arithmetic.
-      const netTotal = Math.round(Math.max(0, lineAmount - discountAmount) * 100) / 100;
+      const netTotal = Math.round(Math.max(0, lineAmount - discountAmount + managerIncrease) * 100) / 100;
       if (splitPayments.length > 0) {
         const sum = splitPayments.reduce((acc, curr) => acc + curr.amount, 0);
         // Use 0.01 tolerance for floating point precision issues
@@ -5347,7 +5382,9 @@ export async function createApp() {
         // Net amount after discount is the source of truth for what was paid.
         totalPaid: netTotal,
         ...(splitPayments.length > 0 ? { payments: splitPayments } : {}),
-        ...(discountOverrideRecord ? { discountOverride: discountOverrideRecord } : {}),
+        ...(priceAdjustmentRecord ? { priceAdjustment: priceAdjustmentRecord } : {}),
+        // Legacy field for backward compatibility with any existing readers
+        ...(priceAdjustmentRecord?.type === 'discount' ? { discountOverride: { discountAmount: priceAdjustmentRecord.amount, reason: priceAdjustmentRecord.reason, approvedBy: priceAdjustmentRecord.approvedBy, approvedAt: priceAdjustmentRecord.approvedAt } } : {}),
         ...(earlyBirdApplied ? { earlyBird: true, earlyBirdDiscount } : {}),
         ...(shiftCode ? { shiftId: shiftCode, staffShiftId: shiftCode } : {}),
         ...(rawCid ? { counterId: rawCid, counterName } : {}),
@@ -5377,8 +5414,9 @@ export async function createApp() {
           eventId, tierId, quantity, attendee: customerDetails.name, paymentMethod,
           couponCode: couponCodeUpper,
           discount: discountAmount,
+          ...(managerIncrease > 0 ? { managerPriceIncrease: managerIncrease } : {}),
           ...(splitPayments.length > 0 ? { payments: splitPayments } : {}),
-          ...(discountOverrideRecord ? { discountOverride: discountOverrideRecord } : {}),
+          ...(priceAdjustmentRecord ? { priceAdjustment: priceAdjustmentRecord } : {}),
           ...(shiftCode ? { shiftId: shiftCode } : {}),
           ...(rawCid ? { counterId: rawCid, counterName } : {}),
         },
@@ -9561,6 +9599,76 @@ export async function createApp() {
   });
 
   // Discount override approval: managers/admins and counter staff may approve.
+  // ── Manager Price Adjustment (discount OR price increase) ───────────────
+  // Authorises a manager-gated price adjustment for a walk-in / counter booking.
+  // Replaces the legacy /api/counter/discount-override endpoint (kept below as
+  // a backward-compatibility alias) with a two-mode version that can reduce
+  // OR increase the ticket price.
+  app.post("/api/counter/price-adjustment", requireRole(["event_manager", "super_admin", "counter_staff"]), async (req: any, res) => {
+    try {
+      const actorUid = req.user.uid;
+      const rbacRole = (req.user.rbacRole as string) || "event_manager";
+      const { eventId, orderAmount, adjustmentType: rawType, adjustmentAmount: rawAmount, reason } = req.body || {};
+
+      if (!eventId || !orderAmount) {
+        return res.status(400).json({ success: false, error: "eventId and orderAmount are required." });
+      }
+      const amount = Number(orderAmount);
+      if (!Number.isFinite(amount) || amount <= 0) {
+        return res.status(400).json({ success: false, error: "orderAmount must be a positive number." });
+      }
+
+      // Validate adjustmentType — must be explicit to avoid ambiguity.
+      const adjustmentType: "discount" | "increase" = rawType === "increase" ? "increase" : "discount";
+
+      const adj = Number(rawAmount);
+      if (!Number.isFinite(adj) || adj < 0) {
+        return res.status(400).json({ success: false, error: "adjustmentAmount must be a non-negative number." });
+      }
+      // Discount cannot exceed the order total (would make price negative).
+      if (adjustmentType === "discount" && adj > amount) {
+        return res.status(400).json({ success: false, error: "Discount amount cannot exceed the order total." });
+      }
+      const adjustmentAmount = Math.round(adj);
+
+      const staffSnap = await rtdbGet(`staff/${actorUid}`, req.user.idToken);
+      const staffName = (staffSnap?.data as any)?.name || req.user.email || actorUid;
+      const overrideId = `adj_${Date.now()}_${secureRandomHex(4)}`;
+
+      await writeAuditEntry({
+        actorId: actorUid,
+        actorRole: rbacRole,
+        action: adjustmentType === "increase" ? "price.increase" : "discount.override",
+        entityType: "event",
+        entityId: String(eventId),
+        afterState: {
+          overrideId,
+          eventId,
+          orderAmount: amount,
+          adjustmentType,
+          adjustmentAmount,
+          approvedBy: actorUid,
+          approvedByName: staffName,
+          reason: String(reason || "").trim() || (adjustmentType === "increase" ? "Manager price increase" : "Manager discount override"),
+        },
+      });
+
+      return res.status(200).json({
+        success: true,
+        priceAdjustment: {
+          overrideId,
+          adjustmentType,
+          adjustmentAmount,
+          actorId: actorUid,
+          actorName: staffName,
+        },
+      });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || "Could not approve price adjustment." });
+    }
+  });
+
+  // Legacy alias — keeps old clients working while the new endpoint is adopted.
   app.post("/api/counter/discount-override", requireRole(["event_manager", "super_admin", "counter_staff"]), async (req: any, res) => {
     try {
       const actorUid = req.user.uid;

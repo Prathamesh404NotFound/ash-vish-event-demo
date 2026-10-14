@@ -203,6 +203,26 @@ export const generateTicketPDF = async (
   doc.setFontSize(10);
   doc.text(`INR ${ticket.totalPaid}`, 114, 142);
 
+  // Show manager price adjustment if present
+  const pa = (ticket as any).priceAdjustment;
+  const legacyDiscount = (ticket as any).discount || 0;
+  if (pa?.type === 'increase' && pa.amount > 0) {
+    doc.setTextColor(251, 191, 36); // amber
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.5);
+    doc.text(`Price Increase Applied: +INR ${pa.amount}`, 114, 146.5);
+  } else if (pa?.type === 'discount' && pa.amount > 0) {
+    doc.setTextColor(52, 211, 153); // emerald
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.5);
+    doc.text(`Manager Discount: -INR ${pa.amount}`, 114, 146.5);
+  } else if (legacyDiscount > 0) {
+    doc.setTextColor(52, 211, 153);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.5);
+    doc.text(`Discount Applied: -INR ${legacyDiscount}`, 114, 146.5);
+  }
+
   // 9. Luxurious Security QR Code Container Portal Box (y: 152 to 240)
   doc.setFillColor(cardBg[0], cardBg[1], cardBg[2]);
   doc.roundedRect(23, 152, 164, 88, 5, 5, 'F');

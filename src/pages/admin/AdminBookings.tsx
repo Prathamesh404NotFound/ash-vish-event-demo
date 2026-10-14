@@ -81,6 +81,8 @@ interface AdminOrder {
   issuedBy?: string;
   discountAmount?: number;
   discountLabel?: string;
+  /** Structured price adjustment from the new system (discount OR increase). */
+  priceAdjustment?: { type: 'discount' | 'increase'; amount: number; reason?: string; approvedBy?: string; approvedAt?: string } | null;
   couponCode?: string;
   createdAt?: string;
   createdAtMs?: number;
@@ -314,15 +316,20 @@ export const AdminBookings: React.FC = () => {
         seatsCount: 1,
         status: t.status,
         channel: t.isWalkIn ? 'counter' : 'online',
-          createdAt: t.purchasedAt,
-          ticketNumber: t.ticketNumber,
-          counterName: t.counterName,
-          issuedBySubUserName: t.issuedBySubUserName,
-          issuedBy: t.createdByStaffId || t.scannedByStaffId,
-          discountAmount: Number(t.discount || 0),
-          discountLabel: Number(t.discount || 0) > 0 ? 'Discount applied' : 'No discount',
-          paymentMethodLabel: t.paymentMethod,
-        })),
+        createdAt: t.purchasedAt,
+        ticketNumber: t.ticketNumber,
+        counterName: t.counterName,
+        issuedBySubUserName: t.issuedBySubUserName,
+        issuedBy: t.createdByStaffId || t.scannedByStaffId,
+        discountAmount: Number(t.discount || 0),
+        discountLabel: (() => {
+          const pa = (t as any).priceAdjustment;
+          if (pa?.type === 'increase') return 'Price increased';
+          return Number(t.discount || 0) > 0 ? 'Discount applied' : 'No adjustment';
+        })(),
+        priceAdjustment: (t as any).priceAdjustment || null,
+        paymentMethodLabel: t.paymentMethod,
+      })),
     [allTickets]
   );
   // Only fall back to the local RTDB ticket list when the orders API cannot be
@@ -359,6 +366,7 @@ export const AdminBookings: React.FC = () => {
         { id: 'Quantity', value: (o: AdminOrder) => o.quantity || o.seatsCount || 1 },
         { id: 'Amount', value: (o: AdminOrder) => `₹${o.totalAmount ?? (o as any).amount ?? o.amountPaid ?? 0}` },
         { id: 'Discount', value: (o: AdminOrder) => (o as any).discountAmount || 0 },
+        { id: 'Adjustment Type', value: (o: AdminOrder) => (o as any).priceAdjustment?.type || ((o as any).discountAmount > 0 ? 'discount' : 'none') },
         { id: 'Amount Paid', value: (o: AdminOrder) => o.amountPaid ?? '' },
         { id: 'Status', value: (o: AdminOrder) => o.status || '' },
         { id: 'Channel', value: (o: AdminOrder) => o.channel || '' },
@@ -954,11 +962,10 @@ export const AdminBookings: React.FC = () => {
       {/* Feedback Banner */}
       {banner && (
         <div
-          className={`p-3.5 rounded-2xl border text-xs flex items-center gap-2 ${
-            banner.type === 'success'
-              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-              : 'bg-red-500/10 border-red-500/30 text-red-400'
-          }`}
+          className={`p-3.5 rounded-2xl border text-xs flex items-center gap-2 ${banner.type === 'success'
+            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+            : 'bg-red-500/10 border-red-500/30 text-red-400'
+            }`}
         >
           {banner.type === 'success' ? (
             <CheckCircle2 className="w-4 h-4 shrink-0" />
@@ -979,7 +986,10 @@ export const AdminBookings: React.FC = () => {
         <div className="p-5 rounded-3xl bg-[#141414] border border-white/10">
           <p className="text-gray-500 text-[10px] font-black uppercase tracking-widest">Total discount</p>
           <p className="text-2xl font-heading font-extrabold text-white mt-2">₹{Number(summary.totalDiscount || 0).toLocaleString('en-IN')}</p>
-          <p className="text-sky-400 text-[10px] mt-1">Savings given to customers</p>
+          <p className="text-sky-400 text-[10px] mt-1">Manager discounts given</p>
+          {Number((summary as any).totalPriceIncrease || 0) > 0 && (
+            <p className="text-amber-400 text-[10px] mt-0.5">+₹{Number((summary as any).totalPriceIncrease).toLocaleString('en-IN')} price increases</p>
+          )}
         </div>
         <div className="p-5 rounded-3xl bg-[#141414] border border-white/10">
           <p className="text-gray-500 text-[10px] font-black uppercase tracking-widest">Current tickets</p>
@@ -995,7 +1005,7 @@ export const AdminBookings: React.FC = () => {
           <span>Filters &amp; Search</span>
         </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 gap-3">
           <div className="relative">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
@@ -1286,8 +1296,13 @@ export const AdminBookings: React.FC = () => {
                       ) : (
                         <span className="text-emerald-400 text-[10px]">Paid in full</span>
                       )}
-                      <span className={`text-[10px] block mt-1 ${discount > 0 ? 'text-sky-400' : 'text-gray-500'}`}>
-                        {discount > 0 ? `Discount: ₹${discount.toLocaleString('en-IN')} off` : 'No discount'}
+                      <span className={`text-[10px] block mt-1 ${(o as any).priceAdjustment?.type === 'increase'
+                        ? 'text-amber-400'
+                        : discount > 0 ? 'text-sky-400' : 'text-gray-500'
+                        }`}>
+                        {(o as any).priceAdjustment?.type === 'increase'
+                          ? `Price Increase: +₹${Number((o as any).priceAdjustment.amount).toLocaleString('en-IN')}`
+                          : discount > 0 ? `Discount: ₹${discount.toLocaleString('en-IN')} off` : 'No adjustment'}
                       </span>
                       {o.couponCode && <span className="text-gray-500 text-[10px] block">Coupon: {o.couponCode}</span>}
                     </td>
@@ -1298,9 +1313,8 @@ export const AdminBookings: React.FC = () => {
                     </td>
                     <td className="p-4">
                       <span
-                        className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase border ${
-                          STATUS_STYLES[st] || STATUS_STYLES.pending
-                        }`}
+                        className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase border ${STATUS_STYLES[st] || STATUS_STYLES.pending
+                          }`}
                       >
                         {st}
                       </span>
@@ -1676,12 +1690,29 @@ export const AdminBookings: React.FC = () => {
                 <p className="text-emerald-400 mt-1">{detailsOrder.paymentStatus || detailsOrder.status || 'Confirmed'}</p>
               </div>
               <div className="p-3 rounded-xl bg-white/5 border border-white/10">
-                <p className="text-gray-500 mb-1">Discount</p>
-                <p className={Number(detailsOrder.discountAmount ?? detailsOrder.discount ?? 0) > 0 ? 'text-sky-400 font-bold' : 'text-gray-300 font-bold'}>
-                  {Number(detailsOrder.discountAmount ?? detailsOrder.discount ?? 0) > 0
-                    ? `₹${Number(detailsOrder.discountAmount ?? detailsOrder.discount).toLocaleString('en-IN')} off`
-                    : 'No discount added'}
-                </p>
+                <p className="text-gray-500 mb-1">Price Adjustment</p>
+                {(() => {
+                  const pa = (detailsOrder as any).priceAdjustment;
+                  const discAmt = Number(detailsOrder.discountAmount ?? detailsOrder.discount ?? 0);
+                  if (pa?.type === 'increase') {
+                    return (
+                      <>
+                        <p className="text-amber-400 font-bold">+₹{Number(pa.amount).toLocaleString('en-IN')} — Price Increase</p>
+                        {pa.reason && <p className="text-gray-500 mt-1 text-[11px]">Reason: {pa.reason}</p>}
+                      </>
+                    );
+                  }
+                  if (pa?.type === 'discount' || discAmt > 0) {
+                    const amount = pa?.amount ?? discAmt;
+                    return (
+                      <>
+                        <p className="text-sky-400 font-bold">₹{Number(amount).toLocaleString('en-IN')} off — Discount</p>
+                        {pa?.reason && <p className="text-gray-500 mt-1 text-[11px]">Reason: {pa.reason}</p>}
+                      </>
+                    );
+                  }
+                  return <p className="text-gray-300 font-bold">No adjustment</p>;
+                })()}
                 {detailsOrder.couponCode && <p className="text-gray-500 mt-1">Coupon: {detailsOrder.couponCode}</p>}
               </div>
             </div>

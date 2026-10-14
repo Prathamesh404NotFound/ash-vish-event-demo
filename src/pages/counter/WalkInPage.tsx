@@ -219,9 +219,10 @@ export const WalkInPage: React.FC = () => {
   const [lastLiveRefresh, setLastLiveRefresh] = useState<number>(Date.now());
   const [secondsAgo, setSecondsAgo] = useState<number>(0);
 
-  // Manager-gated discount override state.
+  // Manager price adjustment state — supports both discount and price increase.
+  const [adjustmentType, setAdjustmentType] = useState<'discount' | 'increase'>('discount');
   const [discountAmount, setDiscountAmount] = useState<number>(0);
-  const [overrideApproved, setOverrideApproved] = useState<{ actorId: string; actorName: string; amount: number } | null>(null);
+  const [overrideApproved, setOverrideApproved] = useState<{ actorId: string; actorName: string; amount: number; type: 'discount' | 'increase' } | null>(null);
   const [overrideReason, setOverrideReason] = useState('');
   const [isOverrideLoading, setIsOverrideLoading] = useState(false);
   const [overrideError, setOverrideError] = useState('');
@@ -233,7 +234,7 @@ export const WalkInPage: React.FC = () => {
   const userRole: string = (user as any)?.role || '';
   const userRbac: string = (user as any)?.rbacRole || '';
   const isApprover = userRole === 'admin' || ['super_admin', 'event_manager'].includes(userRbac);
-  // Who may apply the discount override on a walk-in sale: managers/admins and
+  // Who may apply the price adjustment on a walk-in sale: managers/admins and
   // counter staff (ticket_counter) alike, per counter discount policy.
   const canApproveDiscount = isApprover || userRole === 'ticket_counter' || userRbac === 'counter_staff';
 
@@ -543,7 +544,12 @@ export const WalkInPage: React.FC = () => {
       : baseUnitPrice * unitCount;
 
     const earlyBirdSavings = earlyBird?.active ? Math.max(0, originalGrossTotal - grossTotal) : 0;
-    const netTotal = Math.round(Math.max(0, grossTotal - discountAmount) * 100) / 100;
+    // For discount: reduce the total. For increase: add to the total.
+    // Discount is capped so the total never goes negative; increase is uncapped.
+    const adjustedTotal = adjustmentType === 'increase'
+      ? grossTotal + discountAmount
+      : Math.max(0, grossTotal - discountAmount);
+    const netTotal = Math.round(adjustedTotal * 100) / 100;
 
     return {
       seatCount,
@@ -556,7 +562,7 @@ export const WalkInPage: React.FC = () => {
       effectiveUnitPrice,
       baseUnitPrice,
     };
-  }, [selectedSeats.length, selectedEvent, quantity, selectedTier, discountAmount, multiMode, multiQuantities, selectedEventTiers, earlyBird]);
+  }, [selectedSeats.length, selectedEvent, quantity, selectedTier, discountAmount, adjustmentType, multiMode, multiQuantities, selectedEventTiers, earlyBird]);
 
   const { seatCount, unitCount, grossTotal, originalGrossTotal, earlyBirdSavings, netTotal, multiLines, effectiveUnitPrice, baseUnitPrice } = totals;
   // A mixed sale is valid once at least one line has a positive quantity.
@@ -667,25 +673,27 @@ export const WalkInPage: React.FC = () => {
     setIsOverrideLoading(true);
     setOverrideError('');
     try {
-      const res = await safeFetch<any>('/api/counter/discount-override', {
+      const res = await safeFetch<any>('/api/counter/price-adjustment', {
         method: 'POST',
         headers: await authenticatedApiHeaders(),
         body: JSON.stringify({
           eventId: selectedEvent.id,
           orderAmount: grossTotal,
-          discountAmount: Math.round(discountAmount),
-          reason: overrideReason.trim() || 'Counter discount override',
+          adjustmentType,
+          adjustmentAmount: Math.round(discountAmount),
+          reason: overrideReason.trim() || (adjustmentType === 'increase' ? 'Counter price increase' : 'Counter discount override'),
         }),
       });
       if (!res.ok || !res.data?.success) {
-        setOverrideError(res.data?.error || 'Discount approval failed. Please retry or ask a manager for help.');
+        setOverrideError(res.data?.error || 'Adjustment approval failed. Please retry or ask a manager for help.');
         setOverrideApproved(null);
         return;
       }
       setOverrideApproved({
-        actorId: res.data.discountOverride.actorId,
-        actorName: res.data.discountOverride.actorName,
-        amount: res.data.discountOverride.discountAmount,
+        actorId: res.data.priceAdjustment.actorId,
+        actorName: res.data.priceAdjustment.actorName,
+        amount: res.data.priceAdjustment.adjustmentAmount,
+        type: res.data.priceAdjustment.adjustmentType,
       });
     } catch {
       setOverrideError('Connection lost while requesting approval. Please retry.');
@@ -776,36 +784,38 @@ export const WalkInPage: React.FC = () => {
 
     let currentOverride = overrideApproved;
     if (discountAmount > 0) {
-      if (!currentOverride || currentOverride.amount !== Math.round(discountAmount)) {
+      if (!currentOverride || currentOverride.amount !== Math.round(discountAmount) || currentOverride.type !== adjustmentType) {
         if (canApproveDiscount) {
           try {
-            const res = await safeFetch<any>('/api/counter/discount-override', {
+            const res = await safeFetch<any>('/api/counter/price-adjustment', {
               method: 'POST',
               headers: await authenticatedApiHeaders(),
               body: JSON.stringify({
                 eventId: selectedEventId,
                 orderAmount: grossTotal,
-                discountAmount: Math.round(discountAmount),
-                reason: overrideReason.trim() || 'Counter discount override',
+                adjustmentType,
+                adjustmentAmount: Math.round(discountAmount),
+                reason: overrideReason.trim() || (adjustmentType === 'increase' ? 'Counter price increase' : 'Counter discount override'),
               }),
             });
-            if (res.ok && res.data?.success && res.data.discountOverride) {
+            if (res.ok && res.data?.success && res.data.priceAdjustment) {
               currentOverride = {
-                actorId: res.data.discountOverride.actorId,
-                actorName: res.data.discountOverride.actorName,
-                amount: res.data.discountOverride.discountAmount,
+                actorId: res.data.priceAdjustment.actorId,
+                actorName: res.data.priceAdjustment.actorName,
+                amount: res.data.priceAdjustment.adjustmentAmount,
+                type: res.data.priceAdjustment.adjustmentType,
               };
               setOverrideApproved(currentOverride);
             } else {
-              setFormError(res.data?.error || 'Discount approval failed for this discount. Please click "Approve Discount" and retry.');
+              setFormError(res.data?.error || 'Price adjustment approval failed. Please click "Approve" and retry.');
               return;
             }
           } catch {
-            setFormError('Failed to verify manager discount approval. Please retry.');
+            setFormError('Failed to verify manager price adjustment approval. Please retry.');
             return;
           }
         } else {
-          setFormError('Manager approval is required for the discount before issuing tickets.');
+          setFormError('Manager approval is required for the price adjustment before issuing tickets.');
           return;
         }
       }
@@ -829,10 +839,11 @@ export const WalkInPage: React.FC = () => {
         : quantity,
       paymentMethod,
       payments,
-      discountOverride: currentOverride
+      priceAdjustmentOverride: currentOverride
         ? {
           overrideId: `${Date.now()}`,
-          discountAmount: currentOverride.amount,
+          adjustmentType: currentOverride.type,
+          adjustmentAmount: currentOverride.amount,
           actorId: currentOverride.actorId,
           reason: overrideReason.trim(),
         }
@@ -860,10 +871,11 @@ export const WalkInPage: React.FC = () => {
               ? multiLines.map((l) => ({ tierId: l.tierId, tierName: l.tierName, quantity: l.quantity }))
               : undefined,
             payments,
-            discountOverride: currentOverride
+            priceAdjustmentOverride: currentOverride
               ? {
                 overrideId: `${Date.now()}`,
-                discountAmount: currentOverride.amount,
+                adjustmentType: currentOverride.type,
+                adjustmentAmount: currentOverride.amount,
                 actorId: currentOverride.actorId,
                 reason: overrideReason.trim(),
               }
@@ -943,6 +955,7 @@ export const WalkInPage: React.FC = () => {
     setVerifiedUpiRows({});
     setUpiFlow('none');
     setDiscountAmount(0);
+    setAdjustmentType('discount');
     setOverrideApproved(null);
     setOverrideReason('');
     setOverrideError('');
@@ -1095,8 +1108,10 @@ export const WalkInPage: React.FC = () => {
             </div>
             {discountAmount > 0 && (
               <div className="flex justify-between text-gray-400">
-                <span>Manager Discount:</span>
-                <span className="font-bold text-emerald-400">− ₹{discountAmount}</span>
+                <span>{adjustmentType === 'increase' ? 'Manager Price Increase:' : 'Manager Discount:'}</span>
+                <span className={`font-bold ${adjustmentType === 'increase' ? 'text-amber-400' : 'text-emerald-400'}`}>
+                  {adjustmentType === 'increase' ? '+' : '−'} ₹{discountAmount}
+                </span>
               </div>
             )}
             {holdAtCounter && (
@@ -1570,16 +1585,45 @@ export const WalkInPage: React.FC = () => {
               </label>
             </div>
 
-            {/* Discount override (authorized counter staff and managers) */}
+            {/* Manager price adjustment (authorized counter staff and managers) */}
             {canApproveDiscount && (
-              <div className="p-4 rounded-3xl bg-[#D4AF37]/5 border border-[#D4AF37]/25 space-y-2.5">
+              <div className="p-4 rounded-3xl bg-[#D4AF37]/5 border border-[#D4AF37]/25 space-y-3">
                 <label className="block text-[10px] font-bold text-[#D4AF37] uppercase tracking-widest flex items-center gap-1.5">
                   <ShieldCheck className="w-3.5 h-3.5" />
-                  Manager Discount Override
+                  Manager Price Adjustment
                 </label>
+
+                {/* Discount / Increase toggle */}
+                <div className="flex rounded-xl overflow-hidden border border-white/10 text-xs font-bold">
+                  <button
+                    type="button"
+                    disabled={!!overrideApproved}
+                    onClick={() => { setAdjustmentType('discount'); setOverrideApproved(null); }}
+                    className={`flex-1 py-2 transition-all cursor-pointer disabled:cursor-not-allowed ${adjustmentType === 'discount'
+                      ? 'bg-emerald-500/20 text-emerald-400 border-r border-white/10'
+                      : 'bg-[#1C1C1C] text-gray-500 hover:text-gray-300 border-r border-white/10'
+                      }`}
+                  >
+                    ↓ Discount
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!!overrideApproved}
+                    onClick={() => { setAdjustmentType('increase'); setOverrideApproved(null); }}
+                    className={`flex-1 py-2 transition-all cursor-pointer disabled:cursor-not-allowed ${adjustmentType === 'increase'
+                      ? 'bg-amber-500/20 text-amber-400'
+                      : 'bg-[#1C1C1C] text-gray-500 hover:text-gray-300'
+                      }`}
+                  >
+                    ↑ Increase Price
+                  </button>
+                </div>
+
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                   <div>
-                    <span className="text-[10px] text-gray-400 block mb-1">Amount (₹)</span>
+                    <span className="text-[10px] text-gray-400 block mb-1">
+                      Amount (₹) — {adjustmentType === 'increase' ? 'Added to total' : 'Deducted from total'}
+                    </span>
                     <input
                       type="number"
                       min={0}
@@ -1591,7 +1635,10 @@ export const WalkInPage: React.FC = () => {
                         setOverrideApproved(null);
                       }}
                       placeholder="0"
-                      className="w-full px-3 py-2.5 rounded-xl bg-[#1C1C1C] border border-white/10 text-white text-sm font-mono focus:outline-none focus:border-[#D4AF37] disabled:opacity-50"
+                      className={`w-full px-3 py-2.5 rounded-xl bg-[#1C1C1C] border text-white text-sm font-mono focus:outline-none disabled:opacity-50 ${adjustmentType === 'increase'
+                        ? 'border-amber-500/30 focus:border-amber-400'
+                        : 'border-white/10 focus:border-[#D4AF37]'
+                        }`}
                     />
                   </div>
                   <div>
@@ -1601,34 +1648,53 @@ export const WalkInPage: React.FC = () => {
                       disabled={!!overrideApproved}
                       value={overrideReason}
                       onChange={(e) => setOverrideReason(e.target.value)}
-                      placeholder="e.g. VIP guest courtesy"
+                      placeholder={adjustmentType === 'increase' ? 'e.g. Late-night surcharge' : 'e.g. VIP guest courtesy'}
                       className="w-full px-3 py-2.5 rounded-xl bg-[#1C1C1C] border border-white/10 text-white text-sm focus:outline-none focus:border-[#D4AF37] disabled:opacity-50"
                     />
                   </div>
                   <div className="flex items-end">
                     <button
                       type="button"
-                      disabled={isOverrideLoading || discountAmount <= 0 || grossTotal <= 0 || discountAmount > grossTotal}
+                      disabled={isOverrideLoading || discountAmount <= 0 || grossTotal <= 0 || (adjustmentType === 'discount' && discountAmount > grossTotal)}
                       onClick={handleRequestOverride}
-                      className="w-full py-2.5 rounded-xl bg-[#222] hover:bg-[#333] disabled:opacity-50 border border-[#D4AF37]/40 text-[#D4AF37] font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer disabled:cursor-not-allowed"
+                      className={`w-full py-2.5 rounded-xl disabled:opacity-50 font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer disabled:cursor-not-allowed ${adjustmentType === 'increase'
+                        ? 'bg-[#222] hover:bg-[#333] border border-amber-500/40 text-amber-400'
+                        : 'bg-[#222] hover:bg-[#333] border border-[#D4AF37]/40 text-[#D4AF37]'
+                        }`}
                     >
                       {isOverrideLoading ? (
                         <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Approving...</>
                       ) : (
-                        <><ShieldCheck className="w-3.5 h-3.5" /> Approve Discount</>
+                        <><ShieldCheck className="w-3.5 h-3.5" /> Approve {adjustmentType === 'increase' ? 'Increase' : 'Discount'}</>
                       )}
                     </button>
                   </div>
                 </div>
+
+                {/* Live preview */}
+                {discountAmount > 0 && (
+                  <div className={`flex items-center justify-between text-xs font-mono px-3 py-2 rounded-xl border ${adjustmentType === 'increase'
+                    ? 'bg-amber-500/5 border-amber-500/20 text-amber-300'
+                    : 'bg-emerald-500/5 border-emerald-500/20 text-emerald-300'
+                    }`}>
+                    <span>{formatRupee(grossTotal)}</span>
+                    <span className="text-gray-500 mx-2">{adjustmentType === 'increase' ? '+' : '−'}</span>
+                    <span>{formatRupee(discountAmount)}</span>
+                    <span className="text-gray-500 mx-2">=</span>
+                    <span className="font-extrabold text-sm">{formatRupee(netTotal)}</span>
+                  </div>
+                )}
+
                 {overrideError && (
                   <p className="text-red-400 text-xs flex items-center gap-1.5">
                     <AlertCircle className="w-3.5 h-3.5" /> {overrideError}
                   </p>
                 )}
                 {overrideApproved && (
-                  <p className="text-emerald-400 text-xs flex items-center gap-1.5">
+                  <p className={`text-xs flex items-center gap-1.5 ${overrideApproved.type === 'increase' ? 'text-amber-400' : 'text-emerald-400'}`}>
                     <CheckCircle2 className="w-3.5 h-3.5" />
-                    Approved by {overrideApproved.actorName} — ₹{overrideApproved.amount} off (audited).
+                    Approved by {overrideApproved.actorName} —{' '}
+                    {overrideApproved.type === 'increase' ? `+₹${overrideApproved.amount} price increase` : `₹${overrideApproved.amount} discount`} (audited).
                   </p>
                 )}
               </div>
@@ -1674,7 +1740,7 @@ export const WalkInPage: React.FC = () => {
               )}
               <div className="flex items-center justify-between">
                 <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-                  {earlyBirdSavings > 0 || discountAmount > 0 ? 'Total Due (after discounts)' : 'Total Due'}
+                  {earlyBirdSavings > 0 || discountAmount > 0 ? (adjustmentType === 'increase' ? 'Total Due (with surcharge)' : 'Total Due (after discounts)') : 'Total Due'}
                 </span>
                 {activeShiftId && (
                   <span className="text-[10px] text-[#F3E5AB]/70 flex items-center gap-1">
@@ -1698,12 +1764,12 @@ export const WalkInPage: React.FC = () => {
                   </div>
                 )}
                 {discountAmount > 0 && (
-                  <div className="flex items-center justify-between text-xs text-emerald-400 font-semibold">
+                  <div className={`flex items-center justify-between text-xs font-semibold ${adjustmentType === 'increase' ? 'text-amber-400' : 'text-emerald-400'}`}>
                     <span className="flex items-center gap-1">
-                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                      Manager Discount Override
+                      <ShieldCheck className={`w-3.5 h-3.5 ${adjustmentType === 'increase' ? 'text-amber-400' : 'text-emerald-400'}`} />
+                      {adjustmentType === 'increase' ? 'Manager Price Increase' : 'Manager Discount'}
                     </span>
-                    <span>− {formatRupee(discountAmount)}</span>
+                    <span>{adjustmentType === 'increase' ? '+ ' : '− '}{formatRupee(discountAmount)}</span>
                   </div>
                 )}
                 {(earlyBirdSavings > 0 || discountAmount > 0) && (
