@@ -94,6 +94,7 @@ export const EventEditor: React.FC<EventEditorProps> = ({ mode, existing, onSave
         totalInventory: 500,
         remainingInventory: 500,
         perks: [],
+        countAs: 1,
       },
     ]);
   const removeTier = (id: string) => setTiers(draft.ticketTiers.filter((t) => t.id !== id));
@@ -488,6 +489,24 @@ export const EventEditor: React.FC<EventEditorProps> = ({ mode, existing, onSave
                           value={tier.remainingInventory}
                           onChange={(e) => patchTier(tier.id, { remainingInventory: Number(e.target.value) })}
                         />
+                      </div>
+                      <div>
+                        <span className={labelCls}>Count As (persons per pass)</span>
+                        <input
+                          className={inputCls}
+                          type="number"
+                          min={1}
+                          step={1}
+                          value={tier.countAs ?? 1}
+                          onChange={(e) =>
+                            patchTier(tier.id, { countAs: Math.max(1, Math.floor(Number(e.target.value) || 1)) })
+                          }
+                        />
+                        {(tier.countAs ?? 1) > 1 && (
+                          <p className="text-[10px] text-[#D4AF37] mt-1 font-bold">
+                            1 pass of this tier = {Math.floor(tier.countAs ?? 1)} persons
+                          </p>
+                        )}
                       </div>
                     </div>
                     <div>

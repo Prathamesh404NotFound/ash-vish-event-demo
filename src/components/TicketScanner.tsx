@@ -38,6 +38,11 @@ export interface EntryStateInfo {
   ticketQuantity: number;
   checkedInQuantity: number;
   remainingQuantity: number;
+  /** "Count As" — persons one pass counts for (group of 10 = 10, couple = 2). */
+  countAs?: number;
+  personCapacity?: number;
+  personsCheckedIn?: number;
+  personsRemaining?: number;
   entryStatus?: string;
   allowPartialEntry?: boolean;
   canEnter?: boolean;
@@ -441,8 +446,8 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
         phase: res.fullyCheckedIn ? 'confirmed' : 'partial',
         heading: res.fullyCheckedIn ? 'FULLY CHECKED IN ✓' : 'PARTIAL ENTRY SAVED ✓',
         subheading: res.fullyCheckedIn
-          ? `All ${newState.ticketQuantity} guests admitted. Ticket is now fully redeemed.`
-          : `${res.admitted ?? qty} guests admitted. ${newState.remainingQuantity} remaining on this ticket.`,
+          ? `All ${newState.ticketQuantity} pass${newState.ticketQuantity !== 1 ? 'es' : ''}${(res.countAs ?? 1) > 1 ? ` (${res.personsCheckedIn ?? res.personsAdmitted ?? ''} guests)` : ''} admitted. Ticket is now fully redeemed.`
+          : `${res.admitted ?? qty} pass${(res.admitted ?? qty) !== 1 ? 'es' : ''}${(res.countAs ?? 1) > 1 ? ` · ${res.personsAdmitted ?? ((res.admitted ?? qty) * (res.countAs ?? 1))} guests` : ''} admitted. ${newState.remainingQuantity} remaining on this ticket.`,
         ticket: res.ticket as Ticket,
         scannedAt: new Date().toLocaleString(),
         scannedBy: user?.name || 'Gate Staff',
@@ -535,6 +540,10 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
         ticketQuantity: res.ticketQuantity ?? 1,
         checkedInQuantity: res.checkedInQuantity ?? 0,
         remainingQuantity: res.remainingQuantity ?? 0,
+        countAs: res.countAs ?? 1,
+        personCapacity: res.personCapacity,
+        personsCheckedIn: res.personsCheckedIn,
+        personsRemaining: res.personsRemaining,
         entryStatus: res.entryStatus,
         allowPartialEntry: res.allowPartialEntry,
         canEnter: res.canEnter,
@@ -571,7 +580,7 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
         setScanStateTracked({
           phase: 'duplicate',
           heading: 'TICKET FULLY REDEEMED ✕',
-          subheading: `${es.checkedInQuantity} of ${es.ticketQuantity} guests already admitted. No entries remain.`,
+          subheading: `${es.checkedInQuantity} of ${es.ticketQuantity} passes already admitted${(es.countAs ?? 1) > 1 ? ` (${es.personsCheckedIn ?? es.checkedInQuantity * (es.countAs ?? 1)} guests)` : ''}. No entries remain.`,
           actionHint: 'Entry NOT permitted. Do not admit again without supervisor clearance.',
           ticket: res.ticket as Ticket,
           scannedAt: es.lastScanAt,
@@ -591,8 +600,8 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
         phase: 'review',
         heading: res.entryStatus === 'UNUSED' ? 'ENTRY AVAILABLE ✓' : 'REMAINING ENTRY AVAILABLE ◐',
         subheading: res.entryStatus === 'UNUSED'
-          ? `${es.ticketQuantity} guests included · ${es.remainingQuantity} remaining`
-          : `${es.checkedInQuantity} of ${es.ticketQuantity} already admitted · ${es.remainingQuantity} remaining`,
+          ? `${es.ticketQuantity} pass${es.ticketQuantity !== 1 ? 'es' : ''} included${(es.countAs ?? 1) > 1 ? ` · ${es.personCapacity ?? es.ticketQuantity * (es.countAs ?? 1)} guests total` : ''} · ${es.remainingQuantity} remaining`
+          : `${es.checkedInQuantity} of ${es.ticketQuantity} passes already admitted${(es.countAs ?? 1) > 1 ? ` (${es.personsCheckedIn ?? 0} guests)` : ''} · ${es.remainingQuantity} remaining`,
         ticket: res.ticket as Ticket,
         scannedAt: es.lastScanAt,
         scannedBy: es.lastScannedBy,
@@ -1908,12 +1917,18 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
               {scanState.entryState && (
                 <div className="grid grid-cols-3 gap-2">
                   <div className="p-3 rounded-xl bg-black/50 border border-white/10 text-center">
-                    <p className="text-[10px] uppercase text-gray-400 font-bold">Total</p>
+                    <p className="text-[10px] uppercase text-gray-400 font-bold">Total Passes</p>
                     <p className="text-2xl font-black text-white">{scanState.entryState.ticketQuantity}</p>
+                    {(scanState.entryState.countAs ?? 1) > 1 && (
+                      <p className="text-[9px] text-[#D4AF37] font-bold mt-0.5">= {scanState.entryState.personCapacity} guests</p>
+                    )}
                   </div>
                   <div className="p-3 rounded-xl bg-black/50 border border-white/10 text-center">
                     <p className="text-[10px] uppercase text-gray-400 font-bold">Admitted</p>
                     <p className="text-2xl font-black text-amber-400">{scanState.entryState.checkedInQuantity}</p>
+                    {(scanState.entryState.countAs ?? 1) > 1 && (
+                      <p className="text-[9px] text-[#D4AF37] font-bold mt-0.5">= {scanState.entryState.personsCheckedIn} guests</p>
+                    )}
                   </div>
                   <div className="p-3 rounded-xl bg-black/50 border border-white/10 text-center">
                     <p className="text-[10px] uppercase text-gray-400 font-bold">Remaining</p>
@@ -2055,23 +2070,35 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
               {/* Entry status grid */}
               <div className="grid grid-cols-3 gap-2">
                 <div className="p-3 rounded-xl bg-black/50 border border-white/10 text-center">
-                  <p className="text-[10px] uppercase text-gray-400 font-bold">Total Guests</p>
+                  <p className="text-[10px] uppercase text-gray-400 font-bold">Total Passes</p>
                   <p className="text-2xl font-black text-white">{scanState.entryState?.ticketQuantity}</p>
+                  {(scanState.entryState?.countAs ?? 1) > 1 && (
+                    <p className="text-[9px] text-[#D4AF37] font-bold mt-0.5">= {scanState.entryState?.personCapacity} guests</p>
+                  )}
                 </div>
                 <div className="p-3 rounded-xl bg-black/50 border border-white/10 text-center">
                   <p className="text-[10px] uppercase text-gray-400 font-bold">Checked In</p>
                   <p className="text-2xl font-black text-sky-400">{scanState.entryState?.checkedInQuantity}</p>
+                  {(scanState.entryState?.countAs ?? 1) > 1 && (
+                    <p className="text-[9px] text-[#D4AF37] font-bold mt-0.5">= {scanState.entryState?.personsCheckedIn} guests</p>
+                  )}
                 </div>
                 <div className="p-3 rounded-xl bg-black/50 border border-white/10 text-center">
                   <p className="text-[10px] uppercase text-gray-400 font-bold">Remaining</p>
                   <p className="text-2xl font-black text-emerald-400">{scanState.entryState?.remainingQuantity}</p>
+                  {(scanState.entryState?.countAs ?? 1) > 1 && (
+                    <p className="text-[9px] text-[#D4AF37] font-bold mt-0.5">= {scanState.entryState?.personsRemaining} guests</p>
+                  )}
                 </div>
               </div>
 
               {/* People entering now selector */}
               <div className="space-y-2">
                 <label className="text-[11px] font-bold text-gray-300 uppercase tracking-wider block">
-                  People entering now <span className="text-gray-500 normal-case">(max {scanState.entryState?.remainingQuantity})</span>
+                  Passes entering now <span className="text-gray-500 normal-case">(max {scanState.entryState?.remainingQuantity})</span>
+                  {(scanState.entryState?.countAs ?? 1) > 1 && (
+                    <span className="text-[#D4AF37] normal-case font-black"> · each pass = {scanState.entryState?.countAs} guests ({guestsEntering * (scanState.entryState?.countAs ?? 1)} guests now)</span>
+                  )}
                 </label>
                 <div className="flex items-center gap-2 flex-wrap">
                   <button
@@ -2117,7 +2144,11 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
                 className="w-full py-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-black font-heading font-black text-lg shadow-lg shadow-emerald-950/50 transition-all cursor-pointer flex items-center justify-center gap-2"
               >
                 {confirmingEntry ? <Loader2 className="w-5 h-5 animate-spin" /> : <UserCheck className="w-5 h-5" />}
-                <span>{confirmingEntry ? 'SAVING…' : `CONFIRM ${guestsEntering} ENTR${guestsEntering === 1 ? 'Y' : 'IES'}`}</span>
+                <span>
+                  {confirmingEntry
+                    ? 'SAVING…'
+                    : `CONFIRM ${guestsEntering} ${guestsEntering === 1 ? 'PASS' : 'PASSES'}${(scanState.entryState?.countAs ?? 1) > 1 ? ` · ${guestsEntering * (scanState.entryState?.countAs ?? 1)} GUESTS` : ` ENTR${guestsEntering === 1 ? 'Y' : 'IES'}`}`}
+                </span>
               </button>
 
               <button
@@ -2152,16 +2183,25 @@ export const TicketScanner: React.FC<TicketScannerProps> = ({
 
               <div className="grid grid-cols-3 gap-2">
                 <div className="p-3 rounded-xl bg-black/50 border border-white/10 text-center">
-                  <p className="text-[10px] uppercase text-gray-400 font-bold">Total</p>
+                  <p className="text-[10px] uppercase text-gray-400 font-bold">Total Passes</p>
                   <p className="text-2xl font-black text-white">{scanState.entryState?.ticketQuantity}</p>
+                  {(scanState.entryState?.countAs ?? 1) > 1 && (
+                    <p className="text-[9px] text-[#D4AF37] font-bold mt-0.5">= {scanState.entryState?.personCapacity} guests</p>
+                  )}
                 </div>
                 <div className="p-3 rounded-xl bg-black/50 border border-white/10 text-center">
                   <p className="text-[10px] uppercase text-gray-400 font-bold">Admitted</p>
                   <p className="text-2xl font-black text-sky-400">{scanState.entryState?.checkedInQuantity}</p>
+                  {(scanState.entryState?.countAs ?? 1) > 1 && (
+                    <p className="text-[9px] text-[#D4AF37] font-bold mt-0.5">= {scanState.entryState?.personsCheckedIn} guests</p>
+                  )}
                 </div>
                 <div className="p-3 rounded-xl bg-black/50 border border-white/10 text-center">
                   <p className="text-[10px] uppercase text-gray-400 font-bold">Remaining</p>
                   <p className="text-2xl font-black text-emerald-400">{scanState.entryState?.remainingQuantity}</p>
+                  {(scanState.entryState?.countAs ?? 1) > 1 && (
+                    <p className="text-[9px] text-[#D4AF37] font-bold mt-0.5">= {scanState.entryState?.personsRemaining} guests</p>
+                  )}
                 </div>
               </div>
 

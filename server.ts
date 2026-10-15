@@ -1542,6 +1542,60 @@ function normalizeTiers(ticketTiers: any): any[] {
   return [...Array.from(byId.values()), ...Array.from(idLess.values())];
 }
 
+/**
+ * "Count As" — how many persons one pass of a tier counts for in
+ * entry/person analytics (10 for a "Group of 10" pass, 2 for a "Couple",
+ * etc.). Clamped to [1, 999]; missing/invalid values fall back to 1 so
+ * legacy tiers and tickets behave exactly as before.
+ */
+function normalizeCountAs(value: any): number {
+  const n = Math.floor(Number(value));
+  return Number.isFinite(n) && n >= 1 ? Math.min(n, 999) : 1;
+}
+
+/** Resolve a tier's countAs from an event's tiers by id (preferred) or name. */
+function tierCountAsFromList(eventTiers: any, ref: { tierId?: any; tierName?: any } | null | undefined): number {
+  const list = normalizeTiers(eventTiers);
+  if (!list.length || !ref) return 1;
+  const byId = ref.tierId != null && String(ref.tierId) !== ""
+    ? list.find((t: any) => t && t.id != null && String(t.id) === String(ref.tierId))
+    : null;
+  const tier = byId || (ref.tierName
+    ? list.find((t: any) => String(t?.name || "") === String(ref.tierName))
+    : null);
+  return tier ? normalizeCountAs((tier as any).countAs) : 1;
+}
+
+/**
+ * Total persons a ticket represents. Mixed-item tickets compute per line
+ * from items[].countAs (falling back to the live event tiers); single-tier
+ * tickets use the denormalized ticket.countAs or the tier lookup.
+ */
+function ticketPersonCapacity(ticket: any, eventTiers: any): number {
+  if (!ticket) return 1;
+  const items = Array.isArray(ticket.items) && ticket.items.length > 0 ? ticket.items : null;
+  if (items) {
+    return items.reduce((sum: number, it: any) => {
+      const lineQty = Math.max(1, Math.floor(Number(it?.quantity) || 1));
+      const per = it?.countAs != null
+        ? normalizeCountAs(it.countAs)
+        : tierCountAsFromList(eventTiers, it || {});
+      return sum + lineQty * per;
+    }, 0);
+  }
+  const qty = Math.max(1, Math.floor(Number(ticket.quantity) || 1));
+  const per = ticket?.countAs != null
+    ? normalizeCountAs(ticket.countAs)
+    : tierCountAsFromList(eventTiers, ticket || {});
+  return qty * per;
+}
+
+/** Average persons per pass for a ticket (fractional for mixed-tier bookings). */
+function personsPerPass(ticket: any, eventTiers: any): number {
+  const qty = Math.max(1, Math.floor(Number(ticket?.quantity) || 1));
+  return Math.max(1, ticketPersonCapacity(ticket, eventTiers) / qty);
+}
+
 async function finalizeBookingServerSide(
   orderId: string,
   paymentMethod: string,
@@ -1562,7 +1616,7 @@ async function finalizeBookingServerSide(
   // Hoisted fulfillment outputs — the single-tier branch and the multi-type
   // branch both set these; notifications and the processed-order record
   // consume them after ticket generation.
-  let tierLines: { tierId: string; tierName: string; price: number; quantity: number }[] = [];
+  let tierLines: { tierId: string; tierName: string; price: number; quantity: number; countAs: number }[] = [];
   let isMultiItemOrder = false;
   let ticketId = "";
   let ticketNum = "";
@@ -1695,6 +1749,7 @@ async function finalizeBookingServerSide(
             tierName: t?.name || it?.tierName || "General",
             price: typeof t?.price === "number" ? t.price : 0,
             quantity: Number(it?.quantity) || 1,
+            countAs: normalizeCountAs(it?.countAs ?? t?.countAs),
           };
         });
         serverCalculatedRecheck = tierLines.reduce((s, l) => s + (l.price || 0) * (l.quantity || 0), 0);
@@ -1951,6 +2006,7 @@ async function finalizeBookingServerSide(
         tierName: l.tierName,
         price: l.price,
         quantity: l.quantity,
+        countAs: normalizeCountAs(l.countAs),
       }));
 
       newTicket = {
@@ -2086,6 +2142,9 @@ async function finalizeBookingServerSide(
         tierName = t.name;
         price = t.price;
       }
+      // "Count As" — persons one pass of this tier counts for (denormalized
+      // at sale time so later tier edits never rewrite historical tickets).
+      const tierCountAs = normalizeCountAs(t?.countAs);
 
       seatLabel = `${tierName} Section`;
       if (seatIds && seatIds.length > 0) {
@@ -2139,6 +2198,7 @@ async function finalizeBookingServerSide(
         qrCodeValue: signedQrToken,
         passSlug,
         tierId: tierId || "",
+        countAs: tierCountAs,
         eventGoogleMapsQuery: eventData.mapsUrl || (eventData as any).eventGoogleMapsQuery || `${venue}, ${city}`,
         passType: isDeferred ? 'reservation' : (pendingOrder.isPartial ? 'reservation' : 'entry'),
         paymentStatus: isDeferred ? 'pending' : (pendingOrder.isPartial ? 'partial' : 'paid'),
@@ -7592,13 +7652,21 @@ export async function createApp() {
 
       // EVENT COMPLETED — reject passes belonging to a completed or cancelled event.
       let eventCompleted = false;
+      let evtData: any = null;
       if (ticket.eventId) {
         const evtSnap = await rtdbGet(`events/${ticket.eventId}`, adminToken);
-        const evtData = evtSnap?.data as any;
+        evtData = (evtSnap?.data as any) || null;
         if (evtData && (evtData.status === 'completed' || evtData.status === 'cancelled')) {
           eventCompleted = true;
         }
       }
+
+      // "COUNT AS" — persons this pass entitlement represents (group/couple
+      // tiers), so the gate sees persons alongside raw pass counts.
+      const countAs = personsPerPass(ticket, evtData?.ticketTiers);
+      const personCapacity = Math.round(state.ticketQuantity * countAs);
+      const personsCheckedIn = Math.round(state.checkedInQuantity * countAs);
+      const personsRemaining = Math.max(0, personCapacity - personsCheckedIn);
 
       // PAYMENT GATING — unpaid reservation passes are not valid at the gate.
       const paymentPending = ticket.passType === "reservation" && ticket.paymentStatus !== "paid";
@@ -7617,7 +7685,7 @@ export async function createApp() {
       } else if (paymentPending) {
         reason = `UNPAID RESERVATION PASS — payment of \u20b9${amountDue} is pending. Direct this guest to the Pay-at-Counter station before gate admission.`;
       } else if (state.remainingQuantity === 0) {
-        reason = `This ticket has already been completely redeemed — ${state.checkedInQuantity} of ${state.ticketQuantity} guests admitted.`;
+        reason = `This ticket has already been completely redeemed — ${state.checkedInQuantity} of ${state.ticketQuantity} passes admitted${countAs > 1 ? ` (${personsCheckedIn} of ${personCapacity} guests)` : ''}.`;
       } else if (['CANCELLED', 'EXPIRED'].includes(state.entryStatus)) {
         reason = `Ticket is ${state.entryStatus.toLowerCase()} and cannot be admitted.`;
       }
@@ -7628,6 +7696,10 @@ export async function createApp() {
         ticketId: id,
         ticket,
         ...state,
+        countAs,
+        personCapacity,
+        personsCheckedIn,
+        personsRemaining,
         eventMismatch,
         paymentPending,
         amountDue: paymentPending ? amountDue : undefined,
@@ -7692,6 +7764,14 @@ export async function createApp() {
         return res.status(402).json({ success: false, paymentPending: true, amountDue: due, error: `UNPAID RESERVATION PASS — payment of \u20b9${due} is pending. Collect payment before gate admission.` });
       }
 
+      // "COUNT AS" — persons per pass for this ticket's tier (group/couple
+      // tiers). Entitlement math below stays in pass units; persons figures
+      // are derived for reporting and the scanner UI.
+      const preEventData: any = preTicket.eventId
+        ? (((await rtdbGet(`events/${preTicket.eventId}`, adminToken).catch(() => null))?.data) || null)
+        : null;
+      const entryCountAs = personsPerPass(preTicket, preEventData?.ticketTiers);
+
       const allowPartialEntry = await getAllowPartialEntrySetting(adminToken);
       const scannedAt = new Date().toISOString();
       const staffRole = String(req.user?.rbacRole || toRbacRole(req.user?.role) || "counter_staff");
@@ -7733,7 +7813,7 @@ export async function createApp() {
         const remaining = ticketQuantity - checkedInQuantity;
 
         if (remaining <= 0) {
-          admissionError = `TICKET FULLY REDEEMED — ${checkedInQuantity} of ${ticketQuantity} guests already admitted. No entries remain.`;
+          admissionError = `TICKET FULLY REDEEMED — ${checkedInQuantity} of ${ticketQuantity} passes already admitted. No entries remain.`;
           return undefined;
         }
         // If partial entries are disabled, a scan must consume the whole entitlement.
@@ -7784,6 +7864,8 @@ export async function createApp() {
         ticketId: targetTicketId,
         eventId: updatedTicket.eventId || undefined,
         quantityEntered: qtyAdmitted,
+        countAs: entryCountAs,
+        personsEntered: Math.round(qtyAdmitted * entryCountAs),
         scannedAt,
         scannedBy: staffUid,
         staffRole,
@@ -7812,6 +7894,8 @@ export async function createApp() {
           result: {
             entryTransactionId: entryTxId || entryTransactionId,
             admitted: qtyAdmitted,
+            countAs: entryCountAs,
+            personsAdmitted: Math.round(qtyAdmitted * entryCountAs),
             ticketQuantity: ticketQuantityFinal,
             checkedInQuantity: Number(updatedTicket.checkedInQuantity) || 0,
             remainingQuantity: Math.max(0, ticketQuantityFinal - (Number(updatedTicket.checkedInQuantity) || 0)),
@@ -7840,10 +7924,14 @@ export async function createApp() {
         entryId: entryTxId || entryTransactionId,
         entryTransactionId: entryTxId || entryTransactionId,
         admitted: qtyAdmitted,
+        countAs: entryCountAs,
+        personsAdmitted: Math.round(qtyAdmitted * entryCountAs),
         ticket: updatedTicket,
         ticketQuantity: ticketQuantityFinal,
         checkedInQuantity,
+        personsCheckedIn: Math.round(checkedInQuantity * entryCountAs),
         remainingQuantity: Math.max(0, ticketQuantityFinal - checkedInQuantity),
+        personsRemaining: Math.max(0, Math.round((ticketQuantityFinal - checkedInQuantity) * entryCountAs)),
         entryStatus: updatedTicket.entryStatus,
         fullyCheckedIn: checkedInQuantity >= ticketQuantityFinal,
       });
@@ -11133,14 +11221,18 @@ export async function createApp() {
 
       // Authoritative analytics derived from tickets + the immutable entry
       // transaction ledger — the same data the scanner writes (#5/#6/#15).
+      // "Count As" tiers: person figures = passes × tier countAs.
+      const eventTiers = event?.ticketTiers;
       let totalQuantity = 0;
       let checkedInQuantity = 0;
+      let totalPersons = 0;
+      let checkedInPersons = 0;
       let checkedIn = 0;
       let partialTickets = 0;
       let fullyRedeemedTickets = 0;
       let unusedTickets = 0;
       const recentScans: any[] = [];
-      const tierMap = new Map<string, { total: number; checkedIn: number }>();
+      const tierMap = new Map<string, { total: number; checkedIn: number; persons: number; checkedInPersons: number }>();
       const counterMap = new Map<string, { guests: number; scans: number }>();
       const staffMap = new Map<string, { guests: number; scans: number }>();
       const overTimeMap = new Map<string, number>();
@@ -11148,6 +11240,8 @@ export async function createApp() {
       for (const ticket of eventTickets) {
         const qty = Math.max(1, Math.floor(Number(ticket.quantity) || 1));
         totalQuantity += qty;
+        const countAs = personsPerPass(ticket, eventTiers);
+        totalPersons += Math.round(qty * countAs);
         const st = String(ticket.status || 'valid').toLowerCase();
         const checkedInForTicket = st === 'redeemed' && ticket.checkedInQuantity == null
           ? qty
@@ -11155,6 +11249,7 @@ export async function createApp() {
         const remainingForTicket = Math.max(0, qty - checkedInForTicket);
 
         checkedInQuantity += checkedInForTicket;
+        checkedInPersons += Math.round(checkedInForTicket * countAs);
         if (remainingForTicket === 0 && checkedInForTicket > 0) {
           fullyRedeemedTickets++;
           checkedIn++;
@@ -11175,9 +11270,13 @@ export async function createApp() {
           });
         }
         const tierName = ticket.tierName || "General";
-        const existing = tierMap.get(tierName) || { total: 0, checkedIn: 0 };
+        const existing = tierMap.get(tierName) || { total: 0, checkedIn: 0, persons: 0, checkedInPersons: 0 };
         existing.total += qty;
-        if (isScanned) existing.checkedIn += checkedInForTicket;
+        existing.persons += Math.round(qty * countAs);
+        if (isScanned) {
+          existing.checkedIn += checkedInForTicket;
+          existing.checkedInPersons += Math.round(checkedInForTicket * countAs);
+        }
         tierMap.set(tierName, existing);
       }
 
@@ -11193,17 +11292,21 @@ export async function createApp() {
           const ticket = allTickets.find((t: any) => t.id === ticketId);
           if (!ticket || ticket.eventId !== eventId) continue;
           const counterName = String(tx.counterId || 'Unassigned');
+          const txCountAs = Number(tx.countAs) > 0
+            ? Number(tx.countAs)
+            : personsPerPass(ticket, eventTiers);
+          const txPersons = Math.max(0, Number(tx.personsEntered)) || Math.round(Math.max(0, Number(tx.quantityEntered) || 0) * txCountAs);
           const counterEntry = counterMap.get(counterName) || { guests: 0, scans: 0 };
-          counterEntry.guests += Math.max(0, Number(tx.quantityEntered) || 0);
+          counterEntry.guests += txPersons;
           counterEntry.scans += 1;
           counterMap.set(counterName, counterEntry);
           const staffName = String(tx.scannedBy || 'unknown');
           const staffEntry = staffMap.get(staffName) || { guests: 0, scans: 0 };
-          staffEntry.guests += Math.max(0, Number(tx.quantityEntered) || 0);
+          staffEntry.guests += txPersons;
           staffEntry.scans += 1;
           staffMap.set(staffName, staffEntry);
           const day = String(tx.scannedAt || '').slice(0, 10);
-          if (day) overTimeMap.set(day, (overTimeMap.get(day) || 0) + Math.max(0, Number(tx.quantityEntered) || 0));
+          if (day) overTimeMap.set(day, (overTimeMap.get(day) || 0) + txPersons);
         }
       }
 
@@ -11216,9 +11319,12 @@ export async function createApp() {
           eventTitle: event?.title || "Unknown Event",
           totalTickets: eventTickets.length,
           totalQuantity,
+          totalPersons,
           checkedIn,
           checkedInQuantity,
+          checkedInPersons,
           remaining: totalQuantity - checkedInQuantity,
+          remainingPersons: Math.max(0, totalPersons - checkedInPersons),
           checkInRate: totalQuantity > 0 ? checkedInQuantity / totalQuantity : 0,
           partialTickets,
           fullyRedeemedTickets,
