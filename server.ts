@@ -1553,23 +1553,27 @@ function normalizeCountAs(value: any): number {
   return Number.isFinite(n) && n >= 1 ? Math.min(n, 999) : 1;
 }
 
-/** Resolve a tier's countAs from an event's tiers by id (preferred) or name. */
-function tierCountAsFromList(eventTiers: any, ref: { tierId?: any; tierName?: any } | null | undefined): number {
+/** Resolve a tier's countAs from an event's tiers by id (preferred) or name. Returns null when the tier cannot be found. */
+function tierCountAsFromList(eventTiers: any, ref: { tierId?: any; tierName?: any } | null | undefined): number | null {
   const list = normalizeTiers(eventTiers);
-  if (!list.length || !ref) return 1;
+  if (!list.length || !ref) return null;
   const byId = ref.tierId != null && String(ref.tierId) !== ""
     ? list.find((t: any) => t && t.id != null && String(t.id) === String(ref.tierId))
     : null;
   const tier = byId || (ref.tierName
     ? list.find((t: any) => String(t?.name || "") === String(ref.tierName))
     : null);
-  return tier ? normalizeCountAs((tier as any).countAs) : 1;
+  return tier ? normalizeCountAs((tier as any).countAs) : null;
 }
 
 /**
- * Total persons a ticket represents. Mixed-item tickets compute per line
- * from items[].countAs (falling back to the live event tiers); single-tier
- * tickets use the denormalized ticket.countAs or the tier lookup.
+ * Total persons a ticket represents.
+ *
+ * The LIVE event tier is the source of truth: editing "Count As" on a tier
+ * must immediately apply to previously booked tickets too. The value
+ * denormalized on the ticket at sale time (ticket.countAs / items[].countAs)
+ * is only used as a fallback when the tier can no longer be resolved
+ * (e.g. the tier was deleted after the booking).
  */
 function ticketPersonCapacity(ticket: any, eventTiers: any): number {
   if (!ticket) return 1;
@@ -1577,16 +1581,14 @@ function ticketPersonCapacity(ticket: any, eventTiers: any): number {
   if (items) {
     return items.reduce((sum: number, it: any) => {
       const lineQty = Math.max(1, Math.floor(Number(it?.quantity) || 1));
-      const per = it?.countAs != null
-        ? normalizeCountAs(it.countAs)
-        : tierCountAsFromList(eventTiers, it || {});
+      const per = tierCountAsFromList(eventTiers, it || {})
+        ?? (it?.countAs != null ? normalizeCountAs(it.countAs) : 1);
       return sum + lineQty * per;
     }, 0);
   }
   const qty = Math.max(1, Math.floor(Number(ticket.quantity) || 1));
-  const per = ticket?.countAs != null
-    ? normalizeCountAs(ticket.countAs)
-    : tierCountAsFromList(eventTiers, ticket || {});
+  const per = tierCountAsFromList(eventTiers, ticket || {})
+    ?? (ticket?.countAs != null ? normalizeCountAs(ticket.countAs) : 1);
   return qty * per;
 }
 
@@ -1616,7 +1618,7 @@ async function finalizeBookingServerSide(
   // Hoisted fulfillment outputs — the single-tier branch and the multi-type
   // branch both set these; notifications and the processed-order record
   // consume them after ticket generation.
-  let tierLines: { tierId: string; tierName: string; price: number; quantity: number; countAs: number }[] = [];
+  let tierLines: { tierId: string; tierName: string; price: number; quantity: number; countAs: number | null }[] = [];
   let isMultiItemOrder = false;
   let ticketId = "";
   let ticketNum = "";
@@ -1749,7 +1751,7 @@ async function finalizeBookingServerSide(
             tierName: t?.name || it?.tierName || "General",
             price: typeof t?.price === "number" ? t.price : 0,
             quantity: Number(it?.quantity) || 1,
-            countAs: normalizeCountAs(it?.countAs ?? t?.countAs),
+            countAs: it?.countAs != null ? normalizeCountAs(it.countAs) : (t ? normalizeCountAs(t.countAs) : null),
           };
         });
         serverCalculatedRecheck = tierLines.reduce((s, l) => s + (l.price || 0) * (l.quantity || 0), 0);
@@ -2006,7 +2008,9 @@ async function finalizeBookingServerSide(
         tierName: l.tierName,
         price: l.price,
         quantity: l.quantity,
-        countAs: normalizeCountAs(l.countAs),
+        // Only denormalize when known — the live tier remains the source of
+        // truth at scan/report time (null lets it fall back cleanly).
+        ...(l.countAs != null ? { countAs: normalizeCountAs(l.countAs) } : {}),
       }));
 
       newTicket = {
@@ -2142,9 +2146,10 @@ async function finalizeBookingServerSide(
         tierName = t.name;
         price = t.price;
       }
-      // "Count As" — persons one pass of this tier counts for (denormalized
-      // at sale time so later tier edits never rewrite historical tickets).
-      const tierCountAs = normalizeCountAs(t?.countAs);
+      // "Count As" — persons one pass of this tier counts for. Denormalized
+      // at sale time only as a fallback; the live tier stays the source of
+      // truth at scan/report time, so later tier edits apply to old tickets.
+      const tierCountAs = t ? normalizeCountAs(t.countAs) : null;
 
       seatLabel = `${tierName} Section`;
       if (seatIds && seatIds.length > 0) {
@@ -2198,7 +2203,7 @@ async function finalizeBookingServerSide(
         qrCodeValue: signedQrToken,
         passSlug,
         tierId: tierId || "",
-        countAs: tierCountAs,
+        ...(tierCountAs != null ? { countAs: tierCountAs } : {}),
         eventGoogleMapsQuery: eventData.mapsUrl || (eventData as any).eventGoogleMapsQuery || `${venue}, ${city}`,
         passType: isDeferred ? 'reservation' : (pendingOrder.isPartial ? 'reservation' : 'entry'),
         paymentStatus: isDeferred ? 'pending' : (pendingOrder.isPartial ? 'partial' : 'paid'),
