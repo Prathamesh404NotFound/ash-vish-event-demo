@@ -2380,7 +2380,7 @@ export const AdminEvents: React.FC = () => {
           <div
             role="dialog"
             aria-modal="true"
-            className="w-full max-w-md bg-[#141414] border border-[#D4AF37]/30 rounded-3xl p-6 space-y-4 shadow-2xl"
+            className="w-full max-w-md bg-[#141414] border border-[#D4AF37]/30 rounded-3xl p-6 space-y-4 shadow-2xl max-h-[calc(100dvh-2rem)] overflow-y-auto"
           >
             <div className="flex justify-between items-start gap-4">
               <div>
@@ -2458,7 +2458,7 @@ export const AdminEvents: React.FC = () => {
           <div
             role="dialog"
             aria-modal="true"
-            className="w-full max-w-md bg-[#141414] border border-[#D4AF37]/30 rounded-3xl p-6 space-y-4 shadow-2xl"
+            className="w-full max-w-md bg-[#141414] border border-[#D4AF37]/30 rounded-3xl p-6 space-y-4 shadow-2xl max-h-[calc(100dvh-2rem)] overflow-y-auto"
           >
             <div className="flex justify-between items-start gap-4">
               <div>

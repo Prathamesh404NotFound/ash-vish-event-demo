@@ -1592,8 +1592,7 @@ export const AdminBookings: React.FC = () => {
 
       {/* Create Order Modal */}
       {createModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
-          <div className="bg-[#181818] border border-[#D4AF37]/30 rounded-3xl p-6 sm:p-8 max-w-md w-full space-y-5 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">            <div className="bg-[#181818] border border-[#D4AF37]/30 rounded-3xl p-6 sm:p-8 max-w-md w-full max-h-[calc(100dvh-2rem)] overflow-y-auto space-y-5 shadow-2xl">
             <div className="flex items-center justify-between border-b border-white/10 pb-4">
               <h3 className="font-heading font-bold text-lg text-white flex items-center gap-2">
                 <Plus className="w-5 h-5 text-[#D4AF37]" />
@@ -1753,8 +1752,7 @@ export const AdminBookings: React.FC = () => {
 
       {/* Edit Order Modal */}
       {editOrderTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
-          <div className="bg-[#181818] border border-[#D4AF37]/30 rounded-3xl p-6 sm:p-8 max-w-md w-full space-y-5 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">            <div className="bg-[#181818] border border-[#D4AF37]/30 rounded-3xl p-6 sm:p-8 max-w-md w-full max-h-[calc(100dvh-2rem)] overflow-y-auto space-y-5 shadow-2xl">
             <div className="flex items-center justify-between border-b border-white/10 pb-4">
               <h3 className="font-heading font-bold text-lg text-white flex items-center gap-2">
                 <Edit className="w-5 h-5 text-[#D4AF37]" />
@@ -2072,8 +2070,7 @@ export const AdminBookings: React.FC = () => {
 
       {/* Refund Modal */}
       {refundOrderTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
-          <div className="bg-[#181818] border border-[#D4AF37]/30 rounded-3xl p-6 sm:p-8 max-w-md w-full space-y-5 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">            <div className="bg-[#181818] border border-[#D4AF37]/30 rounded-3xl p-6 sm:p-8 max-w-md w-full max-h-[calc(100dvh-2rem)] overflow-y-auto space-y-5 shadow-2xl">
             <div className="flex items-center justify-between border-b border-white/10 pb-4">
               <h3 className="font-heading font-bold text-lg text-white flex items-center gap-2">
                 <Undo2 className="w-5 h-5 text-amber-400" />

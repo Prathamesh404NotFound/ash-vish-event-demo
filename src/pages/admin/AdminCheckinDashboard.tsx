@@ -413,7 +413,7 @@ export function AdminCheckinDashboard() {
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="w-full max-w-lg bg-[#141414] border border-white/10 rounded-2xl overflow-hidden"
+              className="w-full max-w-lg bg-[#141414] border border-white/10 rounded-2xl max-h-[calc(100dvh-2rem)] overflow-y-auto"
             >
               {/* Modal Header */}
               <div className="flex items-center justify-between p-5 border-b border-white/10">

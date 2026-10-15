@@ -403,7 +403,7 @@ export const AdminShiftPage: React.FC = () => {
       {/* Shift Edit Modal */}
       {editingShift && editForm && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <form onSubmit={handleSaveEdit} className="w-full max-w-2xl bg-[#121212] border border-white/10 rounded-[28px] shadow-2xl overflow-hidden">
+          <form onSubmit={handleSaveEdit} className="w-full max-w-2xl bg-[#121212] border border-white/10 rounded-[28px] shadow-2xl max-h-[calc(100dvh-2rem)] overflow-y-auto">
             <div className="p-6 border-b border-white/10 flex items-center justify-between">
               <div>
                 <h3 className="text-lg font-heading font-bold text-white">Edit Shift</h3>
@@ -414,7 +414,7 @@ export const AdminShiftPage: React.FC = () => {
               </button>
             </div>
 
-            <div className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-4 max-h-[70vh] overflow-y-auto">
+            <div className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
               <label className="space-y-1.5">
                 <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Sub-User Operator</span>
                 <select

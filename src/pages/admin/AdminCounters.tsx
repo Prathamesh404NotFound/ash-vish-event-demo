@@ -905,7 +905,7 @@ const Modal: React.FC<{ title: string; onClose: () => void; saving: boolean; chi
 }) => (
   <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in" onClick={onClose}>
     <div
-      className="w-full max-w-md bg-[#141414] border border-white/10 rounded-3xl p-6 shadow-2xl space-y-3"
+      className="w-full max-w-md bg-[#141414] border border-white/10 rounded-3xl p-6 shadow-2xl space-y-3 max-h-[calc(100dvh-2rem)] overflow-y-auto"
       onClick={(e) => e.stopPropagation()}
     >
       <div className="flex items-center justify-between">
