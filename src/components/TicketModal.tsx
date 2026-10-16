@@ -74,8 +74,7 @@ export const TicketModal: React.FC<TicketModalProps> = ({ ticket, onClose }) => 
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in">
-      <div className="relative w-full max-w-md bg-[#141414] border border-white/10 rounded-3xl overflow-hidden shadow-2xl">
+    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in">        <div className="relative w-full max-w-md bg-[#141414] border border-white/10 rounded-3xl max-h-[calc(100dvh-2rem)] overflow-y-auto shadow-2xl">
         
         {/* Modal Close Button */}
         <button

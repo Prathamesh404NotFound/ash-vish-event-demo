@@ -1366,12 +1366,38 @@ const isEventPublic = (event: any): boolean => (event?.status || "published") ==
  * fulfilled booking (online, counter, and manual). Stored under orders/ so
  * the orders dashboard can paginate and filter without scanning tickets.
  */
+/**
+ * Restore tier inventory for an order/ticket, honouring mixed-tier `items`
+ * lines (each line returns to its own tier) and falling back to the legacy
+ * single tierId + quantity pair when no items exist.
+ */
+async function restoreInventoryForOrderLines(
+  adminToken: string,
+  eventId: string,
+  source: { items?: any[] | null; tierId?: string | null; quantity?: any }
+): Promise<void> {
+  const items = Array.isArray(source?.items) && source.items.length > 0 ? source.items : null;
+  if (items) {
+    for (const it of items) {
+      const tierId = String(it?.tierId ?? "");
+      const qty = Math.max(1, Math.floor(Number(it?.quantity) || 1));
+      if (tierId) await restoreInventoryTier(adminToken, eventId, tierId, qty).catch(() => { });
+    }
+    return;
+  }
+  const tierId = String(source?.tierId ?? "");
+  const qty = Math.max(1, Math.floor(Number(source?.quantity) || 1));
+  if (tierId) await restoreInventoryTier(adminToken, eventId, tierId, qty).catch(() => { });
+}
+
 async function recordOrder(params: {
   orderId: string;
   eventId: string;
   tierId: string;
   seatIds: string[];
   quantity: number;
+  /** Canonical tier lines for mixed-tier bookings (single pass across N types). */
+  items?: any[] | null;
   customerDetails: { name: string; email: string; phone: string };
   amount: number;
   discount?: number;
@@ -1398,6 +1424,7 @@ async function recordOrder(params: {
       orderId: params.orderId,
       eventId: params.eventId,
       tierId: params.tierId,
+      ...(Array.isArray(params.items) && params.items.length > 0 ? { items: params.items } : {}),
       seatIds: params.seatIds || [],
       quantity: params.quantity,
       customerDetails: {
@@ -1542,6 +1569,113 @@ function normalizeTiers(ticketTiers: any): any[] {
   return [...Array.from(byId.values()), ...Array.from(idLess.values())];
 }
 
+/**
+ * "Count As" — how many persons one pass of a tier counts for in
+ * entry/person analytics (10 for a "Group of 10" pass, 2 for a "Couple",
+ * etc.). Clamped to [1, 999]; missing/invalid values fall back to 1 so
+ * legacy tiers and tickets behave exactly as before.
+ */
+function normalizeCountAs(value: any): number {
+  const n = Math.floor(Number(value));
+  return Number.isFinite(n) && n >= 1 ? Math.min(n, 999) : 1;
+}
+
+/** Resolve a tier's countAs from an event's tiers by id (preferred) or name. Returns null when the tier cannot be found. */
+function tierCountAsFromList(eventTiers: any, ref: { tierId?: any; tierName?: any } | null | undefined): number | null {
+  const list = normalizeTiers(eventTiers);
+  if (!list.length || !ref) return null;
+  const byId = ref.tierId != null && String(ref.tierId) !== ""
+    ? list.find((t: any) => t && t.id != null && String(t.id) === String(ref.tierId))
+    : null;
+  const tier = byId || (ref.tierName
+    ? list.find((t: any) => String(t?.name || "") === String(ref.tierName))
+    : null);
+  return tier ? normalizeCountAs((tier as any).countAs) : null;
+}
+
+/**
+ * Total persons a ticket represents.
+ *
+ * The LIVE event tier is the source of truth: editing "Count As" on a tier
+ * must immediately apply to previously booked tickets too. The value
+ * denormalized on the ticket at sale time (ticket.countAs / items[].countAs)
+ * is only used as a fallback when the tier can no longer be resolved
+ * (e.g. the tier was deleted after the booking).
+ */
+function ticketPersonCapacity(ticket: any, eventTiers: any): number {
+  if (!ticket) return 1;
+  const items = Array.isArray(ticket.items) && ticket.items.length > 0 ? ticket.items : null;
+  if (items) {
+    return items.reduce((sum: number, it: any) => {
+      const lineQty = Math.max(1, Math.floor(Number(it?.quantity) || 1));
+      const per = tierCountAsFromList(eventTiers, it || {})
+        ?? (it?.countAs != null ? normalizeCountAs(it.countAs) : 1);
+      return sum + lineQty * per;
+    }, 0);
+  }
+  const qty = Math.max(1, Math.floor(Number(ticket.quantity) || 1));
+  const per = tierCountAsFromList(eventTiers, ticket || {})
+    ?? (ticket?.countAs != null ? normalizeCountAs(ticket.countAs) : 1);
+  return qty * per;
+}
+
+/** Average persons per pass for a ticket (fractional for mixed-tier bookings). */
+function personsPerPass(ticket: any, eventTiers: any): number {
+  const qty = Math.max(1, Math.floor(Number(ticket?.quantity) || 1));
+  return Math.max(1, ticketPersonCapacity(ticket, eventTiers) / qty);
+}
+
+/**
+ * Normalize + validate mixed-tier line items ({ tierId, tierName?, quantity })
+ * submitted by the booked-ticket CRUD (create/edit order). Duplicate tiers are
+ * merged, ordering is preserved, and both per-line and total quantity are
+ * capped at 100 to match the legacy single-tier validation.
+ */
+function normalizeOrderLineItems(rawItems: any): {
+  lines: { tierId: string; tierName?: string; quantity: number }[] | null;
+  error: string | null;
+} {
+  if (!Array.isArray(rawItems)) {
+    return { lines: null, error: "Mixed ticket selection must be an array of { tierId, quantity } lines." };
+  }
+  const merged = new Map<string, { tierName?: string; quantity: number }>();
+  let total = 0;
+  for (const raw of rawItems) {
+    const tierId = typeof raw?.tierId === "string" ? raw.tierId.trim() : "";
+    const tierName = typeof raw?.tierName === "string" && raw.tierName.trim() ? raw.tierName.trim().slice(0, 80) : undefined;
+    const qty = Math.floor(Number(raw?.quantity));
+    if (!tierId) return { lines: null, error: "Every ticket line needs a ticket type." };
+    if (!Number.isFinite(qty) || qty < 1 || qty > 100) {
+      return { lines: null, error: "Each ticket line quantity must be a whole number between 1 and 100." };
+    }
+    const existing = merged.get(tierId);
+    merged.set(tierId, { tierName: tierName || existing?.tierName, quantity: (existing?.quantity || 0) + qty });
+    total += qty;
+  }
+  if (merged.size === 0) return { lines: null, error: "Select at least one ticket type." };
+  if (merged.size > 12) return { lines: null, error: "An order can mix at most 12 ticket types." };
+  if (total > 100) return { lines: null, error: "Total quantity across all ticket types must be at most 100." };
+  return {
+    lines: Array.from(merged.entries()).map(([tierId, v]) => ({ tierId, ...(v.tierName ? { tierName: v.tierName } : {}), quantity: v.quantity })),
+    error: null,
+  };
+}
+
+/**
+ * Resolve a tier id (or RTDB numeric storage key) against an event's normalized
+ * tiers. Uses the same matcher as fulfillment (id first, then positional key for
+ * id-less tiers, then exact name) so the CRUD can always round-trip a tier.
+ */
+function findTierForLine(tierList: any[], line: { tierId?: string; tierName?: string }): any {
+  const tid = String(line?.tierId ?? "").trim();
+  const tname = line?.tierName != null ? String(line.tierName).trim() : "";
+  return (
+    tierList.find((t: any) => t?.id != null && String(t.id) === tid) ||
+    (tid ? tierList.find((t: any, i: number) => !t?.id && String(i) === tid) : null) ||
+    (tname ? tierList.find((t: any) => String(t?.name || "") === tname) : null)
+  );
+}
+
 async function finalizeBookingServerSide(
   orderId: string,
   paymentMethod: string,
@@ -1562,7 +1696,7 @@ async function finalizeBookingServerSide(
   // Hoisted fulfillment outputs — the single-tier branch and the multi-type
   // branch both set these; notifications and the processed-order record
   // consume them after ticket generation.
-  let tierLines: { tierId: string; tierName: string; price: number; quantity: number }[] = [];
+  let tierLines: { tierId: string; tierName: string; price: number; quantity: number; countAs: number | null }[] = [];
   let isMultiItemOrder = false;
   let ticketId = "";
   let ticketNum = "";
@@ -1695,6 +1829,7 @@ async function finalizeBookingServerSide(
             tierName: t?.name || it?.tierName || "General",
             price: typeof t?.price === "number" ? t.price : 0,
             quantity: Number(it?.quantity) || 1,
+            countAs: it?.countAs != null ? normalizeCountAs(it.countAs) : (t ? normalizeCountAs(t.countAs) : null),
           };
         });
         serverCalculatedRecheck = tierLines.reduce((s, l) => s + (l.price || 0) * (l.quantity || 0), 0);
@@ -1951,6 +2086,9 @@ async function finalizeBookingServerSide(
         tierName: l.tierName,
         price: l.price,
         quantity: l.quantity,
+        // Only denormalize when known — the live tier remains the source of
+        // truth at scan/report time (null lets it fall back cleanly).
+        ...(l.countAs != null ? { countAs: normalizeCountAs(l.countAs) } : {}),
       }));
 
       newTicket = {
@@ -2086,6 +2224,10 @@ async function finalizeBookingServerSide(
         tierName = t.name;
         price = t.price;
       }
+      // "Count As" — persons one pass of this tier counts for. Denormalized
+      // at sale time only as a fallback; the live tier stays the source of
+      // truth at scan/report time, so later tier edits apply to old tickets.
+      const tierCountAs = t ? normalizeCountAs(t.countAs) : null;
 
       seatLabel = `${tierName} Section`;
       if (seatIds && seatIds.length > 0) {
@@ -2139,6 +2281,7 @@ async function finalizeBookingServerSide(
         qrCodeValue: signedQrToken,
         passSlug,
         tierId: tierId || "",
+        ...(tierCountAs != null ? { countAs: tierCountAs } : {}),
         eventGoogleMapsQuery: eventData.mapsUrl || (eventData as any).eventGoogleMapsQuery || `${venue}, ${city}`,
         passType: isDeferred ? 'reservation' : (pendingOrder.isPartial ? 'reservation' : 'entry'),
         paymentStatus: isDeferred ? 'pending' : (pendingOrder.isPartial ? 'partial' : 'paid'),
@@ -2257,6 +2400,9 @@ async function finalizeBookingServerSide(
       tierId: tierId || "",
       seatIds: seatIds || [],
       quantity,
+      // Mixed-tier bookings carry the full breakdown on the ticket; mirror it
+      // onto the canonical orders record so the CRUD can render the lines.
+      items: (newTicket as any)?.items || null,
       customerDetails: customerDetails || {},
       amount,
       discount: pendingOrder?.discount || 0,
@@ -6074,6 +6220,9 @@ export async function createApp() {
             shiftId: linkedOrder?.shiftId || ticket.shiftId || ticket.staffShiftId || null,
             counterId: linkedOrder?.counterId || ticket.counterId || null,
             seatIds: linkedOrder?.seatIds || ticket.seatIds || [],
+            // Full tier breakdown — falls back to the ticket's canonical items
+            // for orders recorded before items were mirrored onto orders/.
+            items: linkedOrder?.items || ticket.items || null,
             createdAt: linkedOrder?.createdAt || ticket.purchasedAt || ticket.createdAt || null,
             counterName: linkedOrder?.counterName || ticket.counterName || null,
             issuedBySubUserName: linkedOrder?.issuedBySubUserName || ticket.issuedBySubUserName || null,
@@ -6149,6 +6298,12 @@ export async function createApp() {
         totalRevenue: orders.reduce((sum: number, o: any) => sum + Number(o.amountPaid ?? ((Number(o.amount) || 0) - (Number(o.discount) || 0)) ?? 0), 0),
         totalDiscount: orders.reduce((sum: number, o: any) => sum + Number(o.discountAmount ?? o.discount ?? 0), 0),
         totalTickets: orders.reduce((sum: number, o: any) => sum + (Number(o.quantity) || 1), 0),
+        // Persons (guests) across all passes — resolves each line's "Count As"
+        // against the live event tiers, so group/couple passes count correctly.
+        totalPersons: orders.reduce(
+          (sum: number, o: any) => sum + ticketPersonCapacity(o, o.eventId ? eventsById[o.eventId]?.ticketTiers : null),
+          0
+        ),
         totalOrders: new Set(orders.map((o: any) => o.orderId || o.id)).size,
       };
       const paged = orders.slice((page - 1) * pageSize, page * pageSize);
@@ -6250,8 +6405,19 @@ export async function createApp() {
   // -- Item 4: create manual order (admin-assigned booking with seat locking) -
   app.post("/api/admin/orders", requireRole(["super_admin", "event_manager", "counter_staff"]), async (req: any, res) => {
     try {
-      const { eventId, tierId, attendeeName, attendeeEmail, attendeePhone, selectedSeats = [], paymentMethod = "cash", couponCode: rawCouponCode, quantity: explicitQty } = req.body || {};
-      if (!eventId || !tierId || !attendeeName) {
+      const { eventId, tierId, attendeeName, attendeeEmail, attendeePhone, selectedSeats = [], paymentMethod = "cash", couponCode: rawCouponCode, quantity: explicitQty, items: rawItems } = req.body || {};
+      // Mixed ticket selection — items[] lets one order span several tiers
+      // (e.g. 2 Couple + 3 General), the same line-item shape the counter and
+      // online booking flows already use.
+      let requestedLines: { tierId: string; tierName?: string; quantity: number }[] | null = null;
+      if (rawItems !== undefined && rawItems !== null) {
+        const parsed = normalizeOrderLineItems(rawItems);
+        if (parsed.error || !parsed.lines) {
+          return res.status(400).json({ success: false, error: parsed.error || "Invalid ticket lines." });
+        }
+        requestedLines = parsed.lines;
+      }
+      if (!eventId || !attendeeName || (!tierId && !requestedLines)) {
         return res.status(400).json({ success: false, error: "Event, tier, and attendee name are required." });
       }
       if (!Array.isArray(selectedSeats)) return res.status(400).json({ success: false, error: "Invalid seat selection." });
@@ -6265,12 +6431,37 @@ export async function createApp() {
       if (event.status === "completed") {
         return res.status(400).json({ success: false, error: "Compliance Error: Manual ticket entry is strictly prohibited for completed events." });
       }
-      const tier = normalizeTiers(event.ticketTiers).find((t: any) => t.id === tierId);
-      if (!tier) return res.status(400).json({ success: false, error: "Invalid ticket tier." });
+      // Resolve every requested line against live tiers (authoritative names,
+      // prices and Count-As). The legacy single-tier call becomes one line.
+      const tierList = normalizeTiers(event.ticketTiers);
+      const lineSpecs = requestedLines ?? [{ tierId: String(tierId), quantity }];
+      const resolvedLines: { tierId: string; tierName: string; price: number; quantity: number; countAs?: number }[] = [];
+      for (const spec of lineSpecs) {
+        const tier = findTierForLine(tierList, spec);
+        if (!tier) return res.status(400).json({ success: false, error: "Invalid ticket tier." });
+        const priceError = validateNonNegativePrice(tier.price);
+        if (priceError) return res.status(400).json({ success: false, error: `Tier '${tier.name || spec.tierId}': ${priceError}` });
+        resolvedLines.push({
+          tierId: spec.tierId,
+          tierName: tier.name || spec.tierName || "General",
+          price: Number(tier.price) || 0,
+          quantity: spec.quantity,
+          ...(tier.countAs != null ? { countAs: normalizeCountAs(tier.countAs) } : {}),
+        });
+      }
+      const totalQuantity = resolvedLines.reduce((sum, l) => sum + l.quantity, 0);
+      const totalQtyError = validatePositiveInteger(totalQuantity, 100);
+      if (totalQtyError) return res.status(400).json({ success: false, error: totalQtyError });
+      const isMixedOrder = resolvedLines.length > 1;
+      const grossAmount = resolvedLines.reduce((sum, l) => sum + l.price * l.quantity, 0);
+
       // Admin toggle: usesSeatMap=false forces general admission — no seats.
       const finalSeats = event.usesSeatMap === false ? [] : selectedSeats;
-      const priceError = validateNonNegativePrice(tier.price);
-      if (priceError) return res.status(400).json({ success: false, error: `Tier '${tier.name}': ${priceError}` });
+      // Seats and mixed tier lines are mutually exclusive (same rule as the
+      // counter flow): a seated order belongs to a single ticket type.
+      if (isMixedOrder && finalSeats.length > 0) {
+        return res.status(400).json({ success: false, error: "Seat selection is not supported with mixed ticket types. Pick a single ticket type for seated events." });
+      }
 
       // Coupon validation (Item 3) — same rules as the counter and online flows.
       let couponCodeUpper: string | null = null;
@@ -6283,7 +6474,7 @@ export async function createApp() {
         if (coupon.validUntil && new Date(coupon.validUntil) < new Date()) return res.status(400).json({ success: false, error: "Coupon has expired." });
         if (coupon.eventId && coupon.eventId !== eventId) return res.status(400).json({ success: false, error: "Coupon is restricted to a different event." });
         if (coupon.usageLimit && Number(coupon.usedCount || 0) >= Number(coupon.usageLimit)) return res.status(400).json({ success: false, error: "Coupon usage limit reached." });
-        const rawAmount = Number(tier.price) * quantity;
+        const rawAmount = grossAmount;
         if (coupon.type === "percentage") discountAmount = Math.round((rawAmount * Number(coupon.value)) / 100);
         else if (coupon.type === "fixed") discountAmount = Math.min(rawAmount, Number(coupon.value));
       }
@@ -6303,16 +6494,21 @@ export async function createApp() {
         email: attendeeEmail?.trim() || "",
         phone: attendeePhone?.trim() || "",
       };
-      const amount = Number(tier.price) * quantity;
+      const amount = grossAmount;
       // Persist a pending order so the shared fulfillment path (inventory,
       // ticket issuance, canonical orders record, confirmation email) is
       // reused identically to all other channels.
       await rtdbSet(`pending_orders/${orderId}`, {
-        orderId, eventId, tierId, seatIds: finalSeats, quantity,
+        orderId, eventId, tierId: resolvedLines[0].tierId, seatIds: finalSeats, quantity: totalQuantity,
         customerDetails, userId: `manual_${req.user.uid}`,
         amount, discount: discountAmount, couponCode: couponCodeUpper,
         createdAt: new Date().toISOString(),
         paymentMethod: `manual_${String(paymentMethod).slice(0, 32)}`,
+        // Only multi-line orders need items — fulfillment treats a single line
+        // exactly like the legacy single-tier path.
+        ...(isMixedOrder
+          ? { items: resolvedLines.map((l) => ({ tierId: l.tierId, tierName: l.tierName, quantity: l.quantity })) }
+          : {}),
       }, adminToken);
 
       const result = await finalizeBookingServerSide(orderId, `manual_${String(paymentMethod).slice(0, 32)}`, `manual_payment_${orderId}`, adminToken, couponCodeUpper);
@@ -6326,9 +6522,13 @@ export async function createApp() {
         action: "order.created.manual",
         entityType: "order",
         entityId: orderId,
-        afterState: { eventId, tierId, quantity, attendee: customerDetails.name, couponCode: couponCodeUpper, discount: discountAmount },
+        afterState: {
+          eventId, tierId: resolvedLines[0].tierId, quantity: totalQuantity,
+          ...(isMixedOrder ? { items: resolvedLines.map((l) => ({ tierId: l.tierId, quantity: l.quantity })) } : {}),
+          attendee: customerDetails.name, couponCode: couponCodeUpper, discount: discountAmount,
+        },
       });
-      return res.status(201).json({ success: true, order: { orderId, amount, discount: discountAmount, status: "confirmed" }, ticket: result.ticket });
+      return res.status(201).json({ success: true, order: { orderId, amount, quantity: totalQuantity, discount: discountAmount, status: "confirmed" }, ticket: result.ticket });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err.message || "Could not create manual order." });
     }
@@ -6408,7 +6608,18 @@ export async function createApp() {
         counterName: requestedCounterName,
         issuedBySubUserName: requestedIssuer,
         eventId: requestedEventId,
+        items: requestedItemsRaw,
       } = req.body || {};
+      // Mixed ticket selection (items[]) — the current booking flow's line-item
+      // shape. When present it replaces the legacy single tierId/quantity edit.
+      let requestedItems: { tierId: string; tierName?: string; quantity: number }[] | null = null;
+      if (requestedItemsRaw !== undefined && requestedItemsRaw !== null) {
+        const parsed = normalizeOrderLineItems(requestedItemsRaw);
+        if (parsed.error || !parsed.lines) {
+          return res.status(400).json({ success: false, error: parsed.error || "Invalid ticket lines." });
+        }
+        requestedItems = parsed.lines;
+      }
       const updates: Record<string, any> = {};
       const before = JSON.parse(JSON.stringify(order));
 
@@ -6482,7 +6693,64 @@ export async function createApp() {
         }
       }
 
-      if (tierId && tierId !== order.tierId) {
+      // ---- Mixed-tier line edit (items[]) -----------------------------------
+      // Resolves every line against live tiers, recomputes the total, and
+      // stores the consolidated label ("Couple ×2 + General ×3") exactly like
+      // fulfillment does for mixed bookings.
+      let itemsOldLines: { tierId: string; quantity: number }[] | null = null;
+      let itemsNewLines: { tierId: string; quantity: number }[] | null = null;
+      let itemsAveragePrice: number | null = null;
+      if (requestedItems) {
+        const physicalSeats: string[] = (Array.isArray(order.seatIds) ? order.seatIds : []).filter(isPhysicalSeatId);
+        if (requestedItems.length > 1 && physicalSeats.length > 0) {
+          return res.status(400).json({ success: false, error: "Mixed ticket types cannot be edited on an order that holds seats — seats belong to a single ticket type." });
+        }
+        const itemsEvent = (await rtdbGet(`events/${order.eventId}`, adminToken)).data as any;
+        const itemsTierList = normalizeTiers(itemsEvent?.ticketTiers);
+        const resolvedItems: { tierId: string; tierName: string; price: number; quantity: number; countAs?: number }[] = [];
+        for (const line of requestedItems) {
+          const tier = findTierForLine(itemsTierList, line);
+          if (!tier) {
+            return res.status(400).json({
+              success: false,
+              error: `Ticket tier '${line.tierName || line.tierId}' no longer exists on this event. Set its quantity to 0 to remove the line (its stock will be restored).`,
+            });
+          }
+          const priceError = validateNonNegativePrice(tier.price);
+          if (priceError) return res.status(400).json({ success: false, error: `Tier '${tier.name || line.tierId}': ${priceError}` });
+          resolvedItems.push({
+            tierId: line.tierId,
+            tierName: tier.name || line.tierName || "General",
+            price: Number(tier.price) || 0,
+            quantity: line.quantity,
+            ...(tier.countAs != null ? { countAs: normalizeCountAs(tier.countAs) } : {}),
+          });
+        }
+        const totalPasses = resolvedItems.reduce((s, l) => s + l.quantity, 0);
+        const itemsGross = resolvedItems.reduce((s, l) => s + l.price * l.quantity, 0);
+        const nextDiscount = updates.discount !== undefined ? updates.discount : Number(order.discount ?? 0);
+        if (nextDiscount > itemsGross) {
+          return res.status(400).json({ success: false, error: "Discount cannot be greater than the ticket total." });
+        }
+        const isMixedEdit = resolvedItems.length > 1;
+        updates.tierId = resolvedItems[0].tierId;
+        updates.tierName = isMixedEdit
+          ? resolvedItems.map((l) => `${l.tierName} ×${l.quantity}`).join(" + ")
+          : resolvedItems[0].tierName;
+        updates.quantity = totalPasses;
+        updates.items = resolvedItems;
+        updates.amount = Math.max(0, itemsGross - nextDiscount);
+        updates.amountDue = order.paymentStatus === "pending" ? updates.amount : 0;
+        itemsAveragePrice = totalPasses > 0 ? Math.round((itemsGross / totalPasses) * 100) / 100 : resolvedItems[0].price;
+        itemsNewLines = resolvedItems;
+        const storedItems = Array.isArray(order.items) && order.items.length > 0 ? order.items : null;
+        itemsOldLines = (storedItems
+          ? storedItems.map((it: any) => ({ tierId: String(it?.tierId ?? order.tierId ?? ""), quantity: Math.max(1, Math.floor(Number(it?.quantity) || 1)) }))
+          : [{ tierId: String(order.tierId || ""), quantity: Math.max(1, Math.floor(Number(order.quantity) || 1)) }]
+        ).filter((l) => l.tierId);
+      }
+
+      if (!requestedItems && tierId && tierId !== order.tierId) {
         const event = (await rtdbGet(`events/${order.eventId}`, adminToken)).data as any;
         // Tiers may be stored under numeric RTDB keys without an `id` field.
         // normalizeTiers surfaces the storage key as the id for those entries; add
@@ -6503,7 +6771,7 @@ export async function createApp() {
       const oldTierId = order.tierId;
       const newTierId = updates.tierId || oldTierId;
 
-      if (requestedQuantity !== undefined || requestedDiscount !== undefined || tierId) {
+      if (!requestedItems && (requestedQuantity !== undefined || requestedDiscount !== undefined || tierId)) {
         const event = (await rtdbGet(`events/${order.eventId}`, adminToken)).data as any;
         const tier = normalizeTiers(event?.ticketTiers).find((t: any) => t.id === newTierId);
         const unitPrice = Number(tier?.price ?? 0);
@@ -6519,7 +6787,55 @@ export async function createApp() {
         updates.amountDue = order.paymentStatus === "pending" ? updates.amount : 0;
       }
 
-      if (oldTierId !== newTierId || oldQty !== newQty) {
+      if (requestedItems && itemsOldLines && itemsNewLines) {
+        // Mixed edit: restore every old line and deduct every new line so
+        // per-tier inventory stays exact for mixed bookings.
+        const lineKey = (ls: { tierId: string; quantity: number }[]) =>
+          JSON.stringify(ls.map((l) => `${l.tierId}:${l.quantity}`).sort());
+        if (lineKey(itemsOldLines) !== lineKey(itemsNewLines)) {
+          for (const line of itemsOldLines) {
+            await restoreInventoryTier(adminToken, order.eventId, line.tierId, line.quantity).catch(() => { });
+          }
+          const deductMap = new Map<string, number>();
+          for (const line of itemsNewLines) {
+            deductMap.set(line.tierId, (deductMap.get(line.tierId) || 0) + line.quantity);
+          }
+          // Floors at 0 like the legacy edit path — inventory reconciliation
+          // on an edit must never fail an otherwise-valid correction.
+          await rtdbTransaction(`events/${order.eventId}`, (currEvent: any) => {
+            if (!currEvent || !currEvent.ticketTiers) return undefined;
+            const isArray = Array.isArray(currEvent.ticketTiers);
+            const updatedTiers = isArray ? [] : {};
+            let found = 0;
+            if (isArray) {
+              for (let i = 0; i < currEvent.ticketTiers.length; i++) {
+                const t = currEvent.ticketTiers[i];
+                const id = t ? (t.id != null ? String(t.id) : String(i)) : null;
+                const lineQty = id !== null ? deductMap.get(id) : undefined;
+                if (t && lineQty !== undefined) {
+                  found++;
+                  const currentRem = typeof t.remainingInventory === 'number' ? t.remainingInventory : (t.totalInventory || 0);
+                  (updatedTiers as any[]).push({ ...t, remainingInventory: Math.max(0, currentRem - lineQty) });
+                } else { (updatedTiers as any[]).push(t); }
+              }
+            } else {
+              for (const [key, tRaw] of Object.entries(currEvent.ticketTiers as any)) {
+                const t = tRaw as any;
+                const id = t ? (t.id != null ? String(t.id) : String(key)) : null;
+                const lineQty = id !== null ? deductMap.get(id) : undefined;
+                if (t && lineQty !== undefined) {
+                  found++;
+                  const currentRem = typeof t.remainingInventory === 'number' ? t.remainingInventory : (t.totalInventory || 0);
+                  (updatedTiers as any)[key] = { ...t, remainingInventory: Math.max(0, currentRem - lineQty) };
+                } else { (updatedTiers as any)[key] = t; }
+              }
+            }
+            if (found === 0) return undefined;
+            currEvent.ticketTiers = updatedTiers;
+            return currEvent;
+          }, adminToken).catch(() => { });
+        }
+      } else if (oldTierId !== newTierId || oldQty !== newQty) {
         // Restore old tier
         if (oldTierId && oldQty > 0) {
           await restoreInventoryTier(adminToken, order.eventId, oldTierId, oldQty).catch(() => { });
@@ -6575,9 +6891,12 @@ export async function createApp() {
             attendeeName: updates.customerDetails?.name ?? ticket.attendeeName,
             attendeeEmail: updates.customerDetails?.email ?? ticket.attendeeEmail,
             attendeePhone: updates.customerDetails?.phone ?? ticket.attendeePhone,
-            tierName: tier?.name ?? ticket.tierName,
-            price: tier?.price ?? ticket.price,
+            tierName: updates.tierName ?? tier?.name ?? ticket.tierName,
+            price: itemsAveragePrice ?? tier?.price ?? ticket.price,
             quantity: newQty,
+            // Full tier breakdown — keeps the scanner/pass page in sync with a
+            // mixed edit (legacy single-tier edits keep ticket.items as-is).
+            ...(updates.items ? { items: updates.items } : {}),
             totalPaid: Number(updates.amount ?? ticket.totalPaid ?? 0),
             selectedSeats: nextSeats,
             seatNumber: nextSeats.length ? nextSeats.join(", ") : ticket.seatNumber,
@@ -6598,6 +6917,7 @@ export async function createApp() {
               eventTitle: updatedTicket.eventTitle,
               tierName: updatedTicket.tierName,
               quantity: updatedTicket.quantity,
+              ...(updatedTicket.items ? { items: updatedTicket.items } : {}),
               seatNumber: updatedTicket.seatNumber,
               attendeeName: updatedTicket.attendeeName,
               paymentStatus: updatedTicket.paymentStatus,
@@ -6679,8 +6999,12 @@ export async function createApp() {
 
       // Restore event tier inventory (Prompt B Item 5 complement)
       if (order.eventId && order.tierId) {
-        const restoreQty = refundType === "partial" ? (partialSeats.length || 1) : (Number(order.quantity) || 1);
-        await restoreInventoryTier(adminToken, order.eventId, order.tierId, restoreQty).catch(() => { });
+        if (refundType === "full") {
+          // Mixed bookings return each line's stock to its own tier.
+          await restoreInventoryForOrderLines(adminToken, order.eventId, order);
+        } else {
+          await restoreInventoryTier(adminToken, order.eventId, order.tierId, partialSeats.length || 1).catch(() => { });
+        }
       }
 
       const afterState = {
@@ -6788,7 +7112,8 @@ export async function createApp() {
 
           // Restore event tier inventory (Prompt B Item 5 complement)
           if (order.eventId && order.tierId) {
-            await restoreInventoryTier(adminToken, order.eventId, order.tierId, Number(order.quantity) || 1).catch(() => { });
+            // Mixed bookings return each line's stock to its own tier.
+            await restoreInventoryForOrderLines(adminToken, order.eventId, order);
           }
 
           await rtdbUpdate(`orders/${id}`, { status: "cancelled", cancelledAt: new Date().toISOString(), cancelledBy: req.user.uid }, adminToken);
@@ -7656,13 +7981,21 @@ export async function createApp() {
 
       // EVENT COMPLETED — reject passes belonging to a completed or cancelled event.
       let eventCompleted = false;
+      let evtData: any = null;
       if (ticket.eventId) {
         const evtSnap = await rtdbGet(`events/${ticket.eventId}`, adminToken);
-        const evtData = evtSnap?.data as any;
+        evtData = (evtSnap?.data as any) || null;
         if (evtData && (evtData.status === 'completed' || evtData.status === 'cancelled')) {
           eventCompleted = true;
         }
       }
+
+      // "COUNT AS" — persons this pass entitlement represents (group/couple
+      // tiers), so the gate sees persons alongside raw pass counts.
+      const countAs = personsPerPass(ticket, evtData?.ticketTiers);
+      const personCapacity = Math.round(state.ticketQuantity * countAs);
+      const personsCheckedIn = Math.round(state.checkedInQuantity * countAs);
+      const personsRemaining = Math.max(0, personCapacity - personsCheckedIn);
 
       // PAYMENT GATING — unpaid reservation passes are not valid at the gate.
       const paymentPending = ticket.passType === "reservation" && ticket.paymentStatus !== "paid";
@@ -7681,7 +8014,7 @@ export async function createApp() {
       } else if (paymentPending) {
         reason = `UNPAID RESERVATION PASS — payment of \u20b9${amountDue} is pending. Direct this guest to the Pay-at-Counter station before gate admission.`;
       } else if (state.remainingQuantity === 0) {
-        reason = `This ticket has already been completely redeemed — ${state.checkedInQuantity} of ${state.ticketQuantity} guests admitted.`;
+        reason = `This ticket has already been completely redeemed — ${state.checkedInQuantity} of ${state.ticketQuantity} passes admitted${countAs > 1 ? ` (${personsCheckedIn} of ${personCapacity} guests)` : ''}.`;
       } else if (['CANCELLED', 'EXPIRED'].includes(state.entryStatus)) {
         reason = `Ticket is ${state.entryStatus.toLowerCase()} and cannot be admitted.`;
       }
@@ -7692,6 +8025,10 @@ export async function createApp() {
         ticketId: id,
         ticket,
         ...state,
+        countAs,
+        personCapacity,
+        personsCheckedIn,
+        personsRemaining,
         eventMismatch,
         paymentPending,
         amountDue: paymentPending ? amountDue : undefined,
@@ -7756,6 +8093,14 @@ export async function createApp() {
         return res.status(402).json({ success: false, paymentPending: true, amountDue: due, error: `UNPAID RESERVATION PASS — payment of \u20b9${due} is pending. Collect payment before gate admission.` });
       }
 
+      // "COUNT AS" — persons per pass for this ticket's tier (group/couple
+      // tiers). Entitlement math below stays in pass units; persons figures
+      // are derived for reporting and the scanner UI.
+      const preEventData: any = preTicket.eventId
+        ? (((await rtdbGet(`events/${preTicket.eventId}`, adminToken).catch(() => null))?.data) || null)
+        : null;
+      const entryCountAs = personsPerPass(preTicket, preEventData?.ticketTiers);
+
       const allowPartialEntry = await getAllowPartialEntrySetting(adminToken);
       const scannedAt = new Date().toISOString();
       const staffRole = String(req.user?.rbacRole || toRbacRole(req.user?.role) || "counter_staff");
@@ -7797,7 +8142,7 @@ export async function createApp() {
         const remaining = ticketQuantity - checkedInQuantity;
 
         if (remaining <= 0) {
-          admissionError = `TICKET FULLY REDEEMED — ${checkedInQuantity} of ${ticketQuantity} guests already admitted. No entries remain.`;
+          admissionError = `TICKET FULLY REDEEMED — ${checkedInQuantity} of ${ticketQuantity} passes already admitted. No entries remain.`;
           return undefined;
         }
         // If partial entries are disabled, a scan must consume the whole entitlement.
@@ -7848,6 +8193,8 @@ export async function createApp() {
         ticketId: targetTicketId,
         eventId: updatedTicket.eventId || undefined,
         quantityEntered: qtyAdmitted,
+        countAs: entryCountAs,
+        personsEntered: Math.round(qtyAdmitted * entryCountAs),
         scannedAt,
         scannedBy: staffUid,
         staffRole,
@@ -7876,6 +8223,8 @@ export async function createApp() {
           result: {
             entryTransactionId: entryTxId || entryTransactionId,
             admitted: qtyAdmitted,
+            countAs: entryCountAs,
+            personsAdmitted: Math.round(qtyAdmitted * entryCountAs),
             ticketQuantity: ticketQuantityFinal,
             checkedInQuantity: Number(updatedTicket.checkedInQuantity) || 0,
             remainingQuantity: Math.max(0, ticketQuantityFinal - (Number(updatedTicket.checkedInQuantity) || 0)),
@@ -7904,10 +8253,14 @@ export async function createApp() {
         entryId: entryTxId || entryTransactionId,
         entryTransactionId: entryTxId || entryTransactionId,
         admitted: qtyAdmitted,
+        countAs: entryCountAs,
+        personsAdmitted: Math.round(qtyAdmitted * entryCountAs),
         ticket: updatedTicket,
         ticketQuantity: ticketQuantityFinal,
         checkedInQuantity,
+        personsCheckedIn: Math.round(checkedInQuantity * entryCountAs),
         remainingQuantity: Math.max(0, ticketQuantityFinal - checkedInQuantity),
+        personsRemaining: Math.max(0, Math.round((ticketQuantityFinal - checkedInQuantity) * entryCountAs)),
         entryStatus: updatedTicket.entryStatus,
         fullyCheckedIn: checkedInQuantity >= ticketQuantityFinal,
       });
@@ -10334,7 +10687,12 @@ export async function createApp() {
         resolvedTierId = (orderSnap.data as any)?.tierId;
       }
       if (ticket.eventId && resolvedTierId) {
-        await restoreInventoryTier(adminToken, ticket.eventId, resolvedTierId, Number(ticket.quantity) || 1).catch(() => { });
+        // Mixed bookings return each line's stock to its own tier.
+        await restoreInventoryForOrderLines(adminToken, ticket.eventId, {
+          items: ticket.items,
+          tierId: resolvedTierId,
+          quantity: ticket.quantity,
+        });
       }
 
       const updatedTicket = {
@@ -11197,14 +11555,18 @@ export async function createApp() {
 
       // Authoritative analytics derived from tickets + the immutable entry
       // transaction ledger — the same data the scanner writes (#5/#6/#15).
+      // "Count As" tiers: person figures = passes × tier countAs.
+      const eventTiers = event?.ticketTiers;
       let totalQuantity = 0;
       let checkedInQuantity = 0;
+      let totalPersons = 0;
+      let checkedInPersons = 0;
       let checkedIn = 0;
       let partialTickets = 0;
       let fullyRedeemedTickets = 0;
       let unusedTickets = 0;
       const recentScans: any[] = [];
-      const tierMap = new Map<string, { total: number; checkedIn: number }>();
+      const tierMap = new Map<string, { total: number; checkedIn: number; persons: number; checkedInPersons: number }>();
       const counterMap = new Map<string, { guests: number; scans: number }>();
       const staffMap = new Map<string, { guests: number; scans: number }>();
       const overTimeMap = new Map<string, number>();
@@ -11212,6 +11574,8 @@ export async function createApp() {
       for (const ticket of eventTickets) {
         const qty = Math.max(1, Math.floor(Number(ticket.quantity) || 1));
         totalQuantity += qty;
+        const countAs = personsPerPass(ticket, eventTiers);
+        totalPersons += Math.round(qty * countAs);
         const st = String(ticket.status || 'valid').toLowerCase();
         const checkedInForTicket = st === 'redeemed' && ticket.checkedInQuantity == null
           ? qty
@@ -11219,6 +11583,7 @@ export async function createApp() {
         const remainingForTicket = Math.max(0, qty - checkedInForTicket);
 
         checkedInQuantity += checkedInForTicket;
+        checkedInPersons += Math.round(checkedInForTicket * countAs);
         if (remainingForTicket === 0 && checkedInForTicket > 0) {
           fullyRedeemedTickets++;
           checkedIn++;
@@ -11239,9 +11604,13 @@ export async function createApp() {
           });
         }
         const tierName = ticket.tierName || "General";
-        const existing = tierMap.get(tierName) || { total: 0, checkedIn: 0 };
+        const existing = tierMap.get(tierName) || { total: 0, checkedIn: 0, persons: 0, checkedInPersons: 0 };
         existing.total += qty;
-        if (isScanned) existing.checkedIn += checkedInForTicket;
+        existing.persons += Math.round(qty * countAs);
+        if (isScanned) {
+          existing.checkedIn += checkedInForTicket;
+          existing.checkedInPersons += Math.round(checkedInForTicket * countAs);
+        }
         tierMap.set(tierName, existing);
       }
 
@@ -11257,17 +11626,21 @@ export async function createApp() {
           const ticket = allTickets.find((t: any) => t.id === ticketId);
           if (!ticket || ticket.eventId !== eventId) continue;
           const counterName = String(tx.counterId || 'Unassigned');
+          const txCountAs = Number(tx.countAs) > 0
+            ? Number(tx.countAs)
+            : personsPerPass(ticket, eventTiers);
+          const txPersons = Math.max(0, Number(tx.personsEntered)) || Math.round(Math.max(0, Number(tx.quantityEntered) || 0) * txCountAs);
           const counterEntry = counterMap.get(counterName) || { guests: 0, scans: 0 };
-          counterEntry.guests += Math.max(0, Number(tx.quantityEntered) || 0);
+          counterEntry.guests += txPersons;
           counterEntry.scans += 1;
           counterMap.set(counterName, counterEntry);
           const staffName = String(tx.scannedBy || 'unknown');
           const staffEntry = staffMap.get(staffName) || { guests: 0, scans: 0 };
-          staffEntry.guests += Math.max(0, Number(tx.quantityEntered) || 0);
+          staffEntry.guests += txPersons;
           staffEntry.scans += 1;
           staffMap.set(staffName, staffEntry);
           const day = String(tx.scannedAt || '').slice(0, 10);
-          if (day) overTimeMap.set(day, (overTimeMap.get(day) || 0) + Math.max(0, Number(tx.quantityEntered) || 0));
+          if (day) overTimeMap.set(day, (overTimeMap.get(day) || 0) + txPersons);
         }
       }
 
@@ -11280,9 +11653,12 @@ export async function createApp() {
           eventTitle: event?.title || "Unknown Event",
           totalTickets: eventTickets.length,
           totalQuantity,
+          totalPersons,
           checkedIn,
           checkedInQuantity,
+          checkedInPersons,
           remaining: totalQuantity - checkedInQuantity,
+          remainingPersons: Math.max(0, totalPersons - checkedInPersons),
           checkInRate: totalQuantity > 0 ? checkedInQuantity / totalQuantity : 0,
           partialTickets,
           fullyRedeemedTickets,

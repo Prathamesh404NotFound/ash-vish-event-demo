@@ -23,6 +23,12 @@ export interface TicketTier {
    * "Counter Only" on the event detail page.
    */
   counterOnly?: boolean;
+  /**
+   * "Count As" — how many persons a single pass of this tier counts for
+   * in entry/person analytics. Use 10 for a "Group of 10" pass, 2 for a
+   * "Couple" pass, etc. Defaults to 1 when unset or invalid.
+   */
+  countAs?: number;
 }
 
 export interface FAQ {

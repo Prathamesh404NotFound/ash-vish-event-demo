@@ -15,13 +15,18 @@ interface CheckinData {
   eventTitle: string;
   totalTickets: number;
   totalQuantity: number;
+  /** Persons expected — passes × tier "Count As" (group/couple tiers). */
+  totalPersons?: number;
   checkedIn: number;
   checkedInQuantity: number;
+  /** Guests (persons) actually admitted — passes × "Count As". */
+  checkedInPersons?: number;
   remaining: number;
+  remainingPersons?: number;
   checkInRate: number;
   lastScanAt: string | null;
   recentScans: { ticketNumber: string; attendeeName: string; scannedAt: string; tierName: string }[];
-  byTier: { tierName: string; total: number; checkedIn: number }[];
+  byTier: { tierName: string; total: number; checkedIn: number; persons?: number; checkedInPersons?: number }[];
   partialTickets?: number;
   fullyRedeemedTickets?: number;
   unusedTickets?: number;
@@ -192,10 +197,13 @@ export function AdminCheckinDashboard() {
           >
             <div className="flex items-center gap-2 mb-3">
               <Users className="w-4 h-4 text-blue-400" />
-              <span className="text-[10px] font-bold text-gray-500 uppercase">Total Tickets</span>
+              <span className="text-[10px] font-bold text-gray-500 uppercase">Total Passes</span>
             </div>
             <p className="font-heading font-extrabold text-3xl text-white">{data.totalQuantity}</p>
             <p className="text-[10px] text-gray-500 mt-1">{data.totalTickets} ticket records</p>
+            {(data.totalPersons ?? data.totalQuantity) !== data.totalQuantity && (
+              <p className="text-[10px] text-[#D4AF37] font-bold mt-0.5">= {data.totalPersons} persons expected</p>
+            )}
           </motion.div>
 
           <motion.div
@@ -206,10 +214,13 @@ export function AdminCheckinDashboard() {
           >
             <div className="flex items-center gap-2 mb-3">
               <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-              <span className="text-[10px] font-bold text-gray-500 uppercase">Checked In</span>
+              <span className="text-[10px] font-bold text-gray-500 uppercase">Checked In (Passes)</span>
             </div>
             <p className="font-heading font-extrabold text-3xl text-emerald-400">{data.checkedInQuantity}</p>
             <p className="text-[10px] text-gray-500 mt-1">{data.checkedIn} tickets scanned</p>
+            {(data.checkedInPersons ?? data.checkedInQuantity) !== data.checkedInQuantity && (
+              <p className="text-[10px] text-[#D4AF37] font-bold mt-0.5">= {data.checkedInPersons} guests entered</p>
+            )}
           </motion.div>
 
           <motion.div
@@ -220,10 +231,13 @@ export function AdminCheckinDashboard() {
           >
             <div className="flex items-center gap-2 mb-3">
               <Clock className="w-4 h-4 text-amber-400" />
-              <span className="text-[10px] font-bold text-gray-500 uppercase">Remaining</span>
+              <span className="text-[10px] font-bold text-gray-500 uppercase">Remaining (Passes)</span>
             </div>
             <p className="font-heading font-extrabold text-3xl text-white">{data.remaining}</p>
             <p className="text-[10px] text-gray-500 mt-1">Not yet checked in</p>
+            {(data.totalPersons ?? data.totalQuantity) !== data.totalQuantity && (
+              <p className="text-[10px] text-[#D4AF37] font-bold mt-0.5">= {data.remainingPersons ?? 0} guests pending</p>
+            )}
           </motion.div>
 
           <motion.div
@@ -324,6 +338,7 @@ export function AdminCheckinDashboard() {
           <div className="space-y-3">
             {data.byTier.map((tier) => {
               const tierRate = tier.total > 0 ? Math.round((tier.checkedIn / tier.total) * 100) : 0;
+              const showPersons = (tier.persons ?? tier.total) !== tier.total;
               return (
                 <div key={tier.tierName} className="flex items-center gap-4">
                   <span className="text-xs text-gray-300 w-32 truncate font-bold">{tier.tierName}</span>
@@ -335,6 +350,9 @@ export function AdminCheckinDashboard() {
                   </div>
                   <span className="text-[10px] text-gray-500 w-20 text-right">
                     {tier.checkedIn}/{tier.total} ({tierRate}%)
+                    {showPersons && (
+                      <span className="block text-[#D4AF37] font-bold">{tier.checkedInPersons ?? 0}/{tier.persons} guests</span>
+                    )}
                   </span>
                 </div>
               );
@@ -395,7 +413,7 @@ export function AdminCheckinDashboard() {
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="w-full max-w-lg bg-[#141414] border border-white/10 rounded-2xl overflow-hidden"
+              className="w-full max-w-lg bg-[#141414] border border-white/10 rounded-2xl max-h-[calc(100dvh-2rem)] overflow-y-auto"
             >
               {/* Modal Header */}
               <div className="flex items-center justify-between p-5 border-b border-white/10">

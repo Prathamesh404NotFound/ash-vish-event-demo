@@ -182,6 +182,15 @@ interface BookingContextType {
     selectedSeats?: string[]; tierId?: string; quantity?: number; discount?: number;
     couponCode?: string; paymentMethod?: string; counterName?: string;
     issuedBySubUserName?: string; eventId?: string;
+    /** Mixed ticket selection — replaces tierId/quantity when present. */
+    items?: { tierId: string; tierName?: string; quantity: number }[];
+  }) => Promise<Response>;
+  createManualOrder: (data: {
+    eventId: string; tierId?: string; attendeeName: string; attendeeEmail?: string;
+    attendeePhone?: string; selectedSeats?: string[]; quantity?: number;
+    paymentMethod?: string; couponCode?: string;
+    /** Mixed ticket selection — one order spanning several tiers. */
+    items?: { tierId: string; tierName?: string; quantity: number }[];
   }) => Promise<Response>;
   resendTicketWhatsApp: (ticketId: string) => Promise<Response>;
   // WhatsApp Templates
@@ -1498,6 +1507,7 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     eventId: string; tierId?: string; attendeeName: string; attendeeEmail?: string;
     attendeePhone?: string; selectedSeats?: string[]; quantity?: number;
     paymentMethod?: string; couponCode?: string;
+    items?: { tierId: string; tierName?: string; quantity: number }[];
   }) => {
     const res = await adminApi('/api/admin/orders', { method: 'POST', body: JSON.stringify(data) });
     return res;
@@ -1508,6 +1518,7 @@ export const BookingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     selectedSeats?: string[]; tierId?: string; quantity?: number; discount?: number;
     couponCode?: string; paymentMethod?: string; counterName?: string;
     issuedBySubUserName?: string; eventId?: string;
+    items?: { tierId: string; tierName?: string; quantity: number }[];
   }) => {
     const res = await adminApi(`/api/admin/orders/${orderId}`, { method: 'PUT', body: JSON.stringify(data) });
     return res;

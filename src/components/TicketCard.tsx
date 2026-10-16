@@ -1,5 +1,5 @@
 import React from 'react';
-import { Star, Crown, AlertCircle, Gem, Smile, Zap } from 'lucide-react';
+import { Star, Crown, AlertCircle, Gem, Smile, Users, Zap } from 'lucide-react';
 import { TicketTier } from '../types';
 import { formatINR } from '../utils/formatters';
 import { getTierBadgeStyle, getTierKind } from '../lib/ticketItems';
@@ -38,6 +38,8 @@ export const TicketCard: React.FC<TicketCardProps> = ({
 }) => {
   const isSoldOut = (tier.remainingInventory ?? 0) <= 0;
   const isLowStock = !isSoldOut && (tier.remainingInventory ?? 0) <= 5;
+  // "Count As" — one pass of this tier covers N persons (group of 10, couple…)
+  const countAs = Math.max(1, Math.floor(Number(tier.countAs) || 1));
   const ebActive = Boolean(earlyBird?.active);
   const ebPrice = ebActive ? earlyBirdTicketPrice(tier, earlyBird ?? null) : tier.price;
   const isMulti = typeof onQuantityChange === 'function' && !isSoldOut;
@@ -137,6 +139,12 @@ export const TicketCard: React.FC<TicketCardProps> = ({
               <AlertCircle className="w-3 h-3 sm:w-4 sm:h-4 text-amber-400 flex-shrink-0" />
             )}
           </div>
+          {countAs > 1 && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#D4AF37]/10 text-[#D4AF37] border border-[#D4AF37]/30 text-[10px] sm:text-[11px] font-extrabold uppercase tracking-wider w-fit">
+              <Users className="w-3 h-3" />
+              Admits {countAs} guests per pass
+            </span>
+          )}
         </div>
 
         {/* Description */}

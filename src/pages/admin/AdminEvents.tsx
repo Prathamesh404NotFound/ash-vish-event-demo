@@ -47,6 +47,8 @@ interface TierInput {
   perksText: string;
   /** If true, this tier is only sold at a physical ticket counter. */
   counterOnly: boolean;
+  /** "Count As" — persons one pass of this tier counts for (group of 10 = 10, couple = 2). */
+  countAs: number;
 }
 
 export const AdminEvents: React.FC = () => {
@@ -88,6 +90,7 @@ export const AdminEvents: React.FC = () => {
       remainingInventory: 0,
       perksText: '',
       counterOnly: false,
+      countAs: 1,
     },
   ]);
 
@@ -261,6 +264,7 @@ export const AdminEvents: React.FC = () => {
         remainingInventory: 0,
         perksText: '',
         counterOnly: false,
+        countAs: 1,
       },
     ]);
     setScheduleText('');
@@ -372,6 +376,7 @@ export const AdminEvents: React.FC = () => {
           remainingInventory: t.remainingInventory ?? t.totalInventory ?? 200,
           perksText: (t.perks || []).join(', '),
           counterOnly: Boolean(t.counterOnly),
+          countAs: Math.max(1, Math.floor(Number(t.countAs) || 1)),
         }))
       );
     } else {
@@ -384,6 +389,7 @@ export const AdminEvents: React.FC = () => {
           totalInventory: 0,
           remainingInventory: 0,
           perksText: '',
+          countAs: 1,
         },
       ]);
     }
@@ -522,6 +528,7 @@ export const AdminEvents: React.FC = () => {
         remainingInventory: 0,
         perksText: '',
         counterOnly: false,
+        countAs: 1,
       },
     ]);
   };
@@ -637,6 +644,10 @@ export const AdminEvents: React.FC = () => {
         setFormError(`Tier "${t.name}" total capacity must be greater than 0.`);
         return;
       }
+      if (!Number.isFinite(Number(t.countAs)) || Number(t.countAs) < 1) {
+        setFormError(`Tier "${t.name}" \"Count As\" must be at least 1 person per pass.`);
+        return;
+      }
     }
 
     // Compute minimum price and total capacity
@@ -656,6 +667,7 @@ export const AdminEvents: React.FC = () => {
         remainingInventory: parsedRemaining,
         perks: t.perksText.split(',').map((p) => p.trim()).filter(Boolean),
         counterOnly: Boolean(t.counterOnly),
+        countAs: Math.max(1, Math.floor(Number(t.countAs) || 1)),
       };
     });
 
@@ -2071,6 +2083,25 @@ export const AdminEvents: React.FC = () => {
                             <span className="text-[9px] text-gray-500 uppercase tracking-tighter">Auto-Reconciled</span>
                           </div>
                         </div>
+
+                        <div>
+                          <label className="text-gray-400 text-[10px] font-bold block mb-1">
+                            Count As (persons per pass)
+                          </label>
+                          <input
+                            type="number"
+                            min={1}
+                            step={1}
+                            value={t.countAs}
+                            onChange={(e) => handleUpdateTier(t.id, 'countAs', Math.max(1, Math.floor(Number(e.target.value) || 1)))}
+                            className="w-full bg-[#121212] border border-white/10 rounded-lg px-2.5 py-2 text-white font-bold text-xs focus:outline-none focus:border-[#D4AF37]"
+                          />
+                          {Number(t.countAs) > 1 && (
+                            <p className="text-[9px] text-[#D4AF37] mt-1 font-bold">
+                              1 pass of this tier = {Math.floor(Number(t.countAs))} persons
+                            </p>
+                          )}
+                        </div>
                       </div>
 
                       <div className="grid grid-cols-1 min-[520px]:grid-cols-2 gap-3">
@@ -2349,7 +2380,7 @@ export const AdminEvents: React.FC = () => {
           <div
             role="dialog"
             aria-modal="true"
-            className="w-full max-w-md bg-[#141414] border border-[#D4AF37]/30 rounded-3xl p-6 space-y-4 shadow-2xl"
+            className="w-full max-w-md bg-[#141414] border border-[#D4AF37]/30 rounded-3xl p-6 space-y-4 shadow-2xl max-h-[calc(100dvh-2rem)] overflow-y-auto"
           >
             <div className="flex justify-between items-start gap-4">
               <div>
@@ -2427,7 +2458,7 @@ export const AdminEvents: React.FC = () => {
           <div
             role="dialog"
             aria-modal="true"
-            className="w-full max-w-md bg-[#141414] border border-[#D4AF37]/30 rounded-3xl p-6 space-y-4 shadow-2xl"
+            className="w-full max-w-md bg-[#141414] border border-[#D4AF37]/30 rounded-3xl p-6 space-y-4 shadow-2xl max-h-[calc(100dvh-2rem)] overflow-y-auto"
           >
             <div className="flex justify-between items-start gap-4">
               <div>

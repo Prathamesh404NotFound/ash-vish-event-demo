@@ -491,8 +491,7 @@ export const AdminUsers: React.FC = () => {
       {/* ADD STAFF MODAL (Lookup -> Role Select -> Save) */}
       {/* ======================================================== */}
       {showAddModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
-          <div className="w-full max-w-lg p-6 rounded-3xl bg-[#141414] border border-white/10 space-y-5 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">            <div className="w-full max-w-lg p-6 rounded-3xl bg-[#141414] border border-white/10 space-y-5 shadow-2xl max-h-[calc(100dvh-2rem)] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-white/10 pb-4">
               <div className="flex items-center gap-2.5">
                 <UserPlus className="w-5 h-5 text-[#D4AF37]" />
@@ -605,8 +604,7 @@ export const AdminUsers: React.FC = () => {
       {/* CONFIRMATION MODAL FOR DESTRUCTIVE ACTIONS */}
       {/* ======================================================== */}
       {confirmModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
-          <div className="w-full max-w-md p-6 rounded-3xl bg-[#141414] border border-red-500/30 space-y-5 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">            <div className="w-full max-w-md p-6 rounded-3xl bg-[#141414] border border-red-500/30 space-y-5 shadow-2xl max-h-[calc(100dvh-2rem)] overflow-y-auto">
             <div className="flex items-center gap-2.5 text-red-400 border-b border-white/10 pb-4">
               <AlertTriangle className="w-5 h-5" />
               <h3 className="font-heading font-bold text-base text-white">Confirm Permission Change</h3>

@@ -64,6 +64,9 @@ interface AdminOrder {
   amountPaid?: number;
   refundAmount?: number;
   quantity?: number;
+  tierId?: string;
+  /** Canonical tier lines — mixed orders span several types in one pass. */
+  items?: { tierId: string; tierName?: string; price?: number; quantity: number; countAs?: number }[];
   seatsCount?: number;
   seatIds?: string[];
   seatLabels?: string[];
@@ -137,7 +140,7 @@ function isMeaningfulPersonLabel(value: unknown): boolean {
   return true;
 }
 
-function normalizeTiers(ticketTiers: any): { id?: string | null; name?: string; price?: number }[] {
+function normalizeTiers(ticketTiers: any): { id?: string | null; name?: string; price?: number; countAs?: number; remainingInventory?: number }[] {
   if (!ticketTiers) return [];
   if (Array.isArray(ticketTiers)) {
     return ticketTiers.map((t: any) => ({ ...t, id: t.id || t.tierId || null }));
@@ -153,6 +156,105 @@ function normalizeTiers(ticketTiers: any): { id?: string | null; name?: string; 
     }));
   }
   return [];
+}
+
+/** Clamp a tier's "Count As" (persons per pass) to [1, 999]. */
+function countAsOf(value: unknown): number {
+  const n = Math.floor(Number(value));
+  return Number.isFinite(n) && n >= 1 ? Math.min(n, 999) : 1;
+}
+
+interface OrderTierLine {
+  tierId: string;
+  tierName: string;
+  price: number;
+  quantity: number;
+  countAs?: number;
+}
+
+/**
+ * Canonical tier lines for an order — the mixed `items` breakdown when present,
+ * otherwise the legacy single tier + quantity pair.
+ */
+function orderLines(o: AdminOrder): OrderTierLine[] {
+  const raw = o.items;
+  if (Array.isArray(raw) && raw.length > 0) {
+    const lines = raw
+      .map((it) => ({
+        tierId: String(it?.tierId || ''),
+        tierName: String(it?.tierName || o.tierName || 'General entry'),
+        price: Number(it?.price) || 0,
+        quantity: Math.max(1, Math.floor(Number(it?.quantity) || 1)),
+        ...(it?.countAs != null ? { countAs: countAsOf(it.countAs) } : {}),
+      }))
+      .filter((l) => l.tierId || l.tierName);
+    if (lines.length > 0) return lines;
+  }
+  return [
+    {
+      tierId: String(o.tierId || ''),
+      tierName: String(o.tierName || 'General entry'),
+      price: 0,
+      quantity: Math.max(1, Math.floor(Number(o.quantity) || 1)),
+      ...(o.countAs != null ? { countAs: countAsOf(o.countAs) } : {}),
+    },
+  ];
+}
+
+/** One ticket-type line with a quantity stepper — shared by Create/Edit order modals. */
+function TicketLineRow(props: React.Attributes & {
+  name: string;
+  price?: number;
+  countAs?: number;
+  qty: number;
+  orphan?: boolean;
+  onQty: (next: number) => void;
+}) {
+  const { name, price, countAs, qty, orphan, onQty } = props;
+  const per = countAsOf(countAs);
+  return (
+    <div className="flex items-center justify-between gap-3 p-2.5 rounded-xl bg-[#141414] border border-white/10">
+      <div className="min-w-0">
+        <span className="block text-xs font-bold text-white truncate">{name}</span>
+        <span className="block text-[10px] text-gray-400">
+          {orphan ? 'Tier removed from the event' : `₹${Number(price ?? 0).toLocaleString('en-IN')} per pass`}
+          {per > 1 && <span className="text-[#D4AF37] font-bold"> · = {per} guests per pass</span>}
+        </span>
+        {orphan && (
+          <span className="block text-[9px] text-amber-400 mt-0.5">
+            This ticket type no longer exists — set it to 0 to remove the line.
+          </span>
+        )}
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        <button
+          type="button"
+          onClick={() => onQty(Math.max(0, qty - 1))}
+          aria-label={`Remove one ${name}`}
+          className="w-7 h-7 rounded-lg bg-black/40 border border-white/10 text-white font-bold hover:border-[#D4AF37] transition-colors cursor-pointer"
+        >
+          −
+        </button>
+        <input
+          type="number"
+          min={0}
+          max={100}
+          value={qty}
+          onChange={(e) => onQty(Math.max(0, Math.min(100, Number(e.target.value) || 0)))}
+          aria-label={`${name} quantity`}
+          className="w-12 h-7 rounded-lg bg-black/40 border border-white/10 text-white text-center text-xs font-extrabold focus:outline-none focus:border-[#D4AF37]"
+        />
+        <button
+          type="button"
+          onClick={() => onQty(Math.min(100, qty + 1))}
+          aria-label={`Add one ${name}`}
+          className="w-7 h-7 rounded-lg bg-black/40 border border-white/10 text-white font-bold hover:border-[#D4AF37] transition-colors cursor-pointer"
+        >
+          +
+        </button>
+      </div>
+    </div>
+  );
 }
 
 export const AdminBookings: React.FC = () => {
@@ -171,7 +273,7 @@ export const AdminBookings: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
-  const [summary, setSummary] = useState({ totalRevenue: 0, totalDiscount: 0, totalTickets: 0, totalOrders: 0 });
+  const [summary, setSummary] = useState({ totalRevenue: 0, totalDiscount: 0, totalTickets: 0, totalOrders: 0, totalPersons: 0 });
   const [counterOptions, setCounterOptions] = useState<AdminCounterOption[]>([]);
   const [staffOptions, setStaffOptions] = useState<AdminStaffOption[]>([]);
 
@@ -312,7 +414,10 @@ export const AdminBookings: React.FC = () => {
         customerPhone: t.attendeePhone,
         totalAmount: t.totalPaid,
         amountPaid: t.totalPaid,
-        quantity: 1,
+        quantity: (t as any).quantity || 1,
+        tierId: (t as any).tierId || '',
+        tierName: (t as any).tierName || null,
+        items: (t as any).items || null,
         seatsCount: 1,
         status: t.status,
         channel: t.isWalkIn ? 'counter' : 'online',
@@ -556,11 +661,33 @@ export const AdminBookings: React.FC = () => {
     }
   };
 
+  // Event tiers by event id — resolves each order line's live "Count As"
+  // (persons per pass) exactly like the server-side person math.
+  const eventTiersByEventId = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof normalizeTiers>>();
+    events.forEach((evt) => map.set(String(evt.id), normalizeTiers((evt as any).ticketTiers)));
+    return map;
+  }, [events]);
+
+  const orderLineCountAs = (o: AdminOrder, line: OrderTierLine): number => {
+    const tiers = eventTiersByEventId.get(String(o.eventId || ''));
+    const tier =
+      (line.tierId ? tiers?.find((t) => String(t.id) === line.tierId) : undefined) ||
+      tiers?.find((t) => t.name === line.tierName);
+    if (tier) return countAsOf(tier.countAs);
+    return line.countAs != null ? line.countAs : 1;
+  };
+
+  /** Total persons (guests) an order admits across all its tier lines. */
+  const orderPersons = (o: AdminOrder): number =>
+    orderLines(o).reduce((sum, l) => sum + l.quantity * orderLineCountAs(o, l), 0);
+
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
 
   // ---------------- Create Order form state ----------------
   const [coEventId, setCoEventId] = useState('');
-  const [coQuantity, setCoQuantity] = useState<number>(1);
+  // Mixed ticket selection: quantity per tier id (0 = not included).
+  const [coQty, setCoQty] = useState<Record<string, number>>({});
   const [coName, setCoName] = useState('');
   const [coEmail, setCoEmail] = useState('');
   const [coPhone, setCoPhone] = useState('');
@@ -570,7 +697,7 @@ export const AdminBookings: React.FC = () => {
 
   const openCreateModal = () => {
     setCoEventId('');
-    setCoQuantity(1);
+    setCoQty({});
     setCoName('');
     setCoEmail('');
     setCoPhone('');
@@ -579,29 +706,39 @@ export const AdminBookings: React.FC = () => {
     setCreateModalOpen(true);
   };
 
+  // Live totals for the create modal's mixed ticket selection.
+  const coTiers = normalizeTiers(events.find((e) => e.id === coEventId)?.ticketTiers).filter((t) => t.id != null);
+  const coSelected = coTiers.filter((t) => (coQty[String(t.id)] || 0) > 0);
+  const coPasses = coSelected.reduce((s, t) => s + (coQty[String(t.id)] || 0), 0);
+  const coPersons = coSelected.reduce((s, t) => s + (coQty[String(t.id)] || 0) * countAsOf(t.countAs), 0);
+  const coAmount = coSelected.reduce((s, t) => s + (coQty[String(t.id)] || 0) * Number(t.price || 0), 0);
+
   const handleCreateOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!coEventId) return setCoErrorMessage('Please select an event.');
     if (!coName.trim()) return setCoErrorMessage('Customer name is required.');
     if (coEmail && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(coEmail))
       return setCoErrorMessage('Email is invalid.');
+    if (coTiers.length === 0) {
+      setCoErrorMessage('This event has no configured ticket tiers yet. Add tiers in the event editor first.');
+      return;
+    }
+    if (coPasses < 1) return setCoErrorMessage('Select at least one ticket — set a quantity above 0.');
     setCoSubmitting(true);
     setCoErrorMessage('');
     try {
-      const event = events.find((e) => e.id === coEventId);
-      const tierId = normalizeTiers(event?.ticketTiers)[0]?.id;
-      if (!tierId) {
-        setCoErrorMessage('This event has no configured ticket tiers yet. Add tiers in the seat map / pricing settings.');
-        setCoSubmitting(false);
-        return;
-      }
       const res = await createManualOrder({
         eventId: coEventId,
-        tierId,
+        // Mixed ticket selection — one order can span several tiers
+        // (e.g. 2 Couple + 3 General), same line-item shape as the counter flow.
+        items: coSelected.map((t) => ({
+          tierId: String(t.id),
+          ...(t.name ? { tierName: t.name } : {}),
+          quantity: coQty[String(t.id)],
+        })),
         attendeeName: coName.trim(),
         attendeeEmail: coEmail.trim() || undefined,
         attendeePhone: coPhone.trim() || undefined,
-        quantity: Math.max(1, Number(coQuantity) || 1),
         paymentMethod: coPaymentMethod,
       });
       const json = await res.json().catch(() => ({}));
@@ -627,6 +764,8 @@ export const AdminBookings: React.FC = () => {
   const [edEventId, setEdEventId] = useState('');
   const [edTierId, setEdTierId] = useState('');
   const [edQuantity, setEdQuantity] = useState(1);
+  // Mixed ticket selection: quantity per tier id (0 = not included).
+  const [edQty, setEdQty] = useState<Record<string, number>>({});
   const [edSeats, setEdSeats] = useState('');
   const [edDiscount, setEdDiscount] = useState(0);
   const [edCouponCode, setEdCouponCode] = useState('');
@@ -684,6 +823,13 @@ export const AdminBookings: React.FC = () => {
     setEdEventId(o.eventId || '');
     setEdTierId(o.tierId || '');
     setEdQuantity(Number(o.quantity || 1));
+    // Seed the mixed picker from the order's existing lines (items[] for mixed
+    // bookings, tierId + quantity for legacy single-tier orders).
+    setEdQty(
+      Object.fromEntries(
+        orderLines(o).filter((l) => l.tierId).map((l) => [l.tierId, l.quantity])
+      )
+    );
     // Only physical seat IDs belong in the editable seat field. General-admission
     // access labels such as "General Entry" must never be posted as seat IDs.
     setEdSeats((o.seatIds || []).join(', '));
@@ -696,11 +842,54 @@ export const AdminBookings: React.FC = () => {
     setEdErrorMessage('');
   };
 
+  // ---------------- Edit Order mixed-selection model ----------------
+  // Seated orders (physical seat IDs) keep the single ticket-type flow — seats
+  // belong to one category, mirroring the counter flow's rules. Everything else
+  // edits via mixed line items (the current booking flow's shape).
+  const orderHasPhysicalSeats = !!(editOrderTarget && (editOrderTarget.seatIds || []).some(isPhysicalSeatId));
+  const edTierList = normalizeTiers(events.find((evt) => evt.id === edEventId)?.ticketTiers);
+  const edTierRows = [
+    ...edTierList
+      .filter((t) => t.id != null)
+      .map((t) => ({
+        key: String(t.id),
+        name: t.name || 'Ticket type',
+        price: Number(t.price || 0),
+        countAs: countAsOf(t.countAs),
+        orphan: false,
+      })),
+    // Lines whose tier was deleted from the event stay visible so the admin
+    // decides whether to drop them (setting qty to 0 restores their stock).
+    ...(editOrderTarget
+      ? orderLines(editOrderTarget)
+          .filter((l) => l.tierId && !edTierList.some((t) => String(t.id) === l.tierId))
+          .map((l) => ({
+            key: l.tierId,
+            name: l.tierName,
+            price: l.price,
+            countAs: l.countAs != null ? l.countAs : 1,
+            orphan: true,
+          }))
+      : []),
+  ];
+  const edSelected = edTierRows.filter((r) => (edQty[r.key] || 0) > 0);
+  const edPasses = edSelected.reduce((s, r) => s + (edQty[r.key] || 0), 0);
+  const edPersons = edSelected.reduce((s, r) => s + (edQty[r.key] || 0) * r.countAs, 0);
+  const edGross = edSelected.reduce((s, r) => s + (edQty[r.key] || 0) * r.price, 0);
+
   const handleEditOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editOrderTarget) return;
     if (edEmail && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(edEmail))
       return setEdErrorMessage('Email is invalid.');
+    if (!orderHasPhysicalSeats) {
+      if (edSelected.length === 0) {
+        return setEdErrorMessage('Select at least one ticket — set a quantity above 0.');
+      }
+      if (edSelected.some((r) => r.orphan)) {
+        return setEdErrorMessage('A selected ticket type no longer exists on this event. Set it to 0 (to restore its stock) or re-create the tier first.');
+      }
+    }
     setEdSubmitting(true);
     setEdErrorMessage('');
     try {
@@ -711,8 +900,16 @@ export const AdminBookings: React.FC = () => {
           phone: edPhone.trim(),
         },
         eventId: edEventId || undefined,
-        tierId: edTierId || undefined,
-        quantity: Math.max(1, Number(edQuantity) || 1),
+        // Seated orders keep the legacy single-tier payload; all other orders
+        // send the full mixed line-item breakdown.
+        ...(orderHasPhysicalSeats
+          ? { tierId: edTierId || undefined, quantity: Math.max(1, Number(edQuantity) || 1) }
+          : {
+              items: edSelected.map((r) => ({
+                tierId: r.key,
+                quantity: Math.max(1, Math.floor(Number(edQty[r.key]) || 0)),
+              })),
+            }),
         selectedSeats: edSeats.trim()
           ? edSeats.split(',').map((seat) => seat.trim()).filter(isPhysicalSeatId).map((seat) => seat.toUpperCase())
           : [],
@@ -995,6 +1192,9 @@ export const AdminBookings: React.FC = () => {
           <p className="text-gray-500 text-[10px] font-black uppercase tracking-widest">Current tickets</p>
           <p className="text-2xl font-heading font-extrabold text-white mt-2">{Number(summary.totalTickets || 0).toLocaleString('en-IN')}</p>
           <p className="text-gray-400 text-[10px] mt-1">{Number(summary.totalOrders || 0).toLocaleString('en-IN')} sales records</p>
+          {Number(summary.totalPersons || 0) !== Number(summary.totalTickets || 0) && (
+            <p className="text-[#D4AF37] text-[10px] mt-0.5">= {Number(summary.totalPersons).toLocaleString('en-IN')} guests expected</p>
+          )}
         </div>
       </div>
 
@@ -1243,6 +1443,14 @@ export const AdminBookings: React.FC = () => {
                 const discount = Number(o.discountAmount ?? o.discount ?? 0);
                 const issuer = o.issuedBySubUserName || o.issuedBy || (o.channel === 'online' ? 'Customer checkout' : 'Main counter staff');
                 const counter = o.counterName || (o.channel === 'online' ? 'Online booking' : 'Counter not recorded');
+                const lines = orderLines(o);
+                const passes = lines.reduce((sum, l) => sum + l.quantity, 0);
+                const persons = lines.reduce((sum, l) => sum + l.quantity * orderLineCountAs(o, l), 0);
+                const tierLabel =
+                  o.tierName ||
+                  (lines.length > 1
+                    ? lines.map((l) => `${l.quantity}× ${l.tierName}`).join(' + ')
+                    : lines[0]?.tierName || '');
                 return (
                   <tr key={o.id} className="hover:bg-white/5 transition-colors">
                     <td className="p-4">
@@ -1282,9 +1490,12 @@ export const AdminBookings: React.FC = () => {
                         {o.eventTitle || o.eventName || 'Event name unavailable'}
                       </span>
                       <span className="text-gray-400 text-[10px] block">
-                        {o.quantity || 1} ticket{(o.quantity || 1) === 1 ? '' : 's'}
-                        {o.tierName ? ` · ${o.tierName}` : ''}
+                        {passes} pass{passes === 1 ? '' : 'es'}
+                        {tierLabel ? ` · ${tierLabel}` : ''}
                       </span>
+                      {persons !== passes && (
+                        <span className="text-[#D4AF37] text-[10px] block mt-0.5">= {persons} guests</span>
+                      )}
                     </td>
                     <td className="p-4">
                       <span className="block text-white font-bold">
@@ -1381,8 +1592,7 @@ export const AdminBookings: React.FC = () => {
 
       {/* Create Order Modal */}
       {createModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
-          <div className="bg-[#181818] border border-[#D4AF37]/30 rounded-3xl p-6 sm:p-8 max-w-md w-full space-y-5 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">            <div className="bg-[#181818] border border-[#D4AF37]/30 rounded-3xl p-6 sm:p-8 max-w-md w-full max-h-[calc(100dvh-2rem)] overflow-y-auto space-y-5 shadow-2xl">
             <div className="flex items-center justify-between border-b border-white/10 pb-4">
               <h3 className="font-heading font-bold text-lg text-white flex items-center gap-2">
                 <Plus className="w-5 h-5 text-[#D4AF37]" />
@@ -1414,7 +1624,14 @@ export const AdminBookings: React.FC = () => {
                 <select
                   required
                   value={coEventId}
-                  onChange={(e) => setCoEventId(e.target.value)}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setCoEventId(v);
+                    // Default to 1 pass of the first tier — same quick flow as before,
+                    // but every tier can now be adjusted (and mixed) below.
+                    const first = normalizeTiers(events.find((ev) => ev.id === v)?.ticketTiers).find((t) => t.id != null);
+                    setCoQty(first ? { [String(first.id)]: 1 } : {});
+                  }}
                   className="w-full bg-[#141414] border border-white/10 rounded-xl px-3.5 py-3 text-white focus:outline-none focus:border-[#D4AF37]"
                 >
                   <option value="">Select an event...</option>
@@ -1449,28 +1666,54 @@ export const AdminBookings: React.FC = () => {
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="font-bold text-gray-300 block mb-1">Phone (optional)</label>
-                  <input
-                    type="tel"
-                    value={coPhone}
-                    onChange={(e) => setCoPhone(e.target.value)}
-                    placeholder="+91 ..."
-                    className="w-full bg-[#141414] border border-white/10 rounded-xl px-3.5 py-3 text-white focus:outline-none focus:border-[#D4AF37]"
-                  />
-                </div>
-                <div>
-                  <label className="font-bold text-gray-300 block mb-1">Quantity</label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={100}
-                    value={coQuantity}
-                    onChange={(e) => setCoQuantity(Math.max(1, Number(e.target.value) || 1))}
-                    className="w-full bg-[#141414] border border-white/10 rounded-xl px-3.5 py-3 text-white font-mono focus:outline-none focus:border-[#D4AF37]"
-                  />
-                </div>
+              <div>
+                <label className="font-bold text-gray-300 block mb-1">Phone (optional)</label>
+                <input
+                  type="tel"
+                  value={coPhone}
+                  onChange={(e) => setCoPhone(e.target.value)}
+                  placeholder="+91 ..."
+                  className="w-full bg-[#141414] border border-white/10 rounded-xl px-3.5 py-3 text-white focus:outline-none focus:border-[#D4AF37]"
+                />
+              </div>
+
+              {/* Mixed ticket selection — pick any combination of ticket types */}
+              <div>
+                <label className="font-bold text-gray-300 block mb-1">Tickets *</label>
+                {coTiers.length === 0 ? (
+                  <p className="text-[10px] text-amber-400">
+                    {coEventId
+                      ? 'This event has no ticket tiers yet — add them in the event editor first.'
+                      : 'Select an event to choose its ticket types.'}
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {coTiers.map((tier) => (
+                      <TicketLineRow
+                        key={String(tier.id)}
+                        name={tier.name || 'Ticket type'}
+                        price={Number(tier.price || 0)}
+                        countAs={countAsOf(tier.countAs)}
+                        qty={coQty[String(tier.id)] || 0}
+                        onQty={(next) => setCoQty((m) => ({ ...m, [String(tier.id)]: next }))}
+                      />
+                    ))}
+                    <div className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-[#D4AF37]/5 border border-[#D4AF37]/20 text-[11px]">
+                      <span className="text-gray-300">
+                        <span className="text-white font-extrabold">{coPasses}</span> pass{coPasses === 1 ? '' : 'es'}
+                        {coPersons !== coPasses && (
+                          <>
+                            {' '}· <span className="text-white font-extrabold">{coPersons}</span> guests
+                          </>
+                        )}
+                      </span>
+                      <span className="text-[#D4AF37] font-extrabold">₹{coAmount.toLocaleString('en-IN')}</span>
+                    </div>
+                    <p className="text-[10px] text-gray-500">
+                      Mix ticket types in one order — set any quantity per type (0 = not included).
+                    </p>
+                  </div>
+                )}
               </div>
 
               <div>
@@ -1509,8 +1752,7 @@ export const AdminBookings: React.FC = () => {
 
       {/* Edit Order Modal */}
       {editOrderTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
-          <div className="bg-[#181818] border border-[#D4AF37]/30 rounded-3xl p-6 sm:p-8 max-w-md w-full space-y-5 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">            <div className="bg-[#181818] border border-[#D4AF37]/30 rounded-3xl p-6 sm:p-8 max-w-md w-full max-h-[calc(100dvh-2rem)] overflow-y-auto space-y-5 shadow-2xl">
             <div className="flex items-center justify-between border-b border-white/10 pb-4">
               <h3 className="font-heading font-bold text-lg text-white flex items-center gap-2">
                 <Edit className="w-5 h-5 text-[#D4AF37]" />
@@ -1553,32 +1795,73 @@ export const AdminBookings: React.FC = () => {
                 <input type="email" value={edEmail} onChange={(e) => setEdEmail(e.target.value)} className="w-full bg-[#141414] border border-white/10 rounded-xl px-3.5 py-3 text-white focus:outline-none focus:border-[#D4AF37]" />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="font-bold text-gray-300 block mb-1">Event</label>
-                  <select value={edEventId} disabled className="w-full bg-[#141414] border border-white/10 rounded-xl px-3.5 py-3 text-gray-400 focus:outline-none">
-                    {events.filter((evt) => evt.id === edEventId).map((evt) => <option key={evt.id} value={evt.id}>{evt.title}</option>)}
-                  </select>
-                  <p className="text-[9px] text-gray-500 mt-1">Event changes require a replacement order.</p>
-                </div>
-                <div>
-                  <label className="font-bold text-gray-300 block mb-1">Ticket Tier</label>
-                  <select value={edTierId} onChange={(e) => setEdTierId(e.target.value)} className="w-full bg-[#141414] border border-white/10 rounded-xl px-3.5 py-3 text-white focus:outline-none focus:border-[#D4AF37]">
-                    {normalizeTiers(events.find((evt) => evt.id === edEventId)?.ticketTiers).map((tier, index) => <option key={tier.id || index} value={tier.id || ''}>{tier.name || `Tier ${index + 1}`} · ₹{Number(tier.price || 0).toLocaleString('en-IN')}</option>)}
-                  </select>
-                </div>
+              <div>
+                <label className="font-bold text-gray-300 block mb-1">Event</label>
+                <select value={edEventId} disabled className="w-full bg-[#141414] border border-white/10 rounded-xl px-3.5 py-3 text-gray-400 focus:outline-none">
+                  {events.filter((evt) => evt.id === edEventId).map((evt) => <option key={evt.id} value={evt.id}>{evt.title}</option>)}
+                </select>
+                <p className="text-[9px] text-gray-500 mt-1">Event changes require a replacement order.</p>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="font-bold text-gray-300 block mb-1">Quantity</label>
-                  <input type="number" min={1} max={100} value={edQuantity} onChange={(e) => setEdQuantity(Math.max(1, Number(e.target.value) || 1))} className="w-full bg-[#141414] border border-white/10 rounded-xl px-3.5 py-3 text-white focus:outline-none focus:border-[#D4AF37]" />
-                </div>
-                <div>
-                  <label className="font-bold text-gray-300 block mb-1">Seat / Access</label>
-                  <input type="text" value={edSeats} onChange={(e) => setEdSeats(e.target.value)} placeholder="Seat IDs separated by commas" className="w-full bg-[#141414] border border-white/10 rounded-xl px-3.5 py-3 text-white focus:outline-none focus:border-[#D4AF37]" />
-                </div>
-              </div>
+              {orderHasPhysicalSeats ? (
+                <>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="font-bold text-gray-300 block mb-1">Ticket Tier</label>
+                      <select value={edTierId} onChange={(e) => setEdTierId(e.target.value)} className="w-full bg-[#141414] border border-white/10 rounded-xl px-3.5 py-3 text-white focus:outline-none focus:border-[#D4AF37]">
+                        {edTierList.map((tier, index) => <option key={tier.id || index} value={tier.id || ''}>{tier.name || `Tier ${index + 1}`} · ₹{Number(tier.price || 0).toLocaleString('en-IN')}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="font-bold text-gray-300 block mb-1">Quantity</label>
+                      <input type="number" min={1} max={100} value={edQuantity} onChange={(e) => setEdQuantity(Math.max(1, Number(e.target.value) || 1))} className="w-full bg-[#141414] border border-white/10 rounded-xl px-3.5 py-3 text-white focus:outline-none focus:border-[#D4AF37]" />
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-gray-500">This order holds seats, so it stays on a single ticket type.</p>
+                  <div>
+                    <label className="font-bold text-gray-300 block mb-1">Seat / Access</label>
+                    <input type="text" value={edSeats} onChange={(e) => setEdSeats(e.target.value)} placeholder="Seat IDs separated by commas" className="w-full bg-[#141414] border border-white/10 rounded-xl px-3.5 py-3 text-white focus:outline-none focus:border-[#D4AF37]" />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <label className="font-bold text-gray-300 block mb-1">Tickets *</label>
+                    <div className="space-y-2">
+                      {edTierRows.map((row) => (
+                        <TicketLineRow
+                          key={row.key}
+                          name={row.name}
+                          price={row.price}
+                          countAs={row.countAs}
+                          qty={edQty[row.key] || 0}
+                          orphan={row.orphan}
+                          onQty={(next) => setEdQty((m) => ({ ...m, [row.key]: next }))}
+                        />
+                      ))}
+                    </div>
+                    <div className="flex items-center justify-between gap-2 mt-2 p-2.5 rounded-xl bg-[#D4AF37]/5 border border-[#D4AF37]/20 text-[11px]">
+                      <span className="text-gray-300">
+                        <span className="text-white font-extrabold">{edPasses}</span> pass{edPasses === 1 ? '' : 'es'}
+                        {edPersons !== edPasses && (
+                          <>{' '}· <span className="text-white font-extrabold">{edPersons}</span> guests</>
+                        )}
+                      </span>
+                      <span className="text-[#D4AF37] font-extrabold">
+                        ₹{Math.max(0, edGross - edDiscount).toLocaleString('en-IN')}
+                        {edDiscount > 0 && <span className="text-gray-500 font-normal"> (−₹{edDiscount.toLocaleString('en-IN')})</span>}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-gray-500 mt-1">
+                      Mix ticket types in one order — any quantity per type. Inventory is re-balanced per type on save.
+                    </p>
+                  </div>
+                  <div>
+                    <label className="font-bold text-gray-300 block mb-1">Seat / Access</label>
+                    <input type="text" value={edSeats} onChange={(e) => setEdSeats(e.target.value)} placeholder="Seat IDs separated by commas" className="w-full bg-[#141414] border border-white/10 rounded-xl px-3.5 py-3 text-white focus:outline-none focus:border-[#D4AF37]" />
+                  </div>
+                </>
+              )}
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
@@ -1718,9 +2001,39 @@ export const AdminBookings: React.FC = () => {
             </div>
 
             <div className="p-4 rounded-xl bg-[#D4AF37]/5 border border-[#D4AF37]/20 text-xs space-y-2">
-              <p className="text-gray-400"><span className="text-white font-bold">Quantity:</span> {detailsOrder.quantity || 1} ticket{(detailsOrder.quantity || 1) === 1 ? '' : 's'}</p>
-              <p className="text-gray-400"><span className="text-white font-bold">Access:</span> {detailsOrder.tierName || 'General entry'}{detailsOrder.seatLabels?.length ? ` · ${detailsOrder.seatLabels.join(', ')}` : ''}</p>
-              <p className="text-gray-400"><span className="text-white font-bold">Created:</span> {formatOrderDate(detailsOrder.createdAt)}</p>
+              {(() => {
+                const lines = orderLines(detailsOrder);
+                const passes = lines.reduce((sum, l) => sum + l.quantity, 0);
+                const persons = lines.reduce((sum, l) => sum + l.quantity * orderLineCountAs(detailsOrder, l), 0);
+                return (
+                  <>
+                    <p className="text-gray-400">
+                      <span className="text-white font-bold">Quantity:</span> {passes} pass{passes === 1 ? '' : 'es'}
+                      {persons !== passes && <span className="text-[#D4AF37] font-bold"> · {persons} guests</span>}
+                    </p>
+                    {lines.length > 0 && (
+                      <div className="pt-2 border-t border-white/10 space-y-1">
+                        {lines.map((l, idx) => {
+                          const per = orderLineCountAs(detailsOrder, l);
+                          return (
+                            <p key={`${detailsOrder.id || idx}-line-${idx}`} className="flex items-center justify-between gap-3">
+                              <span className="text-gray-300">
+                                {l.quantity} × {l.tierName}
+                                {per > 1 && <span className="text-[#D4AF37] font-bold"> (= {l.quantity * per} guests)</span>}
+                              </span>
+                              {l.price > 0 && (
+                                <span className="text-gray-400 shrink-0">₹{(l.price * l.quantity).toLocaleString('en-IN')}</span>
+                              )}
+                            </p>
+                          );
+                        })}
+                      </div>
+                    )}
+                    <p className="text-gray-400"><span className="text-white font-bold">Access:</span> {detailsOrder.tierName || 'General entry'}{detailsOrder.seatLabels?.length ? ` · ${detailsOrder.seatLabels.join(', ')}` : ''}</p>
+                    <p className="text-gray-400"><span className="text-white font-bold">Created:</span> {formatOrderDate(detailsOrder.createdAt)}</p>
+                  </>
+                );
+              })()}
             </div>
 
             <button
@@ -1757,8 +2070,7 @@ export const AdminBookings: React.FC = () => {
 
       {/* Refund Modal */}
       {refundOrderTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
-          <div className="bg-[#181818] border border-[#D4AF37]/30 rounded-3xl p-6 sm:p-8 max-w-md w-full space-y-5 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">            <div className="bg-[#181818] border border-[#D4AF37]/30 rounded-3xl p-6 sm:p-8 max-w-md w-full max-h-[calc(100dvh-2rem)] overflow-y-auto space-y-5 shadow-2xl">
             <div className="flex items-center justify-between border-b border-white/10 pb-4">
               <h3 className="font-heading font-bold text-lg text-white flex items-center gap-2">
                 <Undo2 className="w-5 h-5 text-amber-400" />
