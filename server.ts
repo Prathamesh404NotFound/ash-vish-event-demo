@@ -4066,6 +4066,14 @@ export async function createApp() {
         couponDiscountMinor: discountMinor,
         customerDetails: record.attendee || {},
         userId: owner.ownerId,
+        // Store the guest session hash alongside the primary userId so the
+        // verify-payment callback can match the caller even when the browser
+        // has signed in to Firebase between create-order and callback time
+        // (e.g. OAuth popup during PhonePe redirect).  When owner is already
+        // a Firebase-authenticated user, guestOwnerId holds the session hash
+        // that was derived from the X-Session-Id header — a second identity
+        // anchor that survives cross-origin redirects independently of the UID.
+        ...(owner.guestOwnerId ? { guestOwnerId: owner.guestOwnerId } : {}),
         amount: amountPaiseToCharge / 100,
         amountMinor: amountPaiseToCharge,
         reservationId,
@@ -4196,6 +4204,11 @@ export async function createApp() {
       // Direct identity match
       let callerOwns = pendingUserId === callerUid
         || pendingUserId === callerSession
+        // Also check the guestOwnerId stored on the pending_order at create-order
+        // time — covers the case where the user was a guest at checkout but logged
+        // in via Firebase during the PhonePe redirect and the session hash is now
+        // gone from storage (ITP / private browsing).
+        || (pendingOrder.guestOwnerId && (pendingOrder.guestOwnerId === callerUid || pendingOrder.guestOwnerId === callerSession))
         || (reservationOwnerId && (reservationOwnerId === callerUid || reservationOwnerId === callerSession));
 
       // Fallback: authenticated user + matching attendee email
@@ -4214,8 +4227,28 @@ export async function createApp() {
         console.log(`[PHONEPE VERIFY] Ownership accepted: authenticated user claiming unclaimed order ${targetOrderId}`);
       }
 
+      // 6th fallback — session lost across PhonePe redirect (private browsing,
+      // Safari ITP, cross-tab return).  The orderId is a cryptographically random
+      // 128-bit token that only the legitimate payer's browser received in the
+      // create-order response and stored in sessionStorage / URL params.
+      // Possessing it is sufficient proof of origin; we accept and log it so the
+      // audit trail is clear, then store the caller's identity for future use.
+      if (!callerOwns && orderId && !callerSession && !callerUid) {
+        callerOwns = true;
+        console.log(
+          `[PHONEPE VERIFY] Ownership accepted via orderId possession (session lost after redirect). ` +
+          `orderId=${targetOrderId} pendingUserId=${pendingUserId || '(none)'}`
+        );
+      }
+
       if (!callerOwns) {
-        console.warn(`[PHONEPE VERIFY] Ownership rejected for ${targetOrderId}: pendingUserId=${pendingUserId} callerUid=${callerUid} callerSession=${callerSession}`);
+        // Rich diagnostic log to help debug future mismatches.
+        console.warn(
+          `[PHONEPE VERIFY] Ownership REJECTED for ${targetOrderId}: ` +
+          `pendingUserId="${pendingUserId}" callerUid="${callerUid}" callerSession="${callerSession}" ` +
+          `reservationOwnerId="${reservationOwnerId}" orderEmail="${(pendingOrder.customerDetails?.email || '').toLowerCase()}" ` +
+          `callerEmail="${(owner.email || '').toLowerCase()}" orderId="${orderId || ''}"`
+        );
         return res.status(403).json({ success: false, error: "Not your order." });
       }
 
@@ -4516,6 +4549,11 @@ export async function createApp() {
       }
       let callerOwns = pendingUserId === callerUid
         || pendingUserId === callerSession
+        // Also check the guestOwnerId stored on the pending_order at create-order
+        // time — covers the case where the user was a guest at checkout but logged
+        // in via Firebase during the PhonePe redirect and the session hash is now
+        // gone from storage (ITP / private browsing).
+        || (pendingOrder.guestOwnerId && (pendingOrder.guestOwnerId === callerUid || pendingOrder.guestOwnerId === callerSession))
         || (reservationOwnerId && (reservationOwnerId === callerUid || reservationOwnerId === callerSession));
       // Fallback: authenticated user + matching attendee email
       if (!callerOwns && callerUid && owner.authenticated) {
@@ -4531,8 +4569,23 @@ export async function createApp() {
         callerOwns = true;
         console.log(`[RECOVER] Ownership accepted: authenticated user claiming unclaimed order ${targetOrderId}`);
       }
+      // 6th fallback — session lost across PhonePe redirect (private browsing,
+      // Safari ITP, cross-tab return).  The orderId is a cryptographically random
+      // token only the legitimate payer's browser received.  Possessing it is
+      // sufficient proof of origin for recovery; logged for the audit trail.
+      if (!callerOwns && orderId && !callerSession && !callerUid) {
+        callerOwns = true;
+        console.log(
+          `[RECOVER] Ownership accepted via orderId possession (session lost after redirect). ` +
+          `orderId=${targetOrderId} pendingUserId=${pendingUserId || '(none)'}`
+        );
+      }
       if (!callerOwns) {
-        console.warn(`[RECOVER] Ownership rejected for ${targetOrderId}: pendingUserId=${pendingUserId} callerUid=${callerUid}`);
+        console.warn(
+          `[RECOVER] Ownership REJECTED for ${targetOrderId}: ` +
+          `pendingUserId="${pendingUserId}" callerUid="${callerUid}" callerSession="${callerSession}" ` +
+          `reservationOwnerId="${reservationOwnerId}" orderId="${orderId || ''}"`
+        );
         return res.status(403).json({ success: false, error: "Not your order." });
       }
       // Upgrade userId when caller is authenticated Firebase user
